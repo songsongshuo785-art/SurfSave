@@ -1,0 +1,105 @@
+package com.myAllVideoBrowser.ui.main.history
+
+import androidx.databinding.ObservableField
+import androidx.lifecycle.viewModelScope
+import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
+import com.myAllVideoBrowser.data.repository.HistoryRepository
+import com.myAllVideoBrowser.ui.main.base.BaseViewModel
+import com.myAllVideoBrowser.util.scheduler.BaseSchedulers
+import io.reactivex.rxjava3.disposables.CompositeDisposable
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
+import javax.inject.Inject
+
+class HistoryViewModel @Inject constructor(
+    private val historyRepository: HistoryRepository,
+) :
+    BaseViewModel() {
+
+    var historyItems = ObservableField<List<HistoryItem>>(emptyList())
+
+    var searchHistoryItems = ObservableField<List<HistoryItem>>(emptyList())
+
+    val searchQuery = ObservableField("")
+
+    val isLoadingHistory = ObservableField(true)
+
+    val executorSingleHistory = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+
+    private val historyExecutor = Executors.newFixedThreadPool(1).asCoroutineDispatcher()
+
+    private val additionalExecutor = Executors.newFixedThreadPool(1).asCoroutineDispatcher()
+
+    override fun start() {
+        fetchAllHistory()
+    }
+
+    override fun stop() {
+    }
+
+    private fun fetchAllHistory() {
+        runOnMain {
+            isLoadingHistory.set(true)
+        }
+
+        viewModelScope.launch(additionalExecutor) {
+            val history = historyRepository.getAllHistory().blockingFirst()
+            runOnMain {
+                historyItems.set(history)
+                isLoadingHistory.set(false)
+            }
+        }
+    }
+
+    fun saveHistory(historyItem: HistoryItem) {
+        viewModelScope.launch(historyExecutor) {
+            try {
+                historyRepository.saveHistory(historyItem)
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun deleteHistory(historyItem: HistoryItem) {
+        viewModelScope.launch(historyExecutor) {
+            try {
+                val newItems = historyItems.get()?.filter { it.id != historyItem.id }
+                historyRepository.deleteHistory(historyItem)
+                runOnMain {
+                    historyItems.set(newItems)
+                }
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun queryHistory(query: String) {
+        runOnMain {
+            if (query.isEmpty()) {
+                searchHistoryItems.set(emptyList())
+            }
+            if (query.isNotEmpty()) {
+                val filtered = historyItems.get()
+                    ?.filter { it.url.contains(query) || it.title?.contains(query) ?: false }
+                searchHistoryItems.set(filtered ?: emptyList())
+            }
+        }
+    }
+
+    fun clearHistory() {
+        runOnMain {
+            isLoadingHistory.set(true)
+        }
+        viewModelScope.launch(historyExecutor) {
+            historyRepository.deleteAllHistory()
+            runOnMain {
+                historyItems.set(emptyList())
+                searchHistoryItems.set(emptyList())
+                isLoadingHistory.set(false)
+            }
+        }
+    }
+}

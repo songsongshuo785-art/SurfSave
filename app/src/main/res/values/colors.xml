@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary_20">#140050CB</color>
+    <color name="colorPrimary">#0050CB</color>
+    <color name="colorPrimaryDark">#003FA4</color>
+    <color name="colorAccent">#4657D6</color>
+    <color name="colorAccentDark">#2346C8</color>
+    <color name="sxSurface">#F7F9FE</color>
+    <color name="sxSurfaceRaised">#FFFFFF</color>
+    <color name="sxSurfaceSoft">#EAF1FF</color>
+    <color name="sxSurfaceSelected">#DCE9FF</color>
+    <color name="sxOutline">#C7D2E2</color>
+    <color name="sxTextPrimary">#0B1C30</color>
+    <color name="sxTextSecondary">#55657A</color>
+
+    <color name="colorGreen">#D91E9C55</color>
+
+
+    <color name="color_gray">#55657A</color>
+    <color name="color_gray_2">#94A3B8</color>
+
+    <color name="black_15">#26000000</color>
+    <color name="black_55">#8C000000</color>
+    <color name="black_85">#D9000000</color>
+    <color name="black">#FF000000</color>
+
+    <color name="white">#FFFFFF</color>
+    <color name="white_30">#4DFFFFFF</color>
+</resources>

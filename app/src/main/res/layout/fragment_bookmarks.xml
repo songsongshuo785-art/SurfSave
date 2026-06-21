@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:context=".ui.main.bookmarks.BookmarksFragment">
+
+    <data>
+
+        <variable
+            name="mainVModel"
+            type="com.myAllVideoBrowser.ui.main.home.MainViewModel" />
+    </data>
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/bookmarks_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/sxSurface">
+
+        <LinearLayout
+            android:id="@+id/bookmarks_header"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:background="@drawable/sx_toolbar_background"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/padding_normal"
+            android:paddingEnd="@dimen/padding_normal"
+            android:paddingBottom="@dimen/padding_normal"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <com.google.android.material.appbar.MaterialToolbar
+                android:id="@+id/bookmarks_toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:contentInsetStart="0dp"
+                android:contentInsetEnd="0dp"
+                app:contentInsetStart="0dp"
+                app:contentInsetEnd="0dp"
+                app:title="@string/bookmarks_list"
+                app:titleTextColor="@color/sxTextPrimary">
+
+                <ImageButton
+                    android:id="@+id/add_bookmark"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="end|center_vertical"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/add_bookmark"
+                    android:padding="12dp"
+                    android:src="@drawable/bookmark_add_24px"
+                    app:tint="@color/colorPrimary" />
+
+                <ImageButton
+                    android:id="@+id/refresh_bookmarks"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="end|center_vertical"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/refresh"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_refresh_24dp"
+                    app:tint="@color/sxTextPrimary" />
+            </com.google.android.material.appbar.MaterialToolbar>
+
+            <com.google.android.material.textview.MaterialTextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/bookmarks_subtitle"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small" />
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/bookmarks_list"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:clipToPadding="false"
+            android:paddingTop="@dimen/padding_normal"
+            android:paddingBottom="@dimen/padding_normal"
+            app:items="@{mainVModel.bookmarksList}"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/bookmarks_header" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</layout>

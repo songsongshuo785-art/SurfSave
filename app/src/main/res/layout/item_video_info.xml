@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <data>
+
+        <variable
+            name="videoInfo"
+            type="com.myAllVideoBrowser.data.local.room.entity.VideoInfo" />
+
+        <variable
+            name="dialogListener"
+            type="com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener" />
+
+        <variable
+            name="viewModel"
+            type="com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel" />
+
+    </data>
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="@dimen/padding_normal"
+        app:cardBackgroundColor="@color/sxSurfaceRaised"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/sxOutline"
+        app:strokeWidth="1dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="@dimen/padding_normal">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:baselineAligned="false"
+                android:orientation="horizontal">
+
+                    <com.google.android.material.card.MaterialCardView
+                    android:layout_width="104dp"
+                    android:layout_height="76dp"
+                    android:layout_marginEnd="@dimen/padding_normal"
+                    app:cardBackgroundColor="@color/sxSurfaceSoft"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="@color/sxOutline"
+                    app:strokeWidth="1dp">
+
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/video_thumbnail"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/sx_thumbnail_background"
+                        android:contentDescription="@string/dialog_preview_video"
+                        android:scaleType="centerCrop"
+                        app:imageUrl="@{videoInfo.thumbnail}" />
+                </com.google.android.material.card.MaterialCardView>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:minHeight="76dp"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/video_title_edit"
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/sx_search_background"
+                            android:hint="@string/video_title_edit"
+                            android:imeOptions="actionDone"
+                            android:inputType="text"
+                            android:maxLines="1"
+                            android:minHeight="44dp"
+                            android:paddingStart="@dimen/padding_normal"
+                            android:paddingEnd="@dimen/padding_small"
+                            android:singleLine="true"
+                            android:textColor="@color/sxTextPrimary"
+                            android:textColorHint="@color/sxTextSecondary"
+                            android:textSize="@dimen/text_medium" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/video_title_rename_button"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:layout_marginStart="@dimen/padding_tiny"
+                            android:contentDescription="@string/video_menu_rename"
+                            android:insetLeft="0dp"
+                            android:insetTop="0dp"
+                            android:insetRight="0dp"
+                            android:insetBottom="0dp"
+                            android:minWidth="0dp"
+                            android:padding="0dp"
+                            android:text=""
+                            app:icon="@drawable/edit_24px"
+                            app:iconGravity="textStart"
+                            app:iconPadding="0dp"
+                            app:iconTint="@color/colorPrimary" />
+                    </LinearLayout>
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:id="@+id/typeTextView"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/padding_small"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/sxTextPrimary"
+                        android:textSize="@dimen/text_small"
+                        android:textStyle="bold"
+                        tools:text="Regular MP4 Download" />
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:id="@+id/sizeTextView"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/padding_tiny"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/sxTextSecondary"
+                        android:textSize="@dimen/text_small"
+                        tools:text="Download Size: 26.4 MB" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/trustTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_normal"
+                android:background="@drawable/sx_section_background"
+                android:lineSpacingExtra="2dp"
+                android:padding="@dimen/padding_small"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                android:maxLines="3"
+                tools:text="Source: example.com&#10;Cover verified" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/urlTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="middle"
+                android:maxLines="1"
+                android:text="@{viewModel.selectedFormatUrl}"
+                android:textSize="@dimen/text_tiny"
+                android:visibility="gone" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tv_download"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="@dimen/padding_normal"
+                android:onClick="@{() -> dialogListener.onDownloadVideo(videoInfo, viewModel.selectedFormats.get(videoInfo.id), viewModel.formatsTitles.get(videoInfo.id))}"
+                android:text="@string/dialog_download_video"
+                android:textColor="@color/white"
+                android:textSize="@dimen/text_medium"
+                app:cornerRadius="8dp"
+                app:icon="@drawable/ic_download_24dp"
+                app:iconTint="@color/white" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_normal"
+                android:text="@string/download_candidate_section"
+                android:textColor="@color/sxTextPrimary"
+                android:textSize="@dimen/text_small"
+                android:textStyle="bold" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/candidatesList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipToPadding="false"
+                android:paddingTop="@dimen/padding_small"
+                android:paddingBottom="@dimen/padding_small" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tv_preview"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="@dimen/padding_small"
+                    android:layout_weight="1"
+                    android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, viewModel.selectedFormats.get(videoInfo.id), false)}"
+                    android:text="@string/dialog_preview_video"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textSize="@dimen/text_small"
+                    app:cornerRadius="8dp"
+                    app:icon="@drawable/play_circle_24px"
+                    app:iconTint="@color/sxTextPrimary"
+                    app:strokeColor="@color/sxOutline" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tv_share"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:onClick="@{() -> dialogListener.onFormatUrlShare(videoInfo, viewModel.selectedFormats.get(videoInfo.id))}"
+                    android:text="@string/share_link"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textSize="@dimen/text_small"
+                    app:cornerRadius="8dp"
+                    app:icon="@drawable/share_24px"
+                    app:iconTint="@color/sxTextPrimary"
+                    app:strokeColor="@color/sxOutline" />
+            </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+</layout>

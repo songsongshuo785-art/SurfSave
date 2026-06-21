@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <data>
+
+        <variable
+            name="webTab"
+            type="com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTab" />
+
+        <variable
+            name="tabListener"
+            type="com.myAllVideoBrowser.ui.component.adapter.WebTabsListener" />
+
+    </data>
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/item_web_tab_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="@dimen/padding_tiny"
+        android:clickable="true"
+        android:focusable="true"
+        android:minHeight="248dp"
+        android:onClick="@{(v) -> tabListener.onSelectTabClicked(webTab)}"
+        app:cardBackgroundColor="@color/sxSurfaceRaised"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/sxOutline"
+        app:strokeWidth="1dp">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="@dimen/padding_small">
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/tab_meta_icon"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/sx_thumbnail_background"
+                android:contentDescription="@string/app_icon"
+                android:padding="5dp"
+                android:scaleType="centerInside"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:shapeAppearanceOverlay="@style/customImageViewRounded"
+                tools:src="@drawable/public_24px" />
+
+            <ImageButton
+                android:id="@+id/closeTab"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/remove"
+                android:onClick="@{(v) -> tabListener.onCloseTabClicked(webTab)}"
+                android:padding="9dp"
+                android:src="@drawable/tab_close_24px"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:tint="@color/sxTextSecondary" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tab_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/padding_small"
+                android:layout_marginEnd="@dimen/padding_tiny"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@{webTab.title}"
+                android:textColor="@color/sxTextPrimary"
+                android:textSize="@dimen/text_medium"
+                android:textStyle="bold"
+                app:layout_constraintEnd_toStartOf="@id/closeTab"
+                app:layout_constraintStart_toEndOf="@id/tab_meta_icon"
+                app:layout_constraintTop_toTopOf="@id/tab_meta_icon"
+                tools:text="Tab title" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tab_url"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/padding_small"
+                android:layout_marginEnd="@dimen/padding_tiny"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_tiny"
+                app:layout_constraintBottom_toBottomOf="@id/tab_meta_icon"
+                app:layout_constraintEnd_toStartOf="@id/closeTab"
+                app:layout_constraintStart_toEndOf="@id/tab_meta_icon"
+                app:layout_constraintTop_toBottomOf="@id/tab_title"
+                tools:text="example.com/path" />
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/faviconTab"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_marginTop="@dimen/padding_small"
+                android:background="@drawable/sx_thumbnail_background"
+                android:scaleType="fitCenter"
+                app:layout_constraintDimensionRatio="H,9:16"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/tab_meta_icon"
+                app:shapeAppearanceOverlay="@style/customImageViewRounded"
+                tools:src="@drawable/ic_launcher_background" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tab_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="24dp"
+                android:layout_marginStart="@dimen/padding_small"
+                android:layout_marginTop="@dimen/padding_small"
+                android:background="@drawable/sx_primary_badge_background"
+                android:gravity="center"
+                android:minWidth="24dp"
+                android:paddingStart="@dimen/padding_small"
+                android:paddingEnd="@dimen/padding_small"
+                android:text="@string/tab_current"
+                android:textColor="@color/white"
+                android:textSize="@dimen/text_tiny"
+                android:textStyle="bold"
+                android:visibility="gone"
+                app:layout_constraintStart_toStartOf="@id/faviconTab"
+                app:layout_constraintTop_toTopOf="@id/faviconTab" />
+        </androidx.constraintlayout.widget.ConstraintLayout>
+    </com.google.android.material.card.MaterialCardView>
+</layout>

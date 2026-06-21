@@ -1,0 +1,42 @@
+image: eclipse-temurin:21-jdk-jammy
+
+variables:
+  ANDROID_COMPILE_SDK: "36"
+  ANDROID_BUILD_TOOLS: "36.0.0"
+  ANDROID_SDK_TOOLS: "11076708"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle-user-home"
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - .gradle-user-home/
+    - .gradle/
+
+before_script:
+  - apt-get --quiet update --yes
+  - apt-get --quiet install --yes wget unzip
+  - export ANDROID_HOME="$CI_PROJECT_DIR/android-sdk-root"
+  - install -d "$ANDROID_HOME"
+  - wget --no-verbose --output-document="$ANDROID_HOME/cmdline-tools.zip" "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_SDK_TOOLS}_latest.zip"
+  - unzip -q -d "$ANDROID_HOME/cmdline-tools" "$ANDROID_HOME/cmdline-tools.zip"
+  - mv -T "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/tools"
+  - export PATH="$PATH:$ANDROID_HOME/cmdline-tools/tools/bin"
+  - sdkmanager --version
+  - yes | sdkmanager --licenses > /dev/null || true
+  - sdkmanager "platforms;android-${ANDROID_COMPILE_SDK}" "platform-tools" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;27.3.13750724"
+  - chmod +x ./gradlew
+
+stages:
+  - verify
+
+diagnosticVerification:
+  interruptible: true
+  stage: verify
+  script:
+    - ./gradlew --console=plain -PSKIP_GO_BUILD=true testDiagnosticUnitTest assembleDiagnostic lintDiagnostic
+  artifacts:
+    when: always
+    paths:
+      - app/build/outputs/apk/diagnostic/
+      - app/build/reports/
+      - app/build/test-results/

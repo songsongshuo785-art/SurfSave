@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <data>
+
+        <variable
+            name="viewModel"
+            type="com.myAllVideoBrowser.ui.main.home.browser.BrowserViewModel" />
+
+    </data>
+
+    <androidx.drawerlayout.widget.DrawerLayout
+        android:id="@+id/drawer_layout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <com.myAllVideoBrowser.ui.main.home.browser.CustomViewPager2
+            android:id="@+id/view_pager"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <LinearLayout
+            android:id="@+id/drawer_layout_content"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:background="@color/sxSurface"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/sx_toolbar_background"
+                android:orientation="vertical"
+                android:paddingStart="@dimen/padding_normal"
+                android:paddingEnd="@dimen/padding_normal"
+                android:paddingBottom="@dimen/padding_normal">
+
+                <com.google.android.material.appbar.MaterialToolbar
+                    android:id="@+id/tabs_toolbar"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:background="@android:color/transparent"
+                    android:contentInsetStart="0dp"
+                    android:contentInsetEnd="0dp"
+                    app:contentInsetStart="0dp"
+                    app:contentInsetEnd="0dp"
+                    app:navigationIcon="@drawable/tab_group_24px"
+                    app:navigationIconTint="@color/colorPrimary"
+                    app:titleCentered="true"
+                    app:title="@string/tabs"
+                    app:titleTextColor="@color/sxTextPrimary">
+
+                    <ImageButton
+                        android:id="@+id/new_tab_button"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:layout_gravity="end|center_vertical"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/new_tab"
+                        android:padding="10dp"
+                        android:src="@drawable/add_new_tab_icon24"
+                        app:tint="@color/colorPrimary" />
+                </com.google.android.material.appbar.MaterialToolbar>
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tabs_subtitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/padding_tiny"
+                    android:text="@string/tabs_subtitle"
+                    android:textColor="@color/sxTextSecondary"
+                    android:textSize="@dimen/text_small" />
+
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/tabs_list"
+                android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingStart="@dimen/padding_normal"
+            android:paddingTop="@dimen/padding_normal"
+            android:paddingEnd="@dimen/padding_normal"
+            android:paddingBottom="@dimen/padding_normal"
+            app:items="@{viewModel.tabs}" />
+
+        </LinearLayout>
+
+    </androidx.drawerlayout.widget.DrawerLayout>
+
+</layout>

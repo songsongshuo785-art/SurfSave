@@ -1,0 +1,58 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/item_details"
+        android:icon="@drawable/downloading_24px"
+        android:title="@string/progress_menu_details"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/item_cancel"
+        android:icon="@drawable/cancel_24px"
+        android:title="@string/progress_menu_cancel"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/item_pause"
+        android:icon="@drawable/pause_circle_24px"
+        android:title="@string/progress_menu_pause"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/item_resume"
+        android:icon="@drawable/resume_24px"
+        android:title="@string/progress_menu_resume"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/item_stop_save"
+        android:icon="@drawable/save_24px"
+        android:title="@string/stop_and_save"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/item_move_top"
+        android:icon="@drawable/arrow_back_24px"
+        android:title="@string/progress_menu_move_top"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/item_move_up"
+        android:icon="@drawable/arrow_back24px"
+        android:title="@string/progress_menu_move_up"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/item_move_down"
+        android:icon="@drawable/arrow_forward24px"
+        android:title="@string/progress_menu_move_down"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/item_later"
+        android:icon="@drawable/history_menu_icon_24dp"
+        android:title="@string/progress_menu_download_later"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+</menu>

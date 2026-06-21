@@ -1,0 +1,289 @@
+package com.myAllVideoBrowser.ui.main.video
+
+import android.content.Intent
+import android.graphics.Color
+import android.os.Bundle
+import android.os.Environment
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.Toast
+import androidx.annotation.OptIn
+import androidx.appcompat.widget.PopupMenu
+import androidx.core.content.FileProvider
+import androidx.core.net.toFile
+import androidx.core.net.toUri
+import androidx.core.view.get
+import androidx.lifecycle.ViewModelProvider
+import androidx.media3.common.util.UnstableApi
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.color.MaterialColors
+import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.data.local.model.LocalVideo
+import com.myAllVideoBrowser.databinding.FragmentVideoBinding
+import com.myAllVideoBrowser.ui.component.adapter.VideoAdapter
+import com.myAllVideoBrowser.ui.component.adapter.VideoListener
+import com.myAllVideoBrowser.ui.component.dialog.showRenameVideoDialog
+import com.myAllVideoBrowser.ui.main.base.BaseFragment
+import com.myAllVideoBrowser.ui.main.home.MainActivity
+import com.myAllVideoBrowser.ui.main.home.browser.HOME_TAB_INDEX
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabFactory
+import com.myAllVideoBrowser.ui.main.player.VideoPlayerActivity
+import com.myAllVideoBrowser.ui.main.player.VideoPlayerFragment
+import com.myAllVideoBrowser.ui.main.progress.WrapContentLinearLayoutManager
+import com.myAllVideoBrowser.ui.main.video.VideoViewModel.Companion.FILE_EXIST_ERROR_CODE
+import com.myAllVideoBrowser.util.AppUtil
+import com.myAllVideoBrowser.util.FileUtil
+import com.myAllVideoBrowser.util.IntentUtil
+import io.reactivex.rxjava3.disposables.Disposable
+import io.reactivex.rxjava3.schedulers.Schedulers
+import java.io.File
+import javax.inject.Inject
+
+//@OpenForTesting
+class VideoFragment : BaseFragment() {
+
+    companion object {
+        fun newInstance() = VideoFragment()
+    }
+
+    private var disposable: Disposable? = null
+
+    @Inject
+    lateinit var viewModelFactory: ViewModelProvider.Factory
+
+    @Inject
+    lateinit var intentUtil: IntentUtil
+
+    @Inject
+    lateinit var fileUtil: FileUtil
+
+    @Inject
+    lateinit var appUtil: AppUtil
+
+    @Inject
+    lateinit var mainActivity: MainActivity
+
+    private lateinit var dataBinding: FragmentVideoBinding
+
+    private lateinit var videoViewModel: VideoViewModel
+
+    private lateinit var videoAdapter: VideoAdapter
+
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
+    ): View {
+        videoViewModel = ViewModelProvider(this, viewModelFactory)[VideoViewModel::class.java]
+        videoAdapter = VideoAdapter(emptyList(), videoListener)
+
+        val isDark = mainActivity.settingsViewModel.isDarkMode.get()
+        val color = if (isDark) {
+            MaterialColors.getColor(requireContext(), R.attr.editTextColor, Color.YELLOW)
+        } else {
+            null
+        }
+
+        dataBinding = FragmentVideoBinding.inflate(inflater, container, false).apply {
+            val managerL =
+                WrapContentLinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
+
+            this.viewModel = videoViewModel
+            this.mainViewModel = mainActivity.mainViewModel
+            this.rvVideo.layoutManager = managerL
+            this.rvVideo.adapter = videoAdapter
+            if (color != null) {
+                this.ivEmptyIcon.setBackgroundColor(color)
+            }
+        }
+
+        videoViewModel.shareEvent.observe(viewLifecycleOwner) { uri ->
+            intentUtil.shareVideo(requireContext(), uri)
+        }
+
+        return dataBinding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        videoViewModel.start()
+        handleUIEvents()
+        handleIfStartedFromNotification()
+    }
+
+    private fun handleUIEvents() {
+        videoViewModel.apply {
+            renameErrorEvent.observe(viewLifecycleOwner) { errorCode ->
+                val errorMessage =
+                    if (errorCode == FILE_EXIST_ERROR_CODE) R.string.video_rename_exist else R.string.video_rename_invalid
+                activity?.runOnUiThread {
+                    Toast.makeText(context, context?.getString(errorMessage), Toast.LENGTH_SHORT)
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun handleIfStartedFromNotification() {
+        mainActivity.mainViewModel.openDownloadedVideoEvent.observe(viewLifecycleOwner) { downloadFilename ->
+            disposable?.dispose()
+            disposable = null
+            disposable =
+                videoViewModel.findVideoByName(downloadFilename).subscribeOn(Schedulers.io())
+                    .observeOn(Schedulers.single()).subscribe { video ->
+                        startVideo(video)
+                    }
+        }
+    }
+
+    private val videoListener = object : VideoListener {
+        override fun onItemClicked(localVideo: LocalVideo) {
+            startVideo(localVideo)
+        }
+
+        override fun onMenuClicked(view: View, localVideo: LocalVideo) {
+            showPopupMenu(view, localVideo)
+        }
+
+        override fun onSourceClicked(localVideo: LocalVideo) {
+            val sourceUrl = videoViewModel.getSourceUrl(localVideo)
+            if (sourceUrl.isBlank()) {
+                Toast.makeText(
+                    requireContext(),
+                    getString(R.string.video_source_unavailable),
+                    Toast.LENGTH_SHORT
+                ).show()
+                return
+            }
+
+            mainActivity.mainViewModel.currentItem.set(HOME_TAB_INDEX)
+            val provider = mainActivity.mainViewModel.browserServicesProvider
+            if (provider != null) {
+                provider.getOpenTabEvent().value = WebTabFactory.createWebTabFromInput(
+                    sourceUrl,
+                    searchUrlPattern = mainActivity.sharedPrefHelper.getSearchUrlPattern()
+                )
+            } else {
+                mainActivity.mainViewModel.openedUrl.set(sourceUrl)
+            }
+        }
+    }
+
+    private fun showPopupMenu(view: View, video: LocalVideo) {
+        val myView = fixPopup(dataBinding.anchor, view)
+
+        val popupMenu = PopupMenu(myView.context, myView)
+        popupMenu.menuInflater.inflate(R.menu.menu_video, popupMenu.menu)
+        popupMenu.setForceShowIcon(true)
+        popupMenu.menu[5].isVisible = isVideoInHiddenFolderFolder(video)
+        popupMenu.show()
+
+        popupMenu.setOnMenuItemClickListener { arg0 ->
+            when (arg0.itemId) {
+                R.id.item_rename -> {
+                    showRenameVideoDialog(
+                        view.context, appUtil, video.name
+                    ) { v ->
+                        with(v as EditText) {
+                            val newName = v.text.toString().trim()
+                            videoViewModel.renameVideo(
+                                v.context, video.uri, File(newName).nameWithoutExtension + ".mp4"
+                            )
+                        }
+                    }
+                    true
+                }
+
+                R.id.item_open_with -> {
+                    startVideoWith(video)
+                    true
+                }
+
+                R.id.item_delete -> {
+                    context?.let { videoViewModel.deleteVideo(it, video) }
+                    true
+                }
+
+                R.id.item_share -> {
+                    videoViewModel.shareEvent.value = video.uri
+                    true
+                }
+
+                R.id.item_open_in_folder -> {
+//                    file.parent?.let { intentUtil.openVideoFolder(view.context, it) }
+                    true
+                }
+
+                R.id.item_move_to_downloads -> {
+                    try {
+                        val targetDir = Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_DOWNLOADS
+                        )
+                        val target = File(targetDir, video.name)
+                        val isSuccess =
+                            fileUtil.moveMedia(requireContext(), video.uri, target.toUri())
+                        if (isSuccess) {
+                            Toast.makeText(
+                                requireContext(),
+                                getString(R.string.media_move_success),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return@setOnMenuItemClickListener true
+                        }
+                    } catch (e: Throwable) {
+                        e.printStackTrace()
+                    }
+                    Toast.makeText(
+                        requireContext(),
+                        getString(R.string.media_move_error),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    true
+                }
+
+                else -> false
+            }
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun startVideo(localVideo: LocalVideo) {
+        startActivity(
+            Intent(
+                requireContext(), VideoPlayerActivity::class.java
+            ).apply {
+                putExtra(VideoPlayerFragment.VIDEO_NAME, localVideo.name)
+                putExtra(
+                    VideoPlayerFragment.VIDEO_URL, localVideo.uri.toString()
+                )
+            })
+    }
+
+    private fun isVideoInHiddenFolderFolder(video: LocalVideo): Boolean {
+        val downloadsDir =
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val videoParentDir = video.uri.toFile().parentFile
+        return videoParentDir != null && videoParentDir.absolutePath != downloadsDir.absolutePath
+    }
+
+
+    private fun startVideoWith(localVideo: LocalVideo) {
+        val intent = Intent(Intent.ACTION_VIEW)
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context?.let {
+            val fileSupported = fileUtil.isFileApiSupportedByUri(it, localVideo.uri)
+            if (fileSupported) {
+                val videoUri = FileProvider.getUriForFile(
+                    requireContext(),
+                    requireContext().applicationContext.packageName + ".provider",
+                    localVideo.uri.toFile()
+                )
+                intent.setDataAndType(videoUri, "video/mp4")
+            } else {
+                intent.setDataAndType(localVideo.uri, "video/mp4")
+            }
+        }
+
+        context?.startActivity(intent)
+    }
+}

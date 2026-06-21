@@ -1,0 +1,272 @@
+package com.myAllVideoBrowser.ui.component.adapter
+
+import android.annotation.SuppressLint
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.LayoutInflater
+import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import androidx.databinding.DataBindingUtil
+import androidx.databinding.Observable
+import androidx.databinding.Observable.OnPropertyChangedCallback
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
+import com.myAllVideoBrowser.databinding.ItemVideoInfoBinding
+import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel
+import com.myAllVideoBrowser.util.AppUtil
+import com.myAllVideoBrowser.util.VideoFormatUi
+import java.net.URI
+
+class VideoInfoAdapter(
+    private var videoInfoList: List<VideoInfo>,
+    private val model: VideoDetectionTabViewModel,
+    private val downloadVideoListener: DownloadTabListener,
+    private val appUtil: AppUtil
+) :
+    RecyclerView.Adapter<VideoInfoAdapter.VideoInfoViewHolder>() {
+
+    class VideoInfoViewHolder(
+        val binding: ItemVideoInfoBinding,
+        val model: VideoDetectionTabViewModel,
+        private val candidateFormatListener: DownloadTabListener,
+        private val appUtil: AppUtil
+    ) :
+        RecyclerView.ViewHolder(binding.root) {
+        private val selectedFormatsCallback = object : OnPropertyChangedCallback() {
+            override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+                val currentVideoInfo = binding.videoInfo ?: return
+
+                val curSelected = model.selectedFormats.get()?.get(currentVideoInfo.id)
+                val foundFormat = VideoFormatUi.findFormat(currentVideoInfo, curSelected)
+
+                if (foundFormat != null) {
+                    model.selectedFormatUrl.set(foundFormat.url)
+                }
+            }
+        }
+
+        private val textWatcher = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val title = s.toString()
+                binding.videoInfo?.id?.let { videoId ->
+                    val titlesF = model.formatsTitles.get()?.toMutableMap() ?: mutableMapOf()
+                    titlesF[videoId] = title
+                    model.formatsTitles.set(titlesF)
+                }
+            }
+
+            override fun afterTextChanged(s: Editable?) {}
+        }
+        private var isCallbackAdded = false
+
+        @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
+        fun bind(info: VideoInfo) {
+            with(binding) {
+                videoTitleEdit.removeTextChangedListener(textWatcher)
+
+                val titles = model.formatsTitles.get()?.toMutableMap() ?: mutableMapOf()
+                titles[info.id] = titles[info.id] ?: info.title
+                model.formatsTitles.set(titles)
+
+                val frmts = model.selectedFormats.get()?.toMutableMap() ?: mutableMapOf()
+                val selected = frmts[info.id]
+                val defaultFormat = VideoFormatUi.defaultSelectionKey(info)
+                if (selected == null) {
+                    frmts[info.id] = defaultFormat
+                }
+                model.selectedFormats.set(frmts)
+
+                if (info.isRegularDownload) {
+                    model.selectedFormatUrl.set(info.firstUrlToString)
+                } else {
+                    model.selectedFormatUrl.set(
+                        VideoFormatUi.findFormat(info, frmts[info.id])?.url
+                            ?: info.formats.formats.firstOrNull()?.url
+                    )
+                }
+
+                videoInfo = info
+                val typeText = if (info.isM3u8 || info.isMpd) {
+                    val isMpd = info.formats.formats.firstOrNull()?.isMpd == true
+                    if (isMpd) "MPD List" else "M3U8 List"
+                } else if (info.isMaster) {
+                    val isMpd = info.formats.formats.firstOrNull()?.isMpd == true
+                    if (isMpd) "MPD Master List" else "M3U8 Mater List"
+                } else if (info.isRegularDownload) {
+                    "Regular MP4 Download"
+                } else {
+                    ""
+                }
+
+                val bestFormat = VideoFormatUi.sortFormats(info.formats.formats).firstOrNull()
+                sizeTextView.text = bestFormat?.let {
+                    VideoFormatUi.details(root.context, it, 0)
+                }.orEmpty()
+                typeTextView.text = typeText
+                trustTextView.text = buildTrustText(info)
+                videoTitleRenameButton.setOnClickListener {
+                    videoTitleEdit.requestFocus()
+                    this.videoTitleEdit.selectAll()
+                    appUtil.showSoftKeyboard(videoTitleEdit)
+                }
+
+                this.videoTitleEdit.setOnEditorActionListener { _, actionId, _ ->
+                    if (actionId == EditorInfo.IME_ACTION_DONE) {
+                        this.videoTitleEdit.clearFocus()
+                        appUtil.hideSoftKeyboard(videoTitleEdit)
+                        false
+                    } else false
+                }
+
+                videoTitleEdit.setText(titles[info.id])
+
+                viewModel = model
+
+                val layoutManager =
+                    LinearLayoutManager(
+                        binding.root.context,
+                        RecyclerView.HORIZONTAL,
+                        false
+                    )
+                candidatesList.layoutManager = layoutManager
+                candidatesList.adapter = CandidatesListRecyclerViewAdapter(
+                    info,
+                    model.selectedFormats,
+                    candidateFormatListener
+                )
+
+                dialogListener = object : DownloadTabListener {
+                    override fun onCancel() {
+                        candidateFormatListener.onCancel()
+                    }
+
+                    override fun onPreviewVideo(
+                        videoInfo: VideoInfo,
+                        format: String,
+                        isForce: Boolean
+                    ) {
+                        candidateFormatListener.onPreviewVideo(videoInfo, format, isForce)
+                    }
+
+                    override fun onFormatUrlShare(videoInfo: VideoInfo, format: String): Boolean {
+                        return candidateFormatListener.onFormatUrlShare(videoInfo, format)
+                    }
+
+                    override fun onDownloadVideo(
+                        videoInfo: VideoInfo,
+                        format: String,
+                        videoTitle: String
+                    ) {
+                        val text = model.formatsTitles.get()?.get(videoInfo.id)
+                        if (text != null) {
+                            candidateFormatListener.onDownloadVideo(videoInfo, format, text)
+                        }
+                    }
+
+                    override fun onSelectFormat(videoInfo: VideoInfo, format: String) {
+                        candidateFormatListener.onSelectFormat(videoInfo, format)
+                    }
+                }
+
+                videoTitleEdit.addTextChangedListener(textWatcher)
+
+                executePendingBindings()
+            }
+        }
+
+        private fun buildTrustText(info: VideoInfo): String {
+            val context = binding.root.context
+            val lines = mutableListOf<String>()
+            val source = sourceHost(info)
+            if (source.isNotBlank()) {
+                lines += context.getString(R.string.candidate_source, source)
+            }
+
+            lines += if (info.thumbnail.isNotBlank()) {
+                context.getString(R.string.candidate_cover_verified)
+            } else {
+                context.getString(R.string.candidate_preview_recommended)
+            }
+
+            val firstFormat = info.formats.formats.firstOrNull()
+            val size = firstFormat?.let {
+                if (it.fileSize > 0) it.fileSize else it.fileSizeApproximate
+            } ?: 0L
+            val isUnknownOrTinySize = info.isRegularDownload && size in 0..(300 * 1024)
+            if (isUnknownOrTinySize) {
+                lines += context.getString(R.string.candidate_small_file_warning)
+            }
+
+            return lines.joinToString("\n")
+        }
+
+        private fun sourceHost(info: VideoInfo): String {
+            val source = info.originalUrl.ifBlank {
+                info.firstUrlToString
+            }
+
+            return try {
+                URI(source).host?.removePrefix("www.").orEmpty()
+            } catch (_: Throwable) {
+                ""
+            }
+        }
+
+        fun addCallback() {
+            if (!isCallbackAdded) {
+                model.selectedFormats.addOnPropertyChangedCallback(selectedFormatsCallback)
+                isCallbackAdded = true
+            }
+        }
+
+        fun removeCallback() {
+            if (isCallbackAdded) {
+                model.selectedFormats.removeOnPropertyChangedCallback(selectedFormatsCallback)
+                isCallbackAdded = false
+            }
+        }
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VideoInfoViewHolder {
+        val binding = DataBindingUtil.inflate<ItemVideoInfoBinding>(
+            LayoutInflater.from(parent.context),
+            R.layout.item_video_info,
+            parent,
+            false
+        )
+
+        return VideoInfoViewHolder(binding, model, downloadVideoListener, appUtil)
+    }
+
+    override fun onBindViewHolder(holder: VideoInfoViewHolder, position: Int) {
+        val videoInfo = videoInfoList[position]
+        holder.bind(videoInfo)
+    }
+
+    override fun onViewAttachedToWindow(holder: VideoInfoViewHolder) {
+        super.onViewAttachedToWindow(holder)
+        holder.addCallback()
+    }
+
+    override fun onViewDetachedFromWindow(holder: VideoInfoViewHolder) {
+        super.onViewDetachedFromWindow(holder)
+        holder.removeCallback()
+    }
+
+
+    override fun getItemCount(): Int = videoInfoList.size
+
+    fun setData(localVideos: List<VideoInfo>) {
+        val newItems = localVideos.reversed()
+        dispatchListDiff(
+            oldItems = this.videoInfoList,
+            newItems = newItems,
+            areItemsTheSame = { oldItem, newItem -> oldItem.id == newItem.id }
+        ) {
+            this.videoInfoList = newItems
+        }
+    }
+}

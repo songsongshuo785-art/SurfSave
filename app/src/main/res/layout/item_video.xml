@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <data>
+
+        <import type="android.view.View" />
+
+        <variable
+            name="localVideo"
+            type="com.myAllVideoBrowser.data.local.model.LocalVideo" />
+
+        <variable
+            name="videoListener"
+            type="com.myAllVideoBrowser.ui.component.adapter.VideoListener" />
+
+    </data>
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/card_video"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="@dimen/padding_small"
+        android:layout_marginVertical="@dimen/padding_tiny"
+        android:clickable="true"
+        android:focusable="true"
+        android:onClick="@{() -> videoListener.onItemClicked(localVideo)}"
+        app:cardBackgroundColor="@color/sxSurfaceRaised"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/sxOutline"
+        app:strokeWidth="1dp">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="148dp"
+            android:padding="@dimen/padding_normal">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/padding_small"
+                android:ellipsize="end"
+                android:maxLines="4"
+                android:text="@{localVideo.name}"
+                android:textAlignment="viewStart"
+                android:textColor="@color/sxTextPrimary"
+                android:textSize="@dimen/text_medium"
+                android:textStyle="bold"
+                app:layout_constraintEnd_toStartOf="@id/iv_more"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                tools:text="A very long video name that should still be readable in the library card" />
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/iv_thumbnail"
+                android:layout_width="132dp"
+                android:layout_height="88dp"
+                android:adjustViewBounds="true"
+                android:background="@drawable/sx_thumbnail_background"
+                android:scaleType="fitCenter"
+                android:layout_marginTop="@dimen/padding_small"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/tv_name"
+                app:shapeAppearanceOverlay="@style/customImageViewRounded" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_size"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/padding_normal"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@{localVideo.size}"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                app:layout_constraintEnd_toStartOf="@id/iv_more"
+                app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
+                app:layout_constraintTop_toTopOf="@id/iv_thumbnail"
+                tools:text="42 MB" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_quality"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/padding_normal"
+                android:layout_marginTop="@dimen/padding_tiny"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@{localVideo.quality}"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                android:visibility="@{localVideo.hasQuality ? View.VISIBLE : View.GONE}"
+                app:layout_constraintEnd_toStartOf="@id/iv_more"
+                app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
+                app:layout_constraintTop_toBottomOf="@id/tv_size"
+                tools:text="Quality: 1080P"
+                tools:visibility="visible" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_source"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/padding_normal"
+                android:layout_marginTop="@dimen/padding_tiny"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@{localVideo.sourceLabel}"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                android:visibility="@{localVideo.hasSource ? View.VISIBLE : View.GONE}"
+                app:layout_constraintEnd_toStartOf="@id/iv_more"
+                app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
+                app:layout_constraintTop_toBottomOf="@id/tv_quality"
+                tools:text="example.com"
+                tools:visibility="visible" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_open_source"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="@dimen/padding_normal"
+                android:layout_marginTop="@dimen/padding_tiny"
+                android:onClick="@{() -> videoListener.onSourceClicked(localVideo)}"
+                android:text="@string/video_return_to_source"
+                android:textColor="@color/colorPrimary"
+                android:textSize="@dimen/text_small"
+                android:visibility="@{localVideo.hasSourceUrl ? View.VISIBLE : View.GONE}"
+                app:backgroundTint="@color/sxSurfaceSoft"
+                app:cornerRadius="8dp"
+                app:layout_constraintEnd_toStartOf="@id/iv_more"
+                app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
+                app:layout_constraintTop_toBottomOf="@id/tv_source"
+                app:icon="@drawable/public_24px"
+                app:iconTint="@color/colorPrimary"
+                app:strokeColor="@color/sxOutline"
+                app:strokeWidth="1dp"
+                tools:text="返回来源"
+                tools:visibility="visible" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/iv_more"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                app:cardBackgroundColor="@android:color/transparent"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="0dp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:strokeColor="@android:color/transparent">
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:onClick="@{(view) -> videoListener.onMenuClicked(view, localVideo)}"
+                    android:padding="@dimen/padding_small"
+                    app:srcCompat="@drawable/ic_more_24dp"
+                    app:tint="@color/sxTextSecondary"
+                    tools:ignore="VectorDrawableCompat" />
+            </com.google.android.material.card.MaterialCardView>
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+</layout>

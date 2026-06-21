@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <data>
+
+        <import type="android.view.View" />
+
+        <variable
+            name="progressInfo"
+            type="com.myAllVideoBrowser.data.local.room.entity.ProgressInfo" />
+
+        <variable
+            name="downloadId"
+            type="Long" />
+
+        <variable
+            name="isRegular"
+            type="Boolean" />
+
+        <variable
+            name="progressListener"
+            type="com.myAllVideoBrowser.ui.component.adapter.ProgressListener" />
+
+    </data>
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/card_progress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="@dimen/padding_small"
+        android:layout_marginVertical="@dimen/padding_tiny"
+        android:minHeight="136dp"
+        app:cardBackgroundColor="@color/sxSurfaceRaised"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/sxOutline"
+        app:strokeWidth="1dp">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="@dimen/padding_normal">
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/iv_thumbnail"
+                android:layout_width="96dp"
+                android:layout_height="96dp"
+                android:adjustViewBounds="true"
+                android:background="@drawable/sx_thumbnail_background"
+                android:scaleType="centerCrop"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:shapeAppearanceOverlay="@style/customImageViewRounded" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/padding_normal"
+                android:layout_marginEnd="@dimen/padding_tiny"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:text="@{progressInfo.videoInfo.name}"
+                android:textColor="@color/sxTextPrimary"
+                android:textSize="@dimen/text_medium"
+                android:textStyle="bold"
+                app:layout_constraintEnd_toStartOf="@+id/ip_more"
+                app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
+                app:layout_constraintTop_toTopOf="@id/iv_thumbnail"
+                tools:text="Video title from current download task" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/ip_more"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                app:cardBackgroundColor="@android:color/transparent"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="0dp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toTopOf="@id/iv_thumbnail"
+                app:strokeColor="@android:color/transparent">
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:onClick="@{(view) -> progressListener.onMenuClicked(view, downloadId, isRegular)}"
+                    android:padding="@dimen/padding_small"
+                    app:srcCompat="@drawable/ic_more_24dp"
+                    app:tint="@color/sxTextSecondary"
+                    tools:ignore="VectorDrawableCompat" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <ProgressBar
+                android:id="@+id/progress_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="0dp"
+                android:layout_height="8dp"
+                android:layout_marginStart="@dimen/padding_normal"
+                android:layout_marginTop="@dimen/padding_normal"
+                android:background="@android:color/transparent"
+                android:max="100"
+                android:progress="@{progressInfo.progress}"
+                android:progressBackgroundTint="@color/sxSurfaceSoft"
+                android:progressTint="@color/colorPrimary"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
+                app:layout_constraintTop_toBottomOf="@id/tv_title"
+                tools:progress="38" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_progress"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/padding_normal"
+                android:layout_marginTop="@dimen/padding_small"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@{progressInfo.progressSize}"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
+                app:layout_constraintTop_toBottomOf="@id/progress_bar"
+                tools:text="4.5 MB / 10 MB" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/info_line"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_normal"
+                android:ellipsize="end"
+                android:lineSpacingExtra="1dp"
+                android:maxLines="2"
+                android:text="@{progressInfo.infoLine}"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_tiny"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/iv_thumbnail"
+                tools:text="[download] 38% at 438.62 KiB/s ETA 04:41" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+</layout>

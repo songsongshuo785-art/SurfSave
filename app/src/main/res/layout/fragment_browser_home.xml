@@ -1,0 +1,483 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:context=".ui.main.home.browser.homeTab.BrowserHomeFragment">
+
+    <data>
+
+        <import type="android.view.View" />
+
+        <variable
+            name="browserMenuListener"
+            type="com.myAllVideoBrowser.ui.main.home.browser.BrowserListener" />
+
+        <variable
+            name="viewModel"
+            type="com.myAllVideoBrowser.ui.main.home.browser.homeTab.BrowserHomeViewModel" />
+
+        <variable
+            name="mainVModel"
+            type="com.myAllVideoBrowser.ui.main.home.MainViewModel" />
+    </data>
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/sxSurface">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/materialToolbar"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@drawable/sx_toolbar_background"
+            android:paddingStart="@dimen/padding_small"
+            android:paddingEnd="@dimen/padding_small"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:title="@string/title_browser"
+            app:titleTextColor="@color/sxTextPrimary">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_gravity="end|center_vertical"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <FrameLayout
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_gravity="end|center_vertical">
+
+                    <androidx.appcompat.widget.AppCompatImageView
+                        android:id="@+id/browser_home_tabs_button"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/tabs"
+                        android:onClick="@{() -> browserMenuListener.onTabsOverviewClicked()}"
+                        android:padding="10dp"
+                        app:srcCompat="@drawable/tab_group_24px"
+                        app:tint="@color/sxTextPrimary"
+                        tools:ignore="VectorDrawableCompat" />
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:id="@+id/browser_home_tabs_count_badge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="20dp"
+                        android:layout_gravity="end|top"
+                        android:layout_marginTop="1dp"
+                        android:layout_marginEnd="1dp"
+                        android:background="@drawable/sx_primary_badge_background"
+                        android:gravity="center"
+                        android:minWidth="20dp"
+                        android:paddingStart="5dp"
+                        android:paddingEnd="5dp"
+                        android:textColor="@color/white"
+                        android:textSize="@dimen/text_tiny"
+                        android:textStyle="bold"
+                        android:translationZ="2dp"
+                        tools:text="12" />
+                </FrameLayout>
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:id="@+id/browser_home_menu_button"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/menu"
+                    android:onClick="@{() -> browserMenuListener.onBrowserMenuClicked()}"
+                    android:padding="10dp"
+                    app:srcCompat="@drawable/ic_more_24dp"
+                    app:tint="@color/sxTextPrimary"
+                    tools:ignore="VectorDrawableCompat" />
+            </LinearLayout>
+        </com.google.android.material.appbar.MaterialToolbar>
+
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/home_scroll"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:clipToPadding="false"
+            android:fillViewport="true"
+            android:overScrollMode="ifContentScrolls"
+            android:scrollbars="vertical"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/materialToolbar">
+
+            <LinearLayout
+                android:id="@+id/home_content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipToPadding="false"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingHorizontal="@dimen/padding_normal"
+                android:paddingTop="@dimen/padding_large"
+                android:paddingBottom="@dimen/padding_large">
+
+                <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                    android:id="@+id/home_et_search"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:background="@{viewModel.isSearchInputFocused ? @drawable/sx_search_focused_background : @drawable/sx_search_background}"
+                    android:drawableStart="@drawable/search_24px"
+                    android:drawablePadding="@dimen/padding_small"
+                    android:drawableTint="@color/sxTextSecondary"
+                    android:focusable="@{viewModel.isSearchInputFocused}"
+                    android:focusableInTouchMode="@{viewModel.isSearchInputFocused}"
+                    android:hint="@string/browser_search_hint"
+                    android:onClick="@{() -> viewModel.changeSearchFocus(true)}"
+                    android:inputType="textUri"
+                    android:paddingStart="@dimen/padding_normal"
+                    android:paddingEnd="@dimen/padding_normal"
+                    android:singleLine="true"
+                    android:text="@{viewModel.searchTextInput}"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textColorHint="@color/sxTextSecondary"
+                    android:textSize="@dimen/text_medium"
+                    app:items="@{viewModel.listSuggestions}" />
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/home_social_downloads_card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/padding_normal"
+                    app:cardBackgroundColor="@color/sxSurfaceRaised"
+                    app:cardCornerRadius="8dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="@color/sxOutline"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="@dimen/padding_normal">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/home_social_downloads_title"
+                            android:textColor="@color/sxTextPrimary"
+                            android:textSize="@dimen/text_large"
+                            android:textStyle="bold" />
+
+                        <androidx.recyclerview.widget.RecyclerView
+                            android:id="@+id/home_common_sites_grid"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/padding_normal"
+                            android:nestedScrollingEnabled="false"
+                            android:overScrollMode="never"
+                            tools:itemCount="4"
+                            tools:listitem="@layout/item_top_page" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/home_social_guide_card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/padding_small"
+                    app:cardBackgroundColor="@color/sxSurfaceRaised"
+                    app:cardCornerRadius="8dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="@color/sxOutline"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="@dimen/padding_normal">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.textview.MaterialTextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="@string/home_social_steps_title"
+                                android:textColor="@color/sxTextPrimary"
+                                android:textSize="@dimen/text_large"
+                                android:textStyle="bold" />
+
+                            <ImageButton
+                                android:id="@+id/home_social_guide_dismiss"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:background="?attr/selectableItemBackgroundBorderless"
+                                android:contentDescription="@string/home_hide_guide"
+                                android:padding="10dp"
+                                android:src="@drawable/ic_cancel_24dp"
+                                app:tint="@color/sxTextSecondary" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/padding_normal"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="28dp"
+                                android:layout_height="28dp"
+                                android:background="@drawable/sx_chip_background"
+                                android:gravity="center"
+                                android:text="@string/home_social_step_number_one"
+                                android:textColor="@color/colorPrimary"
+                                android:textSize="@dimen/text_small"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.textview.MaterialTextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/padding_normal"
+                                android:layout_weight="1"
+                                android:text="@string/home_social_step_copy"
+                                android:textColor="@color/sxTextPrimary"
+                                android:textSize="@dimen/text_medium"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/padding_normal"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="28dp"
+                                android:layout_height="28dp"
+                                android:background="@drawable/sx_chip_background"
+                                android:gravity="center"
+                                android:text="@string/home_social_step_number_two"
+                                android:textColor="@color/colorPrimary"
+                                android:textSize="@dimen/text_small"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.textview.MaterialTextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/padding_normal"
+                                android:layout_weight="1"
+                                android:text="@string/home_social_step_share"
+                                android:textColor="@color/sxTextPrimary"
+                                android:textSize="@dimen/text_medium"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/padding_large"
+                            android:baselineAligned="false"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/home_paste_link_button"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_marginEnd="@dimen/padding_small"
+                                android:layout_weight="1"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:minWidth="0dp"
+                                android:text="@string/home_paste_link"
+                                android:textAllCaps="false"
+                                android:textColor="@color/white"
+                                app:cornerRadius="8dp"
+                                app:icon="@drawable/add_new_tab_icon24"
+                                app:iconTint="@color/white" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/home_how_it_works_button"
+                                style="@style/Widget.MaterialComponents.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="44dp"
+                                android:minWidth="0dp"
+                                android:text="@string/home_how_it_works"
+                                android:textAllCaps="false"
+                                android:textColor="@color/colorPrimary"
+                                app:icon="@drawable/help_24px"
+                                app:iconGravity="textStart"
+                                app:iconTint="@color/colorPrimary" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/home_tabs_card"
+                    android:layout_width="match_parent"
+                    android:layout_height="72dp"
+                    android:layout_marginTop="@dimen/padding_normal"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardBackgroundColor="@color/sxSurfaceRaised"
+                    app:cardCornerRadius="8dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="@color/sxOutline"
+                    app:strokeWidth="1dp">
+
+                    <androidx.constraintlayout.widget.ConstraintLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:paddingStart="@dimen/padding_normal"
+                        android:paddingEnd="@dimen/padding_small">
+
+                        <ImageView
+                            android:id="@+id/home_tabs_icon"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/sx_chip_background"
+                            android:contentDescription="@string/tabs"
+                            android:padding="9dp"
+                            android:src="@drawable/tab_group_24px"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:tint="@color/colorPrimary" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/home_tabs_title"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/padding_normal"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="@string/tabs"
+                            android:textColor="@color/sxTextPrimary"
+                            android:textSize="@dimen/text_medium"
+                            android:textStyle="bold"
+                            app:layout_constraintBottom_toTopOf="@id/home_tabs_count_text"
+                            app:layout_constraintEnd_toStartOf="@id/home_tabs_chevron"
+                            app:layout_constraintStart_toEndOf="@id/home_tabs_icon"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:layout_constraintVertical_chainStyle="packed" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/home_tabs_count_text"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/padding_normal"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textColor="@color/sxTextSecondary"
+                            android:textSize="@dimen/text_small"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintEnd_toStartOf="@id/home_tabs_chevron"
+                            app:layout_constraintStart_toEndOf="@id/home_tabs_icon"
+                            app:layout_constraintTop_toBottomOf="@id/home_tabs_title"
+                            tools:text="Open tabs: 3/100" />
+
+                        <ImageView
+                            android:id="@+id/home_tabs_chevron"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:contentDescription="@null"
+                            android:padding="10dp"
+                            android:src="@drawable/arrow_forward24px"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:tint="@color/sxTextSecondary" />
+                    </androidx.constraintlayout.widget.ConstraintLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/home_add_bookmark_card"
+                    android:layout_width="match_parent"
+                    android:layout_height="64dp"
+                    android:layout_marginTop="@dimen/padding_small"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    app:cardBackgroundColor="@color/sxSurfaceRaised"
+                    app:cardCornerRadius="8dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="@color/sxOutline"
+                    app:strokeWidth="1dp">
+
+                    <androidx.constraintlayout.widget.ConstraintLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:paddingStart="@dimen/padding_normal"
+                        android:paddingEnd="@dimen/padding_small">
+
+                        <ImageView
+                            android:id="@+id/home_add_bookmark_icon"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/sx_chip_background"
+                            android:contentDescription="@string/add_bookmark"
+                            android:padding="9dp"
+                            android:src="@drawable/bookmark_add_24px"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:tint="@color/colorPrimary" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/home_add_bookmark_title"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/padding_normal"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="@string/add_bookmark"
+                            android:textColor="@color/sxTextPrimary"
+                            android:textSize="@dimen/text_medium"
+                            android:textStyle="bold"
+                            app:layout_constraintBottom_toTopOf="@id/home_add_bookmark_subtitle"
+                            app:layout_constraintEnd_toStartOf="@id/home_add_bookmark_chevron"
+                            app:layout_constraintStart_toEndOf="@id/home_add_bookmark_icon"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:layout_constraintVertical_chainStyle="packed" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/home_add_bookmark_subtitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/padding_normal"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="@string/home_add_bookmark_subtitle"
+                            android:textColor="@color/sxTextSecondary"
+                            android:textSize="@dimen/text_small"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintEnd_toStartOf="@id/home_add_bookmark_chevron"
+                            app:layout_constraintStart_toEndOf="@id/home_add_bookmark_icon"
+                            app:layout_constraintTop_toBottomOf="@id/home_add_bookmark_title" />
+
+                        <ImageView
+                            android:id="@+id/home_add_bookmark_chevron"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:contentDescription="@null"
+                            android:padding="10dp"
+                            android:src="@drawable/arrow_forward24px"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:tint="@color/sxTextSecondary" />
+                    </androidx.constraintlayout.widget.ConstraintLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</layout>

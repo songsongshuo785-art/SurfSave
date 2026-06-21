@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <data>
+
+        <import type="android.view.View" />
+
+        <variable
+            name="dialogListener"
+            type="com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener" />
+
+        <variable
+            name="viewModel"
+            type="com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel" />
+    </data>
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/detected_videos_tab_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/sxSurface"
+        tools:context=".ui.main.home.browser.detectedVideos.DetectedVideosTabFragment">
+
+        <View
+            android:id="@+id/detected_backdrop"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:background="@color/black_55"
+            android:onClick="@{() -> dialogListener.onCancel()}"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <LinearLayout
+            android:id="@+id/detected_sheet"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:background="@drawable/sx_bottom_nav_background"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/padding_normal"
+            android:paddingTop="@dimen/padding_normal"
+            android:paddingEnd="@dimen/padding_normal"
+            android:paddingBottom="@dimen/padding_normal"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintHeight_percent="0.78"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintVertical_bias="1">
+
+            <View
+                android:layout_width="44dp"
+                android:layout_height="4dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="@dimen/padding_normal"
+                android:background="@drawable/sx_sheet_handle_background" />
+
+            <LinearLayout
+                android:id="@+id/detected_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="@string/detected_videos_title"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textSize="@dimen/text_large"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/detected_count"
+                    android:layout_width="wrap_content"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="@dimen/padding_small"
+                    android:layout_marginEnd="@dimen/padding_small"
+                    android:background="@drawable/sx_primary_badge_background"
+                    android:gravity="center"
+                    android:minWidth="24dp"
+                    android:paddingStart="@dimen/padding_small"
+                    android:paddingEnd="@dimen/padding_small"
+                    android:text="@{viewModel.detectedVideosBadgeText}"
+                    android:textColor="@color/white"
+                    android:textSize="@dimen/text_tiny"
+                    android:textStyle="bold"
+                    android:visibility="@{viewModel.hasDetectedVideos ? View.VISIBLE : View.GONE}" />
+
+                <ImageButton
+                    android:id="@+id/tv_cancel"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/dialog_download_cancel"
+                    android:onClick="@{() -> dialogListener.onCancel()}"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_cancel_24dp"
+                    app:tint="@color/sxTextPrimary" />
+            </LinearLayout>
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/detection_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_small"
+                android:background="@drawable/sx_section_background"
+                android:lineSpacingExtra="2dp"
+                android:maxLines="2"
+                android:padding="@dimen/padding_small"
+                android:text="@{viewModel.detectionStatusText}"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                android:visibility="@{viewModel.hasDetectionStatus &amp;&amp; !viewModel.hasDetectedVideos ? View.VISIBLE : View.GONE}"
+                tools:text="检测暂时失败。请播放视频后再试，或刷新页面重新检测。"
+                tools:visibility="visible" />
+
+            <LinearLayout
+                android:id="@+id/detected_secondary_actions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_tiny"
+                android:gravity="end"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_parse_playlist"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minWidth="0dp"
+                    android:text="@string/playlist_parse_button"
+                    android:textAllCaps="false"
+                    android:textColor="@color/colorPrimary"
+                    app:icon="@drawable/search_24px"
+                    app:iconTint="@color/colorPrimary" />
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/video_info_list"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginTop="@dimen/padding_small"
+                android:layout_weight="1"
+                android:clipToPadding="false"
+                android:paddingStart="@dimen/padding_tiny"
+                android:paddingEnd="@dimen/padding_tiny"
+                android:paddingBottom="@dimen/padding_small"
+                app:items="@{viewModel.detectedVideosList}" />
+        </LinearLayout>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</layout>

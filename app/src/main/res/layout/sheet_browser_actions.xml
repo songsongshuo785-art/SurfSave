@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/sx_bottom_nav_background"
+        android:fillViewport="false">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/padding_normal"
+            android:paddingTop="@dimen/padding_small"
+            android:paddingEnd="@dimen/padding_normal"
+            android:paddingBottom="@dimen/padding_normal">
+
+            <View
+                android:layout_width="44dp"
+                android:layout_height="4dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="@dimen/padding_normal"
+                android:background="@drawable/sx_sheet_handle_background" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/sheet_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/browser_actions_title"
+                android:textColor="@color/sxTextPrimary"
+                android:textSize="@dimen/text_xlarge"
+                android:textStyle="bold" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_small"
+                android:text="@string/browser_actions_primary"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_small"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/action_new_tab"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="@dimen/padding_small"
+                    android:layout_weight="1"
+                    android:text="@string/new_tab"
+                    android:textColor="@color/sxTextPrimary"
+                    app:cornerRadius="8dp"
+                    app:icon="@drawable/add_new_tab_icon24"
+                    app:iconTint="@color/colorPrimary"
+                    app:strokeColor="@color/sxOutline" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/action_tabs"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:text="@string/tabs"
+                    android:textColor="@color/white"
+                    app:cornerRadius="8dp"
+                    app:icon="@drawable/tab_group_24px"
+                    app:iconTint="@color/white" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_small"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/action_home"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="@dimen/padding_small"
+                    android:layout_weight="1"
+                    android:text="@string/browser_home_button"
+                    android:textColor="@color/sxTextPrimary"
+                    app:cornerRadius="8dp"
+                    app:icon="@drawable/home_48px"
+                    app:iconTint="@color/sxTextSecondary"
+                    app:strokeColor="@color/sxOutline" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/action_forward"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:text="@string/forward"
+                    android:textColor="@color/sxTextPrimary"
+                    app:cornerRadius="8dp"
+                    app:icon="@drawable/arrow_forward24px"
+                    app:iconTint="@color/sxTextSecondary"
+                    app:strokeColor="@color/sxOutline" />
+            </LinearLayout>
+
+            <com.google.android.material.textview.MaterialTextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_small"
+                android:text="@string/browser_actions_page"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_bookmark"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="@dimen/padding_small"
+            android:gravity="start|center_vertical"
+            android:text="@string/bookmark"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/bookmark_add_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_share"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/share_link"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/share_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_translate"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/translate_page"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/public_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_refresh_video_detection"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/refresh_video_detection"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/refresh_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_repair_page_player"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/repair_page_player"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/play_circle_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.textview.MaterialTextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/padding_small"
+            android:text="@string/browser_actions_tools"
+            android:textColor="@color/sxTextSecondary"
+            android:textSize="@dimen/text_small"
+            android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/action_test_pages"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="@dimen/padding_small"
+                android:gravity="start|center_vertical"
+                android:text="@string/browser_test_pages"
+                android:textAlignment="viewStart"
+                android:textColor="@color/sxTextPrimary"
+                android:visibility="gone"
+                app:icon="@drawable/public_24px"
+                app:iconGravity="textStart"
+                app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_history"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/history"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/history_menu_icon_24dp"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_bookmarks"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/bookmarks_list"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/bookmarks_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_desktop"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/desktop_mode"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/desktop_windows_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.textview.MaterialTextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/padding_small"
+            android:text="@string/browser_actions_settings"
+            android:textColor="@color/sxTextSecondary"
+            android:textSize="@dimen/text_small"
+            android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_settings"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/settings"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/settings_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_proxy"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/proxy"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/wifi_proxy_icon24"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_dark"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/dark_mode"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/dark_mode_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_help"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/help"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/help_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+        </LinearLayout>
+    </ScrollView>
+</layout>

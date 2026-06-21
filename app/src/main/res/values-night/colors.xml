@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary_20">#337AB0FF</color>
+    <color name="colorPrimary">#7AB0FF</color>
+    <color name="colorPrimaryDark">#4F7CFF</color>
+    <color name="colorAccent">#7BD0FF</color>
+    <color name="colorAccentDark">#00A6E0</color>
+    <color name="sxSurface">#051424</color>
+    <color name="sxSurfaceRaised">#0F172A</color>
+    <color name="sxSurfaceSoft">#162033</color>
+    <color name="sxSurfaceSelected">#172B4B</color>
+    <color name="sxOutline">#334155</color>
+    <color name="sxTextPrimary">#F8FAFC</color>
+    <color name="sxTextSecondary">#94A3B8</color>
+</resources>

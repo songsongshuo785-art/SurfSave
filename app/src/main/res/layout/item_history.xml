@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <data>
+
+        <import type="android.view.View" />
+
+        <variable
+            name="historyItem"
+            type="com.myAllVideoBrowser.data.local.room.entity.HistoryItem" />
+
+        <variable
+            name="historyId"
+            type="String" />
+
+        <variable
+            name="historyListener"
+            type="com.myAllVideoBrowser.ui.component.adapter.HistoryListener" />
+
+    </data>
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="@dimen/padding_small"
+        android:layout_marginVertical="@dimen/padding_tiny"
+        android:clickable="true"
+        android:focusable="true"
+        android:onClick="@{(view) -> historyListener.onHistoryOpenClicked(view, historyId)}"
+        app:cardBackgroundColor="@color/sxSurfaceRaised"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/sxOutline"
+        app:strokeWidth="1dp">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="88dp"
+            android:padding="@dimen/padding_normal">
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/favicon"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/sx_thumbnail_background"
+                android:padding="@dimen/padding_tiny"
+                app:bitmap="@{historyItem.faviconBitmap()}"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:shapeAppearanceOverlay="@style/customImageViewRounded" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/padding_normal"
+                android:layout_marginEnd="@dimen/padding_small"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@{historyItem.title}"
+                android:textColor="@color/sxTextPrimary"
+                android:textSize="@dimen/text_medium"
+                android:textStyle="bold"
+                app:layout_constraintBottom_toTopOf="@id/tv_link"
+                app:layout_constraintEnd_toStartOf="@id/iv_more"
+                app:layout_constraintStart_toEndOf="@id/favicon"
+                app:layout_constraintTop_toTopOf="@id/favicon"
+                app:layout_constraintVertical_chainStyle="packed"
+                tools:text="Title" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_link"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/padding_normal"
+                android:layout_marginTop="@dimen/padding_tiny"
+                android:layout_marginEnd="@dimen/padding_small"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@{historyItem.url}"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                app:layout_constraintBottom_toBottomOf="@id/favicon"
+                app:layout_constraintEnd_toStartOf="@id/tv_time"
+                app:layout_constraintStart_toEndOf="@id/favicon"
+                app:layout_constraintTop_toBottomOf="@id/tv_title"
+                tools:text="https://www.imdb.com" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_time"
+                android:layout_width="wrap_content"
+                android:layout_height="24dp"
+                android:background="@drawable/sx_chip_background"
+                android:gravity="center"
+                android:paddingStart="@dimen/padding_small"
+                android:paddingEnd="@dimen/padding_small"
+                android:text="@string/about_an_hour_ago"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_tiny"
+                app:layout_constraintBottom_toBottomOf="@id/tv_link"
+                app:layout_constraintEnd_toStartOf="@id/iv_more"
+                app:layout_constraintTop_toTopOf="@id/tv_link" />
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/iv_more"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/more"
+                android:onClick="@{(view) -> historyListener.onMenuClicked(view, historyItem.id)}"
+                android:padding="@dimen/padding_small"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:srcCompat="@drawable/ic_more_gray_24dp"
+                app:tint="@color/sxTextSecondary"
+                tools:ignore="VectorDrawableCompat" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+
+</layout>
