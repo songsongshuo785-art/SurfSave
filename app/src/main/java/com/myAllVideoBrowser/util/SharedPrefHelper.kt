@@ -36,6 +36,7 @@ class SharedPrefHelper @Inject constructor(
         const val REGULAR_THREAD_COUNT = "REGULAR_THREAD_COUNT"
         private const val M3U8_THREAD_COUNT = "M3U8_THREAD_COUNT"
         private const val MAX_CONCURRENT_DOWNLOADS = "MAX_CONCURRENT_DOWNLOADS"
+        private const val IS_AUTO_PIP = "IS_AUTO_PIP"
         // Keep persisted key spelling for backwards compatibility with existing installs.
         private const val VIDEO_DETECTION_THRESHOLD = "VIDEO_DETECTION_TRESHOLD"
         private const val IS_LOCK_PORTRAIT = "IS_LOCK_PORTRAIT"
@@ -271,6 +272,16 @@ class SharedPrefHelper @Inject constructor(
     fun setMaxConcurrentDownloads(count: Int) {
         sharedPreferences.edit {
             putInt(MAX_CONCURRENT_DOWNLOADS, count.coerceIn(1, 5))
+        }
+    }
+
+    fun getIsAutoPipEnabled(): Boolean {
+        return sharedPreferences.getBoolean(IS_AUTO_PIP, false)
+    }
+
+    fun setIsAutoPipEnabled(enabled: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_AUTO_PIP, enabled)
         }
     }
 

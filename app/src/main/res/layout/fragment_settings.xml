@@ -170,6 +170,17 @@
                         app:trackTint="@color/color_gray" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/is_auto_pip_check_box"
+                        android:layout_width="match_parent"
+                        android:layout_height="56dp"
+                        android:checked="@{viewModel.isAutoPipEnabled}"
+                        android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsAutoPipEnabled(isChecked)}"
+                        android:text="@string/auto_pip"
+                        android:textColor="@color/sxTextPrimary"
+                        app:thumbTint="@color/switch_thumb_selector"
+                        app:trackTint="@color/color_gray" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/is_desktop_mode_check_box"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"

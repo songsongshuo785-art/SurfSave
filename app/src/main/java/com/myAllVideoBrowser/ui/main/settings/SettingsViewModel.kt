@@ -45,6 +45,7 @@ class SettingsViewModel @Inject constructor(
     val openCookieExportEvent = SingleLiveEvent<String>()
     val isDesktopMode = ObservableBoolean(false)
     val isDarkMode = ObservableBoolean(false)
+    val isAutoPipEnabled = ObservableBoolean(false)
     val isAutoDarkMode = ObservableBoolean(true)
     val isLockPortrait = ObservableBoolean(false)
     val isCheckIfEveryRequestOnM3u8 = ObservableBoolean(true)
@@ -95,6 +96,7 @@ class SettingsViewModel @Inject constructor(
             val isDark = sharedPrefHelper.isDarkMode()
             setDarkMode(isDark)
             isDarkMode.set(isDark)
+            isAutoPipEnabled.set(sharedPrefHelper.getIsAutoPipEnabled())
             regularThreadsCount.set(sharedPrefHelper.getRegularDownloaderThreadCount())
             m3u8ThreadsCount.set(sharedPrefHelper.getM3u8DownloaderThreadCount())
             maxConcurrentDownloads.set(sharedPrefHelper.getMaxConcurrentDownloads())
@@ -321,6 +323,14 @@ class SettingsViewModel @Inject constructor(
             delay(300)
             sharedPrefHelper.setIsDarkMode(isDark)
             setDarkMode(isDark)
+        }
+    }
+
+    fun setIsAutoPipEnabled(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            isAutoPipEnabled.set(enabled)
+            delay(300)
+            sharedPrefHelper.setIsAutoPipEnabled(enabled)
         }
     }
 

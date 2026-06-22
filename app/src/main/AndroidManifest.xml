@@ -55,8 +55,10 @@
         </activity>
         <activity
             android:name="com.myAllVideoBrowser.ui.main.player.VideoPlayerActivity"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize"
             android:hardwareAccelerated="true"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
             android:theme="@style/AppTheme" />
 
         <service

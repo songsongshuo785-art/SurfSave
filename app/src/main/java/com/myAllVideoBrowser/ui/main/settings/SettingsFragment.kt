@@ -553,6 +553,7 @@ class SettingsFragment : BaseFragment() {
             dataBinding.dividerAfterClearCookie,
             dataBinding.isAutoThemeCheckBox,
             dataBinding.isDarkModeCheckBox,
+            dataBinding.isAutoPipCheckBox,
             dataBinding.isDesktopModeCheckBox,
             dataBinding.lockOrientationCheckBox,
             dataBinding.drmEnabledCheckBox,

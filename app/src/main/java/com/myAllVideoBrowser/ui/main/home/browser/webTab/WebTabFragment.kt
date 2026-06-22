@@ -1197,6 +1197,11 @@ class WebTabFragment : BaseWebTabFragment() {
         )
         val selectedFormat = VideoFormatUi.findFormat(videoInfo, format)
 
+        // 开播前暂停网页内所有 <video>/<audio>，避免和 SurfSave 播放器双声道；try/catch 防页面脚本异常
+        webTab.getWebView()?.evaluateJavascript(
+            "try{document.querySelectorAll('video,audio').forEach(function(v){v.pause()})}catch(e){}", null
+        )
+
         // start your activity by passing the intent
         startActivity(
             Intent(
