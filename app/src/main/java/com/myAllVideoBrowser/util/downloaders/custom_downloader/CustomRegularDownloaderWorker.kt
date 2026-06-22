@@ -83,21 +83,33 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
         CustomRegularDownloader.deleteHeadersStringFromSharedPreferences(applicationContext, taskId)
 
         try {
-            val notificationData = notificationsHelper.createNotificationBuilder(item)
-            showNotificationFinal(notificationData.first, notificationData.second)
-
-            val result =
-                if (item.taskState == VideoTaskState.ERROR) Result.failure() else Result.success()
-
-            val progressInfo = if (item.taskState == VideoTaskState.SUCCESS && !fileMovedSuccess) {
+            // 先确定最终状态：成功但文件未移动成功 → 视为 ERROR，
+            // 避免通知 / Result / 落库三者基于不同状态产生不一致
+            val wasSuccessWithoutMove =
+                item.taskState == VideoTaskState.SUCCESS && !fileMovedSuccess
+            if (wasSuccessWithoutMove) {
                 item.taskState = VideoTaskState.ERROR
+            }
+            val progressInfo = if (wasSuccessWithoutMove) {
                 "Error Moving File"
             } else {
                 item.errorMessage ?: "Error"
             }
+            val result =
+                if (item.taskState == VideoTaskState.ERROR) Result.failure() else Result.success()
+
+            // 真正成功（未被翻成 ERROR）且拿到可信最终大小时，用文件大小回填进度，
+            // 避免未知长度直播/流式留下 -1 或 0 的进度
+            if (item.taskState == VideoTaskState.SUCCESS && item.totalSize > 0) {
+                progressCached = Progress(item.totalSize, item.totalSize)
+            }
 
             saveProgress(item.mId, progressCached, item.taskState, progressInfo)
             downloadQueueManager.onTaskTerminal(taskId, item.taskState, progressInfo)
+
+            // 通知放到最后，基于最终状态
+            val notificationData = notificationsHelper.createNotificationBuilder(item)
+            showNotificationFinal(notificationData.first, notificationData.second)
 
             getContinuation().resume(result)
         } catch (e: Throwable) {
@@ -203,6 +215,7 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
             val finalSource = processedUri ?: sourcePath.toUri()
             if (!finalSource.toFile().exists() && target.toUri().toFile().exists()) {
                 val finalSize = File(target).length()
+                fileMovedSuccess = true  // 目标文件已存在即视为到位，避免 finishWork 误判为移动失败
                 val finalItem = item.apply {
                     taskState = VideoTaskState.SUCCESS
                     filePath = target
@@ -361,8 +374,13 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
 
             override fun onProgressUpdate(downloadedBytes: Long, totalBytes: Long) {
                 progressCached = Progress(downloadedBytes, totalBytes)
-                val totalBytesFixed =
-                    if (downloadedBytes > totalBytes) downloadedBytes else totalBytes
+                // 未知长度（total<=0，含 contentLength=-1）钳到 0，不透传负值、不伪造总量；
+                // 仅修复 downloaded>total 的越界
+                val totalBytesFixed = when {
+                    totalBytes <= 0L -> 0L
+                    downloadedBytes > totalBytes -> downloadedBytes
+                    else -> totalBytes
+                }
                 onProgress(Progress(downloadedBytes, totalBytesFixed), taskItem.also {
                     it.mId = taskId
                     it.filePath = outputFileName
@@ -394,7 +412,11 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
                 it.downloadSize = downloadTask.downloadSize
                 it.fileName = outputFileName?.let { it1 -> File(it1).name } ?: downloadTask.fileName
                 it.taskState = VideoTaskState.DOWNLOADING
-                it.percent = (progress.currentBytes / progress.totalBytes * 100).toFloat()
+                it.percent = if (progress.totalBytes > 0) {
+                    (progress.currentBytes.toFloat() / progress.totalBytes * 100f)
+                } else {
+                    0f
+                }
             }
 
 
@@ -496,65 +518,78 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
             return
         }
 
-        val progressList = progressRepository.getProgressInfos().blockingFirst()
-        val dbTask = progressList.find { it.id == taskId }
-        if (dbTask?.downloadStatus == VideoTaskState.SUCCESS) {
+        // 单条查询取代全表 blockingFirst，避免每秒全表阻塞读
+        val dbTask = progressRepository.getProgressInfoById(taskId) ?: return
+        if (dbTask.downloadStatus == VideoTaskState.SUCCESS) {
             return
         }
 
-        val isBytesNoTouch = progress.totalBytes == 0L
+        val isBytesNoTouch = progress.totalBytes <= 0L
         val isNoTouchCurrent = progress.currentBytes == 0L
 
         if (!isBytesNoTouch && (downloadStatus != VideoTaskState.ERROR)) {
-            dbTask?.infoLine = infoLine
-            dbTask?.progressTotal = progress.totalBytes
+            dbTask.infoLine = infoLine
+            dbTask.progressTotal = progress.totalBytes
         }
 
         if (downloadStatus != VideoTaskState.SUCCESS) {
             if (!isNoTouchCurrent) {
-                dbTask?.progressDownloaded = progress.currentBytes
+                dbTask.progressDownloaded = progress.currentBytes
             }
         } else {
             if (!isBytesNoTouch) {
-                dbTask?.progressDownloaded = dbTask?.progressTotal ?: -1
+                dbTask.progressDownloaded = dbTask.progressTotal
             }
         }
 
-        dbTask?.downloadStatus = downloadStatus
-        if (dbTask?.logPath.isNullOrBlank()) {
-            dbTask?.logPath = downloadTaskLogger.logPath(taskId)
+        dbTask.downloadStatus = downloadStatus
+        if (dbTask.logPath.isBlank()) {
+            dbTask.logPath = downloadTaskLogger.logPath(taskId)
         }
         if (downloadStatus == VideoTaskState.PREPARE ||
             downloadStatus == VideoTaskState.START ||
             downloadStatus == VideoTaskState.DOWNLOADING
         ) {
-            dbTask?.startedAt = dbTask?.startedAt?.takeIf { it > 0 } ?: System.currentTimeMillis()
+            dbTask.startedAt = dbTask.startedAt.takeIf { it > 0 } ?: System.currentTimeMillis()
         }
         if (downloadStatus == VideoTaskState.ERROR || downloadStatus == VideoTaskState.ENOSPC) {
-            dbTask?.lastError = infoLine
+            dbTask.lastError = infoLine
         }
         if (downloadStatus == VideoTaskState.SUCCESS ||
             downloadStatus == VideoTaskState.ERROR ||
             downloadStatus == VideoTaskState.ENOSPC ||
             downloadStatus == VideoTaskState.CANCELED
         ) {
-            dbTask?.completedAt = System.currentTimeMillis()
+            dbTask.completedAt = System.currentTimeMillis()
         }
 
         val isLive =
-            dbTask?.progressTotal == dbTask?.progressDownloaded && downloadStatus == VideoTaskState.DOWNLOADING
-        if (dbTask?.isLive != true && isLive) {
-            dbTask?.isLive = true
+            dbTask.progressTotal == dbTask.progressDownloaded && downloadStatus == VideoTaskState.DOWNLOADING
+        if (dbTask.isLive != true && isLive) {
+            dbTask.isLive = true
         }
 
-        if (dbTask != null) {
-            if (getDone() && downloadStatus == VideoTaskState.DOWNLOADING) {
-                AppLogger.d(
-                    "saveProgress task returned cause DONE!!! $progress"
-                )
-            } else {
-                progressRepository.saveProgressInfo(dbTask)
-            }
+        if (getDone() && downloadStatus == VideoTaskState.DOWNLOADING) {
+            AppLogger.d(
+                "saveProgress task returned cause DONE!!! $progress"
+            )
+        } else {
+            // 按列更新：只覆盖进度/状态列，queuePosition 不被碰；
+            // fragments 原样回传（Regular 不使用分片），避免与队列重排互相整行覆盖
+            progressRepository.updateProgressFields(
+                id = dbTask.id,
+                downloaded = dbTask.progressDownloaded,
+                total = dbTask.progressTotal,
+                fragDownloaded = dbTask.fragmentsDownloaded,
+                fragTotal = dbTask.fragmentsTotal,
+                status = dbTask.downloadStatus,
+                infoLine = dbTask.infoLine,
+                startedAt = dbTask.startedAt,
+                completedAt = dbTask.completedAt,
+                lastError = dbTask.lastError,
+                logPath = dbTask.logPath,
+                isLive = dbTask.isLive
+            )
         }
     }
 
@@ -562,7 +597,12 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
         val fixedHeaders = headers.toMutableMap()
         headers.forEach { (key, value) ->
             if (key == "Cookie") {
-                fixedHeaders[key] = String(Base64.decode(value, Base64.DEFAULT))
+                fixedHeaders[key] = try {
+                    String(Base64.decode(value, Base64.DEFAULT))
+                } catch (e: IllegalArgumentException) {
+                    AppLogger.w("Cookie header is not valid Base64 (length=${value.length}), using raw value")
+                    value
+                }
             }
         }
         return fixedHeaders

@@ -864,8 +864,8 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
         if (getDone() && downloadStatus == VideoTaskState.DOWNLOADING) {
             return
         }
-        val dbTask = progressRepository.getProgressInfos().blockingFirst(emptyList())
-            .find { it.id == taskId || it.downloadId == taskId.toLongOrNull() } ?: return
+        // 单条查询取代全表 blockingFirst；SuperX 的 taskId 即 ProgressInfo.id（见 TASK_ID_KEY=videoInfo.id）
+        val dbTask = progressRepository.getProgressInfoById(taskId) ?: return
         if (dbTask.downloadStatus == VideoTaskState.SUCCESS) {
             return
         }
@@ -898,7 +898,21 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
             dbTask.completedAt = System.currentTimeMillis()
         }
 
-        progressRepository.saveProgressInfo(dbTask)
+        // 按列更新：进度/状态列，queuePosition 不被碰；fragments 原样回传（SuperX 不使用分片）
+        progressRepository.updateProgressFields(
+            id = dbTask.id,
+            downloaded = dbTask.progressDownloaded,
+            total = dbTask.progressTotal,
+            fragDownloaded = dbTask.fragmentsDownloaded,
+            fragTotal = dbTask.fragmentsTotal,
+            status = dbTask.downloadStatus,
+            infoLine = dbTask.infoLine,
+            startedAt = dbTask.startedAt,
+            completedAt = dbTask.completedAt,
+            lastError = dbTask.lastError,
+            logPath = dbTask.logPath,
+            isLive = dbTask.isLive
+        )
     }
 
     private fun decodeCookieHeader(headers: Map<String, String>): Map<String, String> {

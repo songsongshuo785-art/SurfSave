@@ -19,6 +19,25 @@ interface ProgressRepository {
     fun saveProgressInfos(progressInfos: List<ProgressInfo>)
 
     fun deleteProgressInfo(progressInfo: ProgressInfo)
+
+    fun updateProgressFields(
+        id: String,
+        downloaded: Long,
+        total: Long,
+        fragDownloaded: Int,
+        fragTotal: Int,
+        status: Int,
+        infoLine: String,
+        startedAt: Long,
+        completedAt: Long,
+        lastError: String,
+        logPath: String,
+        isLive: Boolean
+    )
+
+    fun updateQueuePosition(id: String, position: Long)
+
+    fun updateQueueState(id: String, status: Int, queuedForLater: Boolean, infoLine: String, logPath: String)
 }
 
 @Singleton
@@ -47,5 +66,43 @@ class ProgressRepositoryImpl @Inject constructor(
 
     override fun deleteProgressInfo(progressInfo: ProgressInfo) {
         localDataSource.deleteProgressInfo(progressInfo)
+    }
+
+    override fun updateProgressFields(
+        id: String,
+        downloaded: Long,
+        total: Long,
+        fragDownloaded: Int,
+        fragTotal: Int,
+        status: Int,
+        infoLine: String,
+        startedAt: Long,
+        completedAt: Long,
+        lastError: String,
+        logPath: String,
+        isLive: Boolean
+    ) {
+        localDataSource.updateProgressFields(
+            id,
+            downloaded,
+            total,
+            fragDownloaded,
+            fragTotal,
+            status,
+            infoLine,
+            startedAt,
+            completedAt,
+            lastError,
+            logPath,
+            isLive
+        )
+    }
+
+    override fun updateQueuePosition(id: String, position: Long) {
+        localDataSource.updateQueuePosition(id, position)
+    }
+
+    override fun updateQueueState(id: String, status: Int, queuedForLater: Boolean, infoLine: String, logPath: String) {
+        localDataSource.updateQueueState(id, status, queuedForLater, infoLine, logPath)
     }
 }

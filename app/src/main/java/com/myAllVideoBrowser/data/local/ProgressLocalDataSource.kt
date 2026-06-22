@@ -35,4 +35,42 @@ class ProgressLocalDataSource @Inject constructor(
     override fun deleteProgressInfo(progressInfo: ProgressInfo) {
         progressDao.deleteProgressInfo(progressInfo)
     }
+
+    override fun updateProgressFields(
+        id: String,
+        downloaded: Long,
+        total: Long,
+        fragDownloaded: Int,
+        fragTotal: Int,
+        status: Int,
+        infoLine: String,
+        startedAt: Long,
+        completedAt: Long,
+        lastError: String,
+        logPath: String,
+        isLive: Boolean
+    ) {
+        progressDao.updateProgressFields(
+            id,
+            downloaded,
+            total,
+            fragDownloaded,
+            fragTotal,
+            status,
+            infoLine,
+            startedAt,
+            completedAt,
+            lastError,
+            logPath,
+            isLive
+        )
+    }
+
+    override fun updateQueuePosition(id: String, position: Long) {
+        progressDao.updateQueuePosition(id, position)
+    }
+
+    override fun updateQueueState(id: String, status: Int, queuedForLater: Boolean, infoLine: String, logPath: String) {
+        progressDao.updateQueueState(id, status, queuedForLater, infoLine, logPath)
+    }
 }

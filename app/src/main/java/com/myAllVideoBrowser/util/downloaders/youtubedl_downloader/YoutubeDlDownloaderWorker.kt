@@ -645,62 +645,78 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
         val isBytesNoTouch = line?.total == null || line.total == 0.0
         val iProgressUpdate = task.downloadSize.toInt() > 0
 
-        return progressRepository.getProgressInfos().take(1).toObservable()
-            .flatMap { progressList ->
-                val dbTask = progressList.find { it.id == taskId }
+        return Observable.defer {
+            // 单条查询取代全表订阅，避免每秒全表读
+            val dbTask = progressRepository.getProgressInfoById(taskId)
 
-                if (!isBytesNoTouch) {
-                    dbTask?.progressTotal = (line?.total ?: task.totalSize).toLong()
-                }
-
-                if (task.taskState != VideoTaskState.SUCCESS) {
-                    if (!isBytesNoTouch && iProgressUpdate) {
-                        dbTask?.progressDownloaded = task.downloadSize
-                    }
-                } else {
-                    dbTask?.progressDownloaded = dbTask?.progressTotal ?: -1
-                }
-
-                dbTask?.fragmentsTotal = line?.fragTotal ?: 1
-                dbTask?.fragmentsDownloaded = line?.fragDownloaded ?: 0
-                dbTask?.downloadStatus = task.taskState
-
-                dbTask?.infoLine = line?.sourceLine ?: ""
-                if (dbTask?.logPath.isNullOrBlank()) {
-                    dbTask?.logPath = downloadTaskLogger.logPath(taskId)
-                }
-                if (task.taskState == VideoTaskState.PREPARE ||
-                    task.taskState == VideoTaskState.START ||
-                    task.taskState == VideoTaskState.DOWNLOADING
-                ) {
-                    dbTask?.startedAt = dbTask?.startedAt?.takeIf { it > 0 } ?: System.currentTimeMillis()
-                }
-                if (task.taskState == VideoTaskState.ERROR || task.taskState == VideoTaskState.ENOSPC) {
-                    dbTask?.lastError = task.errorMessage ?: line?.sourceLine.orEmpty()
-                }
-                if (task.taskState == VideoTaskState.SUCCESS ||
-                    task.taskState == VideoTaskState.ERROR ||
-                    task.taskState == VideoTaskState.ENOSPC ||
-                    task.taskState == VideoTaskState.CANCELED
-                ) {
-                    dbTask?.completedAt = System.currentTimeMillis()
-                }
-
-                if (line?.id == "LIVE" && dbTask?.isLive != true) {
-                    dbTask?.isLive = true
-                }
-
-                if (dbTask != null) {
-                    if (getDone() && task.taskState == VideoTaskState.DOWNLOADING) {
-                        AppLogger.d(
-                            "saveProgress task returned cause DONE!!!"
-                        )
-                    } else {
-                        progressRepository.saveProgressInfo(dbTask)
-                    }
-                }
-                Observable.empty()
+            if (!isBytesNoTouch) {
+                dbTask?.progressTotal = (line?.total ?: task.totalSize).toLong()
             }
+
+            if (task.taskState != VideoTaskState.SUCCESS) {
+                if (!isBytesNoTouch && iProgressUpdate) {
+                    dbTask?.progressDownloaded = task.downloadSize
+                }
+            } else {
+                if (dbTask != null && !isBytesNoTouch) {
+                    dbTask.progressDownloaded = dbTask.progressTotal
+                }
+            }
+
+            dbTask?.fragmentsTotal = line?.fragTotal ?: 1
+            dbTask?.fragmentsDownloaded = line?.fragDownloaded ?: 0
+            dbTask?.downloadStatus = task.taskState
+
+            dbTask?.infoLine = line?.sourceLine ?: ""
+            if (dbTask?.logPath.isNullOrBlank()) {
+                dbTask?.logPath = downloadTaskLogger.logPath(taskId)
+            }
+            if (task.taskState == VideoTaskState.PREPARE ||
+                task.taskState == VideoTaskState.START ||
+                task.taskState == VideoTaskState.DOWNLOADING
+            ) {
+                dbTask?.startedAt = dbTask?.startedAt?.takeIf { it > 0 } ?: System.currentTimeMillis()
+            }
+            if (task.taskState == VideoTaskState.ERROR || task.taskState == VideoTaskState.ENOSPC) {
+                dbTask?.lastError = task.errorMessage ?: line?.sourceLine.orEmpty()
+            }
+            if (task.taskState == VideoTaskState.SUCCESS ||
+                task.taskState == VideoTaskState.ERROR ||
+                task.taskState == VideoTaskState.ENOSPC ||
+                task.taskState == VideoTaskState.CANCELED
+            ) {
+                dbTask?.completedAt = System.currentTimeMillis()
+            }
+
+            if (line?.id == "LIVE" && dbTask?.isLive != true) {
+                dbTask?.isLive = true
+            }
+
+            if (dbTask != null) {
+                if (getDone() && task.taskState == VideoTaskState.DOWNLOADING) {
+                    AppLogger.d(
+                        "saveProgress task returned cause DONE!!!"
+                    )
+                } else {
+                    // 按列更新：进度/状态列，queuePosition 不被碰；fragments 由 yt-dlp 维护
+                    progressRepository.updateProgressFields(
+                        id = dbTask.id,
+                        downloaded = dbTask.progressDownloaded,
+                        total = dbTask.progressTotal,
+                        fragDownloaded = dbTask.fragmentsDownloaded,
+                        fragTotal = dbTask.fragmentsTotal,
+                        status = dbTask.downloadStatus,
+                        infoLine = dbTask.infoLine,
+                        startedAt = dbTask.startedAt,
+                        completedAt = dbTask.completedAt,
+                        lastError = dbTask.lastError,
+                        logPath = dbTask.logPath,
+                        isLive = dbTask.isLive
+                    )
+                }
+            }
+            Observable.empty<Unit>()
+        }
     }
 
     private fun deserializeVideoFormat(taskId: String): VideoFormatEntity {

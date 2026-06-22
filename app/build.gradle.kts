@@ -423,6 +423,7 @@ dependencies {
     testImplementation(libs.mockitoCore)
     testImplementation(libs.mockitoKotlin)
     testImplementation(libs.okHttpMockWebServer)
+    testImplementation(libs.robolectric)
     androidTestImplementation(libs.testRunner)
     androidTestImplementation(libs.mockitoAndroid)
     androidTestImplementation(libs.espressoCore)

@@ -91,7 +91,14 @@ class DownloadQueueManager @Inject constructor(
             queuedForLater = false,
             infoLine = "Paused"
         ).withLogPath()
-        progressRepository.saveProgressInfo(paused)
+        // 只更新队列状态列，不覆盖 Worker 正在写的进度列；logPath blank 时补，保持错误详情契约
+        progressRepository.updateQueueState(
+            taskId,
+            VideoTaskState.PAUSE,
+            false,
+            "Paused",
+            task.logPath.ifBlank { taskLogger.logPath(taskId) }
+        )
         taskLogger.info(task.id, "Paused download")
         if (task.isActive) {
             engineRouter.pause(application, paused)
@@ -103,13 +110,16 @@ class DownloadQueueManager @Inject constructor(
     fun resume(taskId: String) {
         val task = progressRepository.getProgressInfoById(taskId) ?: return
         val allTasks = progressRepository.getProgressInfosOnce()
-        val resumed = task.copy(
-            downloadStatus = VideoTaskState.PENDING,
-            queuedForLater = false,
-            infoLine = "Queued",
-            queuePosition = task.queuePosition.takeIf { it > 0 } ?: nextQueuePosition(allTasks)
-        ).withLogPath()
-        progressRepository.saveProgressInfo(resumed)
+        val newPosition = task.queuePosition.takeIf { it > 0 } ?: nextQueuePosition(allTasks)
+        // 队列状态 + 位置按列更新，不覆盖进度列；logPath blank 时补
+        progressRepository.updateQueueState(
+            taskId,
+            VideoTaskState.PENDING,
+            false,
+            "Queued",
+            task.logPath.ifBlank { taskLogger.logPath(taskId) }
+        )
+        progressRepository.updateQueuePosition(taskId, newPosition)
         taskLogger.info(task.id, "Resumed download into queue")
         scheduleNextLocked()
     }
@@ -140,7 +150,14 @@ class DownloadQueueManager @Inject constructor(
             queuedForLater = true,
             infoLine = "Saved for later"
         ).withLogPath()
-        progressRepository.saveProgressInfo(later)
+        // 只更新队列状态列，不覆盖进度列；logPath blank 时补
+        progressRepository.updateQueueState(
+            taskId,
+            VideoTaskState.PAUSE,
+            true,
+            "Saved for later",
+            task.logPath.ifBlank { taskLogger.logPath(taskId) }
+        )
         taskLogger.info(task.id, "Moved download to later")
         if (task.isActive) {
             engineRouter.pause(application, later)
@@ -164,39 +181,42 @@ class DownloadQueueManager @Inject constructor(
         val movable = allTasks.filter { it.canMoveInQueue }.queueSorted()
         val target = movable.firstOrNull { it.id == taskId } ?: return
         val reordered = listOf(target) + movable.filterNot { it.id == taskId }
-        saveReordered(allTasks, reordered)
+        saveReordered(reordered)
         taskLogger.info(taskId, "Moved download to top")
     }
 
     @Synchronized
     fun onTaskTerminal(taskId: String, taskState: Int, errorMessage: String? = null) {
-        val task = progressRepository.getProgressInfoById(taskId)
-        if (task != null) {
-            val now = System.currentTimeMillis()
-            val finalError = errorMessage.orEmpty().ifBlank {
-                if (taskState == VideoTaskState.ERROR || taskState == VideoTaskState.ENOSPC) {
-                    task.infoLine
-                } else {
-                    ""
-                }
-            }
-            val updated = task.copy(
-                downloadStatus = taskState,
-                completedAt = if (taskState.isTerminal()) now else task.completedAt,
-                lastError = if (taskState.isFailure()) finalError else task.lastError,
-                queuedForLater = if (taskState == VideoTaskState.PAUSE) task.queuedForLater else false,
-                logPath = task.logPath.ifBlank { taskLogger.logPath(task.id) }
-            )
-            progressRepository.saveProgressInfo(updated)
-            if (taskState.isFailure()) {
-                taskLogger.error(taskId, "Download failed: ${finalError.ifBlank { "Unknown error" }}")
-            } else {
-                taskLogger.info(taskId, "Download finished with state $taskState")
-            }
-        }
-
+        markTerminalLocked(taskId, taskState, errorMessage)
         if (taskState == VideoTaskState.PAUSE || taskState.isTerminal()) {
             scheduleNextLocked()
+        }
+    }
+
+    // 只更新终态并落库，不触发调度。供 scheduleNextLocked 在 forEach 内 catch 使用，
+    // 避免 catch 内递归调度导致外层 forEach 旧快照里的后续任务被重复启动。
+    private fun markTerminalLocked(taskId: String, taskState: Int, errorMessage: String?) {
+        val task = progressRepository.getProgressInfoById(taskId) ?: return
+        val now = System.currentTimeMillis()
+        val finalError = errorMessage.orEmpty().ifBlank {
+            if (taskState == VideoTaskState.ERROR || taskState == VideoTaskState.ENOSPC) {
+                task.infoLine
+            } else {
+                ""
+            }
+        }
+        val updated = task.copy(
+            downloadStatus = taskState,
+            completedAt = if (taskState.isTerminal()) now else task.completedAt,
+            lastError = if (taskState.isFailure()) finalError else task.lastError,
+            queuedForLater = if (taskState == VideoTaskState.PAUSE) task.queuedForLater else false,
+            logPath = task.logPath.ifBlank { taskLogger.logPath(task.id) }
+        )
+        progressRepository.saveProgressInfo(updated)
+        if (taskState.isFailure()) {
+            taskLogger.error(taskId, "Download failed: ${finalError.ifBlank { "Unknown error" }}")
+        } else {
+            taskLogger.info(taskId, "Download finished with state $taskState")
         }
     }
 
@@ -214,6 +234,8 @@ class DownloadQueueManager @Inject constructor(
             .take(openSlots)
 
         val now = System.currentTimeMillis()
+        var anyStartFailed = false
+        val startedSuccessfully = mutableListOf<ProgressInfo>()
         nextTasks.forEach { task ->
             val shouldResume = task.startedAt > 0L ||
                 task.progressDownloaded > 0L ||
@@ -225,14 +247,33 @@ class DownloadQueueManager @Inject constructor(
             )
             progressRepository.saveProgressInfo(started)
             taskLogger.info(started.id, if (shouldResume) "Resuming queued download" else "Starting queued download")
-            if (shouldResume) {
-                engineRouter.resume(application, started)
-            } else {
-                engineRouter.start(application, started)
+            try {
+                if (shouldResume) {
+                    engineRouter.resume(application, started)
+                } else {
+                    engineRouter.start(application, started)
+                }
+                startedSuccessfully += started
+            } catch (e: Throwable) {
+                // 引擎启动失败：仅标记终态（不在此处递归调度），避免外层 forEach 旧快照里的
+                // 后续任务在递归 scheduleNextLocked 中被启动后又被本循环重复启动
+                taskLogger.error(started.id, "Failed to start download, marking ERROR", e)
+                markTerminalLocked(
+                    started.id,
+                    VideoTaskState.ERROR,
+                    "Failed to start: ${e.message ?: "unknown"}"
+                )
+                anyStartFailed = true
             }
         }
 
-        return nextTasks
+        // 本轮有启动失败 → 其释放的并发槽位在循环结束后统一推进一次；
+        // 此时 forEach 已结束，不会再触碰旧快照，因此不会重复启动后续任务
+        if (anyStartFailed) {
+            scheduleNextLocked()
+        }
+
+        return startedSuccessfully
     }
 
     private fun findDuplicate(tasks: List<ProgressInfo>, fingerprint: String): ProgressInfo? {
@@ -275,7 +316,7 @@ class DownloadQueueManager @Inject constructor(
             val item = list.removeAt(index)
             list.add(newIndex, item)
         }
-        saveReordered(allTasks, reordered)
+        saveReordered(reordered)
         taskLogger.info(taskId, if (direction < 0) "Moved download up" else "Moved download down")
     }
 
@@ -284,19 +325,21 @@ class DownloadQueueManager @Inject constructor(
         if (movable.all { it.queuePosition > 0 }) {
             return tasks
         }
+        // 只更新 movable 的 queuePosition 列，避免整行 REPLACE 覆盖 Worker 正在写的进度
+        movable.forEachIndexed { index, task ->
+            progressRepository.updateQueuePosition(task.id, (index + 1).toLong())
+        }
         val byId = movable.mapIndexed { index, task ->
             task.id to task.copy(queuePosition = (index + 1).toLong())
         }.toMap()
-        val normalized = tasks.map { byId[it.id] ?: it }
-        progressRepository.saveProgressInfos(normalized)
-        return normalized
+        return tasks.map { byId[it.id] ?: it }
     }
 
-    private fun saveReordered(allTasks: List<ProgressInfo>, reordered: List<ProgressInfo>) {
-        val reorderedById = reordered.mapIndexed { index, task ->
-            task.id to task.copy(queuePosition = (index + 1).toLong())
-        }.toMap()
-        progressRepository.saveProgressInfos(allTasks.map { reorderedById[it.id] ?: it })
+    private fun saveReordered(reordered: List<ProgressInfo>) {
+        // 只更新 queuePosition 列，不覆盖进度等其它列
+        reordered.forEachIndexed { index, task ->
+            progressRepository.updateQueuePosition(task.id, (index + 1).toLong())
+        }
     }
 
     private fun nextQueuePosition(tasks: List<ProgressInfo>): Long {
