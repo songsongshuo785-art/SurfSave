@@ -854,6 +854,26 @@ archConfigs.forEach { arch ->
 }
 
 // =========================================================================
+// RESTORE GIT-TRACKED GO LIBS AFTER APK EXPORT
+// =========================================================================
+// copyGoSharedLib_* 把 Go 编译产物写回 src/main/jniLibs（git 跟踪路径），覆盖提交版本。
+// 根因不是 Go 编译非确定性，而是「构建产物写回 git 跟踪源文件」——产物与仓库版本
+// 字节不同即 dirty。这里在 exportDiagnosticApks 之后自动还原，替代手动 git checkout。
+val restoreTrackedGoLibsAfterExport = tasks.register<Exec>("restoreTrackedGoLibsAfterExport") {
+    group = "Go Build"
+    description = "Restores git-tracked libgojni.so overwritten by copyGoSharedLib_* during APK export."
+    val soPaths = archConfigs.map { "src/main/jniLibs/${it.abi}/libgojni.so" }
+    workingDir = projectDir
+    commandLine = listOf("git", "checkout", "--") + soPaths
+    isIgnoreExitValue = false
+}
+
+// finalizedBy：exportDiagnosticApks 执行后（无论成败）都还原，确保 jniLibs 干净
+tasks.named("exportDiagnosticApks") {
+    finalizedBy(restoreTrackedGoLibsAfterExport)
+}
+
+// =========================================================================
 // BUILD LIFECYCLE HOOKS
 // =========================================================================
 
