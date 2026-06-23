@@ -866,6 +866,8 @@ val restoreTrackedGoLibsAfterExport = tasks.register<Exec>("restoreTrackedGoLibs
     workingDir = projectDir
     commandLine = listOf("git", "checkout", "--") + soPaths
     isIgnoreExitValue = false
+    // guard：仅在 git 仓库内执行（源码 zip / 无 git 环境时 finalizer SKIPPED，不拖垮导出）
+    onlyIf { project.rootProject.projectDir.resolve(".git").exists() }
 }
 
 // finalizedBy：exportDiagnosticApks 执行后（无论成败）都还原，确保 jniLibs 干净
