@@ -109,10 +109,10 @@
          Adoption is per-widget in later batches, to keep 0A visual change scoped
          to the M3 semantic mapping above (MaterialButton/BottomNav/SearchBar/Switch). ===== -->
     <style name="Widget.Surf.CardView" parent="Widget.Material3.CardView.Filled">
-        <item name="cardCornerRadius">@dimen/corner_sm</item>
+        <item name="cardCornerRadius">@dimen/corner_md</item>
         <item name="cardElevation">@dimen/elev_resting</item>
-        <item name="strokeColor">@color/sxOutline</item>
-        <item name="strokeWidth">1dp</item>
+        <item name="strokeColor">@android:color/transparent</item>
+        <item name="strokeWidth">0dp</item>
     </style>
     <style name="Widget.Surf.Button" parent="Widget.Material3.Button">
         <item name="android:minHeight">@dimen/min_touch_target</item>

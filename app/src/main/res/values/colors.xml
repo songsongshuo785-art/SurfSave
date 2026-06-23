@@ -1,34 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary_20">#140050CB</color>
-    <color name="colorPrimary">#0050CB</color>
-    <color name="colorPrimaryDark">#003FA4</color>
-    <!-- 0A: colorAccent 收敛到 primary 同色相 tonal（去掉靛蓝 #4657D6），保留 key 作语义别名 -->
-    <color name="colorAccent">#2E6BE6</color>
-    <color name="colorAccentDark">#1B5DC9</color>
-    <color name="sxSurface">#F7F9FE</color>
+    <!-- ===== 现代精致配色（UI 现代化阶段1）：中性背景 + 蓝强调 =====
+         设计原则：蓝从"氛围底色"降级为"精准强调色"，背景/文字/描边回归 slate 中性，
+         去掉蓝色渗透一切带来的廉价感；蓝只留在按钮/激活/品牌位，反而更高级。 -->
+
+    <!-- 品牌强调蓝（精修为当代 blue-600，克制饱和，替换旧 #0050CB 的年代感） -->
+    <color name="colorPrimary_20">#332563EB</color>
+    <color name="colorPrimary">#2563EB</color>
+    <color name="colorPrimaryDark">#1D4ED7</color>
+    <!-- colorAccent 收敛到 primary 同色相 tonal（blue-500） -->
+    <color name="colorAccent">#3B82F6</color>
+    <color name="colorAccentDark">#2563EB</color>
+
+    <!-- 中性 surface 体系（slate 中性，去蓝调渗透） -->
+    <color name="sxSurface">#F8FAFC</color>
     <color name="sxSurfaceRaised">#FFFFFF</color>
-    <color name="sxSurfaceSoft">#EAF1FF</color>
-    <color name="sxSurfaceSelected">#DCE9FF</color>
-    <color name="sxOutline">#C7D2E2</color>
-    <color name="sxTextPrimary">#0B1C30</color>
-    <color name="sxTextSecondary">#55657A</color>
+    <color name="sxSurfaceSoft">#F1F5F9</color>
+    <color name="sxSurfaceSelected">#DBEAFE</color>
+    <color name="sxOutline">#E2E8F0</color>
+    <color name="sxTextPrimary">#0F172A</color>
+    <color name="sxTextSecondary">#64748B</color>
 
     <color name="colorGreen">#D91E9C55</color>
 
-    <!-- 0A: Semantic feedback colors -->
+    <!-- 语义反馈色 -->
     <color name="colorSuccess">#1E9C55</color>
     <color name="colorError">#BA1A1A</color>
     <color name="colorOnError">#FFFFFF</color>
     <color name="colorWarning">#B45309</color>
 
-    <!-- 0A: M3 tonal extensions on primary -->
+    <!-- M3 tonal extensions on primary -->
     <color name="colorOnPrimary">#FFFFFF</color>
-    <color name="colorPrimaryContainer">#DCE9FF</color>
-    <color name="colorOnPrimaryContainer">#001A41</color>
+    <color name="colorPrimaryContainer">#DBEAFE</color>
+    <color name="colorOnPrimaryContainer">#1E3A8A</color>
 
 
-    <color name="color_gray">#55657A</color>
+    <color name="color_gray">#64748B</color>
     <color name="color_gray_2">#94A3B8</color>
 
     <color name="black_15">#26000000</color>

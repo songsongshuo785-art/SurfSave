@@ -1,27 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary_20">#337AB0FF</color>
-    <color name="colorPrimary">#7AB0FF</color>
-    <color name="colorPrimaryDark">#4F7CFF</color>
-    <!-- 0A: colorAccent 收敛到 primary 同色相 tonal（去掉青 #7BD0FF） -->
-    <color name="colorAccent">#A5C8FF</color>
-    <color name="colorAccentDark">#82B0FF</color>
-    <color name="sxSurface">#051424</color>
-    <color name="sxSurfaceRaised">#0F172A</color>
-    <color name="sxSurfaceSoft">#162033</color>
-    <color name="sxSurfaceSelected">#172B4B</color>
+    <!-- ===== 现代精致配色（UI 现代化阶段1，深色）：slate 深底 + 蓝强调 =====
+         层次：surface(slate-900 底) < raised/soft(slate-800 卡片浮起)；蓝强调用 blue-300 亮蓝。 -->
+
+    <color name="colorPrimary_20">#3393C5FD</color>
+    <color name="colorPrimary">#93C5FD</color>
+    <color name="colorPrimaryDark">#60A5FA</color>
+    <!-- colorAccent 收敛到 primary 同色相 tonal -->
+    <color name="colorAccent">#93C5FD</color>
+    <color name="colorAccentDark">#60A5FA</color>
+
+    <!-- 中性 slate 深底体系 -->
+    <color name="sxSurface">#0F172A</color>
+    <color name="sxSurfaceRaised">#1E293B</color>
+    <color name="sxSurfaceSoft">#1E293B</color>
+    <color name="sxSurfaceSelected">#1E3A8A</color>
     <color name="sxOutline">#334155</color>
     <color name="sxTextPrimary">#F8FAFC</color>
     <color name="sxTextSecondary">#94A3B8</color>
 
-    <!-- 0A: Semantic feedback colors (night) -->
+    <!-- 语义反馈色 (night) -->
     <color name="colorSuccess">#4CC38A</color>
     <color name="colorError">#FFB4AB</color>
     <color name="colorOnError">#690005</color>
     <color name="colorWarning">#FFB445</color>
 
-    <!-- 0A: M3 tonal extensions on primary (night) -->
-    <color name="colorOnPrimary">#002E72</color>
-    <color name="colorPrimaryContainer">#004E9C</color>
-    <color name="colorOnPrimaryContainer">#DCE9FF</color>
+    <!-- M3 tonal extensions on primary (night) -->
+    <color name="colorOnPrimary">#0F172A</color>
+    <color name="colorPrimaryContainer">#1E3A8A</color>
+    <color name="colorOnPrimaryContainer">#DBEAFE</color>
 </resources>
