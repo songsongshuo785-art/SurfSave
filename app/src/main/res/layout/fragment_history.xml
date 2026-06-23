@@ -109,6 +109,19 @@
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toBottomOf="@+id/clear_button" />
+
+                <include
+                    android:id="@+id/state_empty"
+                    layout="@layout/state_empty"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:visibility="@{(viewModel.historyItems.isEmpty &amp;&amp; !viewModel.isLoadingHistory()) ? View.VISIBLE : View.GONE}"
+                    app:title="@{@string/history_empty_title}"
+                    app:subtitle="@{@string/history_empty_subtitle}"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
             </androidx.constraintlayout.widget.ConstraintLayout>
 
             <com.google.android.material.search.SearchView
@@ -129,9 +142,11 @@
             </com.google.android.material.search.SearchView>
         </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
-        <ProgressBar
-            android:layout_width="@dimen/browser_loading_size"
-            android:layout_height="@dimen/browser_loading_size"
+        <include
+            android:id="@+id/state_loading"
+            layout="@layout/state_loading"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:visibility="@{viewModel.isLoadingHistory() ? View.VISIBLE : View.GONE}"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintLeft_toLeftOf="parent"

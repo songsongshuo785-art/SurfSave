@@ -1,39 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    通用空态组件（UI 批 1）。
-    include 到列表页后，代码控制 visibility，并通过 state_title/state_subtitle 改文案、
-    state_icon 改图标。统一全 app 的空态样式（图标 + 标题 + 副标题）。
+    通用空态组件（UI 批 1，批 2 接入 data binding）。
+    include 到列表页后，父 layout 通过 android:visibility 控制显隐，
+    通过 app:title / app:subtitle 传文案；subtitle 为空时自动隐藏。
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:padding="@dimen/spacing_xxl"
-    android:visibility="gone">
+<layout xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <ImageView
-        android:id="@+id/state_icon"
-        android:layout_width="72dp"
-        android:layout_height="72dp"
-        android:alpha="0.45"
-        android:contentDescription="@null"
-        android:src="@drawable/noimage_24px" />
+    <data>
 
-    <TextView
-        android:id="@+id/state_title"
-        style="@style/TextAppearance.Surf.Title"
-        android:layout_width="wrap_content"
+        <import type="android.view.View" />
+
+        <variable
+            name="title"
+            type="String" />
+
+        <variable
+            name="subtitle"
+            type="String" />
+    </data>
+
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/spacing_lg"
-        android:gravity="center" />
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="@dimen/spacing_xxl">
 
-    <TextView
-        android:id="@+id/state_subtitle"
-        style="@style/TextAppearance.Surf.Body"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/spacing_xs"
-        android:alpha="0.7"
-        android:gravity="center" />
-</LinearLayout>
+        <ImageView
+            android:id="@+id/state_icon"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:alpha="0.45"
+            android:contentDescription="@null"
+            android:src="@drawable/noimage_24px" />
+
+        <TextView
+            android:id="@+id/state_title"
+            style="@style/TextAppearance.Surf.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/spacing_lg"
+            android:gravity="center"
+            android:text="@{title}" />
+
+        <TextView
+            android:id="@+id/state_subtitle"
+            style="@style/TextAppearance.Surf.Body"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/spacing_xs"
+            android:alpha="0.7"
+            android:gravity="center"
+            android:text="@{subtitle}"
+            android:visibility="@{subtitle == null ? View.GONE : View.VISIBLE}" />
+    </LinearLayout>
+</layout>

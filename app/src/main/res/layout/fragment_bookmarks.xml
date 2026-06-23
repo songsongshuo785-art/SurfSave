@@ -6,6 +6,8 @@
 
     <data>
 
+        <import type="android.view.View" />
+
         <variable
             name="mainVModel"
             type="com.myAllVideoBrowser.ui.main.home.MainViewModel" />
@@ -80,6 +82,19 @@
             android:paddingTop="@dimen/padding_normal"
             android:paddingBottom="@dimen/padding_normal"
             app:items="@{mainVModel.bookmarksList}"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/bookmarks_header" />
+
+        <include
+            android:id="@+id/state_empty"
+            layout="@layout/state_empty"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:visibility="@{mainVModel.bookmarksList.isEmpty ? View.VISIBLE : View.GONE}"
+            app:title="@{@string/bookmarks_empty_title}"
+            app:subtitle="@{@string/bookmarks_empty_subtitle}"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"

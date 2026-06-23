@@ -16,6 +16,10 @@
     <string name="video_rename_invalid">名称无效。请重试！</string>
     <string name="video_rename_exist">视频名称已存在！</string>
     <string name="progress_empty_message">您没有正在下载的视频。</string>
+    <string name="history_empty_title">还没有历史记录</string>
+    <string name="history_empty_subtitle">访问过的页面会显示在这里。</string>
+    <string name="bookmarks_empty_title">还没有书签</string>
+    <string name="bookmarks_empty_subtitle">点 + 收藏你喜欢的页面。</string>
     <string name="settings_general">常规</string>
     <string name="settings_message_open_folder">您的设备上无可用的文件管理器</string>
     <string name="progress_menu_cancel">取消</string>
