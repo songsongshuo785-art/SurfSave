@@ -3,8 +3,9 @@
     <color name="colorPrimary_20">#140050CB</color>
     <color name="colorPrimary">#0050CB</color>
     <color name="colorPrimaryDark">#003FA4</color>
-    <color name="colorAccent">#4657D6</color>
-    <color name="colorAccentDark">#2346C8</color>
+    <!-- 0A: colorAccent 收敛到 primary 同色相 tonal（去掉靛蓝 #4657D6），保留 key 作语义别名 -->
+    <color name="colorAccent">#2E6BE6</color>
+    <color name="colorAccentDark">#1B5DC9</color>
     <color name="sxSurface">#F7F9FE</color>
     <color name="sxSurfaceRaised">#FFFFFF</color>
     <color name="sxSurfaceSoft">#EAF1FF</color>
@@ -14,6 +15,17 @@
     <color name="sxTextSecondary">#55657A</color>
 
     <color name="colorGreen">#D91E9C55</color>
+
+    <!-- 0A: Semantic feedback colors -->
+    <color name="colorSuccess">#1E9C55</color>
+    <color name="colorError">#BA1A1A</color>
+    <color name="colorOnError">#FFFFFF</color>
+    <color name="colorWarning">#B45309</color>
+
+    <!-- 0A: M3 tonal extensions on primary -->
+    <color name="colorOnPrimary">#FFFFFF</color>
+    <color name="colorPrimaryContainer">#DCE9FF</color>
+    <color name="colorOnPrimaryContainer">#001A41</color>
 
 
     <color name="color_gray">#55657A</color>

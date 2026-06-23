@@ -26,4 +26,28 @@
     // Progress screen
     <dimen name="progress_icon_size">56dp</dimen>
 
+    // ===== Design tokens (0A) =====
+    // Spacing scale
+    <dimen name="spacing_xs">4dp</dimen>
+    <dimen name="spacing_sm">8dp</dimen>
+    <dimen name="spacing_md">12dp</dimen>
+    <dimen name="spacing_lg">16dp</dimen>
+    <dimen name="spacing_xl">24dp</dimen>
+    <dimen name="spacing_xxl">32dp</dimen>
+
+    // Corner scale
+    <dimen name="corner_xs">4dp</dimen>
+    <dimen name="corner_sm">8dp</dimen>
+    <dimen name="corner_md">12dp</dimen>
+    <dimen name="corner_lg">16dp</dimen>
+
+    // Elevation
+    <dimen name="elev_resting">0dp</dimen>
+    <dimen name="elev_raised">1dp</dimen>
+    <dimen name="elev_overlay">3dp</dimen>
+    <dimen name="elev_drag">6dp</dimen>
+
+    // Touch target
+    <dimen name="min_touch_target">48dp</dimen>
+
 </resources>

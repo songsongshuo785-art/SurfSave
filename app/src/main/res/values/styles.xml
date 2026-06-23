@@ -21,9 +21,33 @@
         <item name="android:statusBarColor">@color/sxSurface</item>
         <item name="android:navigationBarColor">@color/sxSurface</item>
         <item name="android:windowBackground">@color/sxSurface</item>
+
+        <!-- Legacy brand aliases (kept for existing R.color references) -->
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
         <item name="colorAccent">@color/colorAccent</item>
+
+        <!-- M3 semantic color mapping (0A): wire sx* palette into Material3 attrs
+             so MaterialButton / BottomNavigationView / SearchBar / Switch eat project
+             colors instead of falling back to M3 defaults. -->
+        <item name="colorOnPrimary">@color/colorOnPrimary</item>
+        <item name="colorPrimaryContainer">@color/colorPrimaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/colorOnPrimaryContainer</item>
+        <item name="colorSecondary">@color/colorAccent</item>
+        <item name="colorOnSecondary">@color/colorOnPrimary</item>
+        <item name="colorError">@color/colorError</item>
+        <item name="colorOnError">@color/colorOnError</item>
+        <item name="colorSurface">@color/sxSurface</item>
+        <item name="colorOnSurface">@color/sxTextPrimary</item>
+        <item name="colorSurfaceVariant">@color/sxSurfaceSoft</item>
+        <item name="colorOnSurfaceVariant">@color/sxTextSecondary</item>
+        <item name="colorOutline">@color/sxOutline</item>
+        <item name="colorOutlineVariant">@color/sxOutline</item>
+
+        <!-- M3 shape tokens (0A) -->
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Surf.SmallComponent</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Surf.MediumComponent</item>
+        <item name="shapeAppearanceLargeComponent">@style/ShapeAppearance.Surf.LargeComponent</item>
     </style>
 
     <style name="AppTheme" parent="Base.AppTheme">
@@ -33,6 +57,69 @@
     <style name="customImageViewRounded" parent="">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">8dp</item>
+    </style>
+
+    <!-- ===== Shape appearance tokens (0A) ===== -->
+    <style name="ShapeAppearance.Surf.SmallComponent" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/corner_sm</item>
+    </style>
+    <style name="ShapeAppearance.Surf.MediumComponent" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/corner_md</item>
+    </style>
+    <style name="ShapeAppearance.Surf.LargeComponent" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/corner_lg</item>
+    </style>
+
+    <!-- ===== Text appearances (0A) ===== -->
+    <style name="TextAppearance.Surf.Headline" parent="">
+        <item name="android:textSize">@dimen/text_xxlarge</item>
+        <item name="android:textColor">@color/sxTextPrimary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.Surf.Title" parent="">
+        <item name="android:textSize">@dimen/text_xlarge</item>
+        <item name="android:textColor">@color/sxTextPrimary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.Surf.Body" parent="">
+        <item name="android:textSize">@dimen/text_medium</item>
+        <item name="android:textColor">@color/sxTextPrimary</item>
+    </style>
+    <style name="TextAppearance.Surf.Label" parent="">
+        <item name="android:textSize">@dimen/text_small</item>
+        <item name="android:textColor">@color/sxTextSecondary</item>
+    </style>
+    <style name="TextAppearance.Surf.Caption" parent="">
+        <item name="android:textSize">@dimen/text_tiny</item>
+        <item name="android:textColor">@color/sxTextSecondary</item>
+    </style>
+
+    <!-- ===== Widget styles (0A): DEFINED ONLY, NOT globally applied in theme.
+         Adoption is per-widget in later batches, to keep 0A visual change scoped
+         to the M3 semantic mapping above (MaterialButton/BottomNav/SearchBar/Switch). ===== -->
+    <style name="Widget.Surf.CardView" parent="Widget.Material3.CardView.Filled">
+        <item name="cardCornerRadius">@dimen/corner_sm</item>
+        <item name="cardElevation">@dimen/elev_resting</item>
+        <item name="strokeColor">@color/sxOutline</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+    <style name="Widget.Surf.Button" parent="Widget.Material3.Button">
+        <item name="android:minHeight">@dimen/min_touch_target</item>
+        <item name="cornerRadius">@dimen/corner_sm</item>
+    </style>
+    <style name="Widget.Surf.Button.OutlinedButton" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minHeight">@dimen/min_touch_target</item>
+        <item name="cornerRadius">@dimen/corner_sm</item>
+    </style>
+    <style name="Widget.Surf.Button.TextButton" parent="Widget.Material3.Button.TextButton">
+        <item name="android:minHeight">@dimen/min_touch_target</item>
+        <item name="cornerRadius">@dimen/corner_sm</item>
+    </style>
+    <style name="Widget.Surf.Switch" parent="Widget.Material3.CompoundButton.Switch">
+        <item name="android:minHeight">@dimen/min_touch_target</item>
     </style>
 
 </resources>
