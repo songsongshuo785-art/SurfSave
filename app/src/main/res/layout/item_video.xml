@@ -25,7 +25,7 @@
         android:layout_marginVertical="@dimen/padding_tiny"
         android:clickable="true"
         android:focusable="true"
-        android:onClick="@{() -> videoListener.onItemClicked(localVideo)}"
+        android:onClick="@{() -> videoListener.onItemClicked(localVideo, ivThumbnail)}"
         app:cardBackgroundColor="@color/sxSurfaceRaised"
         app:cardCornerRadius="@dimen/corner_sm"
         app:cardElevation="@dimen/elev_resting"

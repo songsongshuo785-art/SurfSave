@@ -1,5 +1,6 @@
 package com.myAllVideoBrowser.ui.main.video
 
+import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
@@ -131,14 +132,15 @@ class VideoFragment : BaseFragment() {
             disposable =
                 videoViewModel.findVideoByName(downloadFilename).subscribeOn(Schedulers.io())
                     .observeOn(Schedulers.single()).subscribe { video ->
-                        startVideo(video)
+                        // 事件驱动场景（下载通知等，无可见源缩略图），降级为普通 Activity 过渡
+                        startVideo(video, null)
                     }
         }
     }
 
     private val videoListener = object : VideoListener {
-        override fun onItemClicked(localVideo: LocalVideo) {
-            startVideo(localVideo)
+        override fun onItemClicked(localVideo: LocalVideo, sharedView: View) {
+            startVideo(localVideo, sharedView)
         }
 
         override fun onMenuClicked(view: View, localVideo: LocalVideo) {
@@ -247,16 +249,21 @@ class VideoFragment : BaseFragment() {
     }
 
     @OptIn(UnstableApi::class)
-    private fun startVideo(localVideo: LocalVideo) {
-        startActivity(
-            Intent(
-                requireContext(), VideoPlayerActivity::class.java
-            ).apply {
-                putExtra(VideoPlayerFragment.VIDEO_NAME, localVideo.name)
-                putExtra(
-                    VideoPlayerFragment.VIDEO_URL, localVideo.uri.toString()
-                )
-            })
+    private fun startVideo(localVideo: LocalVideo, sharedView: View? = null) {
+        val intent = Intent(requireContext(), VideoPlayerActivity::class.java).apply {
+            putExtra(VideoPlayerFragment.VIDEO_NAME, localVideo.name)
+            putExtra(VideoPlayerFragment.VIDEO_URL, localVideo.uri.toString())
+        }
+        // 共享元素过渡：缩略图 → 播放器变形。源 View 点击瞬间设 transitionName
+        //（adapter bind 时清除，保证屏幕上仅被点击项有此名，避免重名冲突）。
+        // 事件场景 sharedView=null 退回普通 Activity 过渡。
+        val options = sharedView?.let { view ->
+            view.transitionName = "surf_video_thumb"
+            ActivityOptions.makeSceneTransitionAnimation(
+                requireActivity(), view, "surf_video_thumb"
+            ).toBundle()
+        }
+        startActivity(intent, options)
     }
 
     private fun isVideoInHiddenFolderFolder(video: LocalVideo): Boolean {

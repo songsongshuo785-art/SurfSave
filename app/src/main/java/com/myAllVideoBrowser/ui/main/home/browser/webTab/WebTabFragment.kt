@@ -14,6 +14,7 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.app.ActivityOptions
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -1190,7 +1191,7 @@ class WebTabFragment : BaseWebTabFragment() {
 
     @OptIn(UnstableApi::class)
     private fun onVideoPreviewPropagate(
-        videoInfo: VideoInfo, format: String, isForce: Boolean
+        videoInfo: VideoInfo, format: String, isForce: Boolean, sharedView: View? = null
     ) {
         AppLogger.d(
             "onPreviewVideo: ${videoInfo.formats}  $format"
@@ -1202,29 +1203,28 @@ class WebTabFragment : BaseWebTabFragment() {
             "try{document.querySelectorAll('video,audio').forEach(function(v){v.pause()})}catch(e){}", null
         )
 
-        // start your activity by passing the intent
-        startActivity(
-            Intent(
-                requireContext(), VideoPlayerActivity::class.java
-            ).apply {
-                // you can add values(if any) to pass to the next class or avoid using `.apply`
-                putExtra(VideoPlayerFragment.VIDEO_NAME, videoInfo.title)
-                if (selectedFormat != null) {
-                    val headers = selectedFormat.httpHeaders?.let {
-                        JSONObject(
-                            selectedFormat.httpHeaders ?: emptyMap<String, String>()
-                        ).toString()
-                    } ?: "{}"
+        val intent = Intent(requireContext(), VideoPlayerActivity::class.java).apply {
+            putExtra(VideoPlayerFragment.VIDEO_NAME, videoInfo.title)
+            if (selectedFormat != null) {
+                val headers = selectedFormat.httpHeaders?.let {
+                    JSONObject(
+                        selectedFormat.httpHeaders ?: emptyMap<String, String>()
+                    ).toString()
+                } ?: "{}"
 
-                    putExtra(
-                        VideoPlayerFragment.VIDEO_URL, selectedFormat.url
-                    )
-                    val headersFinal = if (isForce) "{}" else headers
-                    putExtra(
-                        VideoPlayerFragment.VIDEO_HEADERS, headersFinal
-                    )
-                }
-            })
+                putExtra(VideoPlayerFragment.VIDEO_URL, selectedFormat.url)
+                val headersFinal = if (isForce) "{}" else headers
+                putExtra(VideoPlayerFragment.VIDEO_HEADERS, headersFinal)
+            }
+        }
+        // 共享元素过渡：检测视频 sheet 缩略图 → 播放器变形（与 VideoFragment 列表共用 "surf_video_thumb"）
+        val options = sharedView?.let { view ->
+            view.transitionName = "surf_video_thumb"
+            ActivityOptions.makeSceneTransitionAnimation(
+                requireActivity(), view, "surf_video_thumb"
+            ).toBundle()
+        }
+        startActivity(intent, options)
     }
 
     private fun onVideoDownloadPropagate(
@@ -2523,9 +2523,9 @@ class WebTabFragment : BaseWebTabFragment() {
         }
 
         override fun onPreviewVideo(
-            videoInfo: VideoInfo, format: String, isForce: Boolean
+            videoInfo: VideoInfo, sharedView: View, format: String, isForce: Boolean
         ) {
-            onVideoPreviewPropagate(videoInfo, format, isForce)
+            onVideoPreviewPropagate(videoInfo, format, isForce, sharedView)
         }
 
         override fun onDownloadVideo(

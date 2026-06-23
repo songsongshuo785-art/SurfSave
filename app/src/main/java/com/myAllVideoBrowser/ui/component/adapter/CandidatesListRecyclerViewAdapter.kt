@@ -2,6 +2,7 @@ package com.myAllVideoBrowser.ui.component.adapter
 
 import android.annotation.SuppressLint
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.databinding.ObservableField
 import androidx.recyclerview.widget.DiffUtil
@@ -26,7 +27,7 @@ interface DownloadVideoListener {
 
 interface DownloadTabVideoListener {
     fun onPreviewVideo(
-        videoInfo: VideoInfo, format: String, isForce: Boolean
+        videoInfo: VideoInfo, sharedView: View, format: String, isForce: Boolean
     )
 
     fun onDownloadVideo(

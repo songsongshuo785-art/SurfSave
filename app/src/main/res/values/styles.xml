@@ -22,6 +22,14 @@
         <item name="android:navigationBarColor">@color/sxSurface</item>
         <item name="android:windowBackground">@color/sxSurface</item>
 
+        <!-- Shared-element transition (batch 3b): enable Activity scene transitions
+             so the thumbnail -> VideoPlayer morph can run. surf_shared_element.xml
+             defines changeBounds + changeTransform + changeClipBounds. PlayerView uses
+             texture_view (see fragment_player.xml) so it can participate in the morph. -->
+        <item name="android:windowActivityTransitions">true</item>
+        <item name="android:windowContentTransitions">true</item>
+        <item name="android:windowSharedElementEnterTransition">@transition/surf_shared_element</item>
+
         <!-- Legacy brand aliases (kept for existing R.color references) -->
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>

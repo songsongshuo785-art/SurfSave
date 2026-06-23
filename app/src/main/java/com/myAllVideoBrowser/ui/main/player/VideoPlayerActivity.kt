@@ -31,6 +31,7 @@ class VideoPlayerActivity : BaseActivity() {
     private var lastRequestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        postponeEnterTransition()  // 共享元素过渡：等缩略图→播放器首帧就绪再开演（防黑帧）
         super.onCreate(savedInstanceState)
         initialRequestedOrientation = requestedOrientation
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)

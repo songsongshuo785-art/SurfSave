@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SurfSave: 缩略图 → 播放器共享元素过渡。三要素协同变形，保证缩略图位置/尺寸/圆角
+     平滑过渡到 PlayerView 全屏，配合 VideoPlayerActivity postponeEnterTransition 防黑帧。 -->
+<transitionSet xmlns:android="http://schemas.android.com/apk/res/android"
+    android:transitionOrdering="together"
+    android:duration="300"
+    android:interpolator="@android:interpolator/fast_out_slow_in">
+
+    <changeBounds />
+
+    <changeTransform />
+
+    <changeClipBounds />
+</transitionSet>

@@ -202,7 +202,7 @@
                     android:layout_height="48dp"
                     android:layout_marginEnd="@dimen/padding_small"
                     android:layout_weight="1"
-                    android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, viewModel.selectedFormats.get(videoInfo.id), false)}"
+                    android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
                     android:text="@string/dialog_preview_video"
                     android:textColor="@color/sxTextPrimary"
                     android:textSize="@dimen/text_small"

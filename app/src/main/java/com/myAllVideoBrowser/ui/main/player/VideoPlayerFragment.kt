@@ -149,6 +149,8 @@ class VideoPlayerFragment : BaseFragment() {
             currentBinding.viewModel = videoPlayerViewModel
             currentBinding.btnBack.setOnClickListener(navigationIconClickListener)
             currentBinding.videoView.player = player
+            // 共享元素过渡目标端 transitionName，与 VideoFragment.startVideo 源端 "surf_video_thumb" 一致
+            currentBinding.videoView.transitionName = "surf_video_thumb"
             currentBinding.videoView.setShowBuffering(SHOW_BUFFERING_ALWAYS)
             // 默认画面比例：FIT（完整显示，不裁切不变形）。全屏按钮不再绑定 ZOOM，
             // 用户如需裁切/填满，通过「更多」右侧的画面比例入口显式选择。
@@ -172,14 +174,19 @@ class VideoPlayerFragment : BaseFragment() {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_READY && player.playWhenReady) {
                         currentBinding.loadingBar.visibility = View.GONE
+                        // 首帧就绪：启动缩略图→播放器共享元素过渡（仅一次，防黑帧）
+                        maybeStartPostponedTransition()
                     } else if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
                         currentBinding.loadingBar.visibility = View.GONE
+                        // 兜底：确保过渡不因 player 状态无限推迟
+                        maybeStartPostponedTransition()
                     } else {
                         currentBinding.loadingBar.visibility = View.VISIBLE
                     }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    maybeStartPostponedTransition()  // 兜底：出错也必须启动过渡，否则界面卡死
                     if (videoPlayerViewModel.videoUrl.get().toString().startsWith("http")) {
                         AlertDialog.Builder(requireContext())
                             .setTitle(getString(R.string.player_download_only_title))
@@ -216,6 +223,17 @@ class VideoPlayerFragment : BaseFragment() {
         applyTopBarInsets()
         videoPlayerViewModel.start()
         getActivity(context)?.let { appUtil.hideSystemUI(it.window, dataBinding.root) }
+        // 超时兜底：极端情况下 player 不进 READY/ERROR（如初始化异常），1.5s 后强制启动过渡，避免界面卡死
+        dataBinding.root.postDelayed({ maybeStartPostponedTransition() }, 1500)
+    }
+
+    /** 共享元素过渡（缩略图→播放器）启动控制：保证 startPostponedEnterTransition 只调一次。
+     *  由 player STATE_READY/ENDED/IDLE、onPlayerError、onViewCreated 1.5s 超时三路触发。 */
+    private var sharedElementTransitionStarted = false
+    private fun maybeStartPostponedTransition() {
+        if (sharedElementTransitionStarted) return
+        sharedElementTransitionStarted = true
+        activity?.startPostponedEnterTransition()
     }
 
     /**

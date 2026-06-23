@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import androidx.databinding.DataBindingUtil
@@ -145,10 +146,11 @@ class VideoInfoAdapter(
 
                     override fun onPreviewVideo(
                         videoInfo: VideoInfo,
+                        sharedView: View,
                         format: String,
                         isForce: Boolean
                     ) {
-                        candidateFormatListener.onPreviewVideo(videoInfo, format, isForce)
+                        candidateFormatListener.onPreviewVideo(videoInfo, sharedView, format, isForce)
                     }
 
                     override fun onFormatUrlShare(videoInfo: VideoInfo, format: String): Boolean {

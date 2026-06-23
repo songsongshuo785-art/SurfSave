@@ -47,6 +47,8 @@ class VideoAdapter(
             with(binding) {
                 this.localVideo = localVideo
                 this.videoListener = videoListener
+                // 清除残留 transitionName：保证列表中仅被点击项在 startVideo 时持有共享元素名，避免重名冲突
+                this.ivThumbnail.transitionName = null
                 this.cardVideo.setCardBackgroundColor(itemView.context.getColor(R.color.sxSurfaceRaised))
                 val thumbnailOptions = RequestOptions()
                     .frame(localVideo.thumbnailFrameMicros)
@@ -79,7 +81,7 @@ class VideoAdapter(
 }
 
 interface VideoListener {
-    fun onItemClicked(localVideo: LocalVideo)
+    fun onItemClicked(localVideo: LocalVideo, sharedView: View)
     fun onMenuClicked(view: View, localVideo: LocalVideo)
     fun onSourceClicked(localVideo: LocalVideo)
 }
