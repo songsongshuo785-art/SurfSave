@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <data>
 
@@ -11,54 +12,88 @@
             type="com.myAllVideoBrowser.ui.main.player.VideoPlayerViewModel" />
     </data>
 
+    <!--
+        播放器布局（重构版）：
+        - PlayerView 四边锚 parent 真正铺满（原版锚到 toolbar 导致视频区被压、产生大黑边）；
+        - 顶部合成单条 overlay 栏 top_bar（最后声明=z-order 最上）盖在视频之上：
+          左返回 / 中标题(0dp+weight 单行省略，不会被按钮挤掉) / 右 [速度][比例][小窗][更多]；
+        - top_bar 的 padding（含 status bar/刘海安全区 inset）由 VideoPlayerFragment.applyTopBarInsets
+          用 WindowInsets 统一计算（不在 XML 写死，避免横屏刘海 left/right 贴边）；
+        - 按钮 minWidth/minHeight=48dp 保证触控尺寸。
+    -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@android:color/black"
-        android:orientation="vertical">
+        android:background="@android:color/black">
 
         <androidx.media3.ui.PlayerView
-            android:background="@android:color/transparent"
             android:id="@+id/video_view"
-            android:layout_centerInParent="true"
-            android:layout_gravity="center"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@android:color/transparent"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="@+id/toolbar"
+            app:layout_constraintTop_toTopOf="parent"
             app:show_timeout="0"
             app:use_controller="true" />
 
         <ProgressBar
             android:id="@+id/loading_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:visibility="visible"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            app:layout_constraintTop_toTopOf="parent" />
 
         <LinearLayout
-            android:id="@+id/extra_controls"
-            android:layout_width="wrap_content"
+            android:id="@+id/top_bar"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:layout_marginEnd="12dp"
+            android:background="@color/black_15"
+            android:gravity="center_vertical"
             android:orientation="horizontal"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintEnd_toEndOf="parent">
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <ImageButton
+                android:id="@+id/btn_back"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/player_back"
+                android:scaleType="center"
+                android:src="@drawable/ic_arrow_back_white_24dp" />
+
+            <TextView
+                android:id="@+id/tv_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:maxLines="1"
+                android:text="@{viewModel.videoName}"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                tools:text="Video title" />
 
             <TextView
                 android:id="@+id/btn_speed"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="6dp"
                 android:background="@drawable/bg_player_control_chip"
                 android:clickable="true"
                 android:focusable="true"
+                android:gravity="center"
+                android:minWidth="48dp"
+                android:minHeight="48dp"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="6dp"
                 android:text="1x"
@@ -66,12 +101,33 @@
                 android:textSize="14sp" />
 
             <TextView
-                android:id="@+id/btn_pip"
+                android:id="@+id/btn_aspect"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
                 android:background="@drawable/bg_player_control_chip"
                 android:clickable="true"
                 android:focusable="true"
+                android:gravity="center"
+                android:minWidth="48dp"
+                android:minHeight="48dp"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:text="@string/player_aspect_fit_short"
+                android:textColor="@android:color/white"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/btn_pip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/bg_player_control_chip"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:minWidth="48dp"
+                android:minHeight="48dp"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="6dp"
                 android:text="@string/player_pip"
@@ -79,29 +135,22 @@
                 android:textSize="14sp" />
 
             <TextView
-                android:id="@+id/btn_tracks"
+                android:id="@+id/btn_more"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
                 android:background="@drawable/bg_player_control_chip"
                 android:clickable="true"
+                android:contentDescription="@string/player_more"
                 android:focusable="true"
+                android:gravity="center"
+                android:minWidth="48dp"
+                android:minHeight="48dp"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="6dp"
-                android:text="@string/player_tracks"
+                android:text="@string/player_overflow"
                 android:textColor="@android:color/white"
-                android:textSize="14sp" />
+                android:textSize="18sp" />
         </LinearLayout>
-
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@color/black_15"
-            app:layout_constraintTop_toTopOf="parent"
-            app:navigationIcon="@drawable/ic_arrow_back_white_24dp"
-            app:title="@{viewModel.videoName}"
-            app:titleTextColor="@android:color/white" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 

@@ -11,9 +11,13 @@ import android.view.MotionEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.net.toUri
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.ViewModelProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -23,6 +27,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
@@ -54,6 +59,8 @@ class VideoPlayerFragment : BaseFragment() {
         const val VIDEO_HEADERS = "video_headers"
         const val VIDEO_NAME = "video_name"
         private const val SEEK_INCREMENT_MS = 10_000L
+        private const val TOP_BAR_PADDING_DP = 4
+        private const val MENU_TRACKS = 1
     }
 
     @Inject
@@ -82,19 +89,16 @@ class VideoPlayerFragment : BaseFragment() {
     private lateinit var videoPlayerViewModel: VideoPlayerViewModel
 
     private lateinit var dataBinding: FragmentPlayerBinding
-    private var isStretched = false
 
     /** 供 VideoPlayerActivity 构造 PiP 参数 / 控制播放用；view 销毁后返回 null 避免操作已 release 的 player。 */
     fun getPlayerOrNull(): ExoPlayer? {
         return if (::player.isInitialized && view != null) player else null
     }
 
-    /** PiP 模式切换：进入时隐藏所有自定义控件层（PiP 只显示视频画面），退出时恢复。 */
+    /** PiP 模式切换：进入时隐藏顶部控制栏（PiP 只显示视频画面），退出时恢复。 */
     fun setPipMode(inPip: Boolean) {
         if (!::dataBinding.isInitialized) return
-        // toolbar 在拉伸状态(isStretched)也应隐藏；PiP 或拉伸时隐藏，否则显示
-        dataBinding.toolbar.visibility = if (inPip || isStretched) View.GONE else View.VISIBLE
-        dataBinding.extraControls.visibility = if (inPip) View.GONE else View.VISIBLE
+        dataBinding.topBar.visibility = if (inPip) View.GONE else View.VISIBLE
         dataBinding.videoView.useController = !inPip
     }
 
@@ -143,18 +147,20 @@ class VideoPlayerFragment : BaseFragment() {
             val currentBinding = this
 
             currentBinding.viewModel = videoPlayerViewModel
-            currentBinding.toolbar.setNavigationOnClickListener(navigationIconClickListener)
+            currentBinding.btnBack.setOnClickListener(navigationIconClickListener)
             currentBinding.videoView.player = player
             currentBinding.videoView.setShowBuffering(SHOW_BUFFERING_ALWAYS)
-            currentBinding.videoView.setFullscreenButtonClickListener {
-                toggleStretchMode()
-            }
+            // 默认画面比例：FIT（完整显示，不裁切不变形）。全屏按钮不再绑定 ZOOM，
+            // 用户如需裁切/填满，通过「更多」右侧的画面比例入口显式选择。
+            currentBinding.videoView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
 
             currentBinding.btnSpeed.setOnClickListener { showSpeedPicker() }
+            currentBinding.btnAspect.setOnClickListener { showAspectPicker() }
             currentBinding.btnPip.setOnClickListener {
                 (activity as? VideoPlayerActivity)?.enterPipIfPossible()
             }
-            currentBinding.btnTracks.setOnClickListener { showTracksPicker() }
+            // 「更多」按钮弹出真菜单（当前仅轨道选择，为后续扩展留口），避免叫"更多"却直接跳单一功能
+            currentBinding.btnMore.setOnClickListener { showOverflowMenu() }
 
             // 双击左/右半屏快退/快进；返回 false 不消费触摸，让 PlayerView controller 正常显示/隐藏
             currentBinding.videoView.setOnTouchListener { _, e ->
@@ -187,6 +193,11 @@ class VideoPlayerFragment : BaseFragment() {
                     }
                     Toast.makeText(context, getString(R.string.player_playback_error), Toast.LENGTH_LONG).show()
                 }
+
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    // 实际显示尺寸（含旋转/像素比）由 VideoGeometry 统一计算，驱动 Activity 自动旋转
+                    (activity as? VideoPlayerActivity)?.onVideoSizeChanged(videoSize)
+                }
             })
 
             val mediaItem: MediaItem = MediaItem.fromUri(url)
@@ -202,8 +213,30 @@ class VideoPlayerFragment : BaseFragment() {
         super.onViewCreated(view, savedInstanceState)
         handleBackPressed()
         handlePlayerEvents()
+        applyTopBarInsets()
         videoPlayerViewModel.start()
         getActivity(context)?.let { appUtil.hideSystemUI(it.window, dataBinding.root) }
+    }
+
+    /**
+     * 顶部控制栏补 status bar / 刘海安全区 inset（沉浸式下系统栏可见时也不被遮挡）。
+     * - base 为常量（不取 v.padding），避免反复 dispatch 时 padding 累加；
+     * - 四向都补 inset，横屏刘海/挖孔在左/右时左右按钮不贴危险区；
+     * - 显式 requestApplyInsets，触发沉浸式下首次 inset 派发。
+     */
+    private fun applyTopBarInsets() {
+        val base = (TOP_BAR_PADDING_DP * resources.displayMetrics.density).toInt()
+        ViewCompat.setOnApplyWindowInsetsListener(dataBinding.topBar) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updatePadding(
+                left = base + bars.left,
+                top = base + bars.top,
+                right = base + bars.right,
+                bottom = base
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(dataBinding.topBar)
     }
 
     private fun getActivity(context: Context?): Activity? {
@@ -281,16 +314,52 @@ class VideoPlayerFragment : BaseFragment() {
         activity?.finish()
     }
 
-    private fun toggleStretchMode() {
-        isStretched = !isStretched
-
-        if (isStretched) {
-            dataBinding.videoView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            dataBinding.toolbar.visibility = View.GONE
-        } else {
-            dataBinding.videoView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-            dataBinding.toolbar.visibility = View.VISIBLE
+    /** 「更多」按钮：弹出真菜单（当前仅"音轨/字幕"，后续可扩展）。 */
+    private fun showOverflowMenu() {
+        val popup = PopupMenu(requireContext(), dataBinding.btnMore)
+        popup.menu.add(0, MENU_TRACKS, 0, getString(R.string.player_tracks))
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_TRACKS -> {
+                    showTracksPicker()
+                    true
+                }
+                else -> false
+            }
         }
+        popup.show()
+    }
+
+    private fun showAspectPicker() {
+        // 菜单用解释文案（裁切保留"会裁掉边缘"提示），按钮只显示短文案，避免长文案挤掉标题
+        val labels = arrayOf(
+            getString(R.string.player_aspect_fit),
+            getString(R.string.player_aspect_fill),
+            getString(R.string.player_aspect_crop)
+        )
+        val shortLabels = arrayOf(
+            getString(R.string.player_aspect_fit_short),
+            getString(R.string.player_aspect_fill_short),
+            getString(R.string.player_aspect_crop_short)
+        )
+        val modes = intArrayOf(
+            AspectRatioFrameLayout.RESIZE_MODE_FIT,
+            AspectRatioFrameLayout.RESIZE_MODE_FILL,
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        )
+        val current = when (dataBinding.videoView.resizeMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_FILL -> 1
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> 2
+            else -> 0
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(getString(R.string.player_aspect_title))
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                dataBinding.videoView.resizeMode = modes[which]
+                dataBinding.btnAspect.text = shortLabels[which]
+                dialog.dismiss()
+            }
+            .show()
     }
 
     private fun showSpeedPicker() {

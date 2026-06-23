@@ -248,6 +248,16 @@
   <string name="player_download_only_title">Download Only</string>
   <string name="player_download_only_message">This video supports only download.</string>
   <string name="player_playback_error">Playback error</string>
+  <string name="player_back">Back</string>
+  <string name="player_more">More</string>
+  <string name="player_overflow">⋮</string>
+  <string name="player_aspect_title">Aspect ratio</string>
+  <string name="player_aspect_fit">Fit</string>
+  <string name="player_aspect_fill">Fill</string>
+  <string name="player_aspect_crop">Crop (cuts edges)</string>
+  <string name="player_aspect_fit_short">Fit</string>
+  <string name="player_aspect_fill_short">Fill</string>
+  <string name="player_aspect_crop_short">Crop</string>
   <string name="found_videos_from">Found videos from %1$s</string>
   <string name="video_detection_threshold">Video detection threshold: </string>
   <string name="lock_screen_orientation_portrait">Lock portrait screen orientation</string>

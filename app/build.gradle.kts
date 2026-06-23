@@ -50,7 +50,7 @@ val skipGoBuild = (project.findProperty("SKIP_GO_BUILD")?.toString()
     ?.toBoolean() ?: false
 val abiFilterList = (project.findProperty("ABI_FILTERS") as? String ?: "").split(';')
 val baseVersionCode = 1_777_830_478
-val baseVersionName = "0.8.26"
+val baseVersionName = "0.8.27"
 val exportStamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
 val testBuildVersionCode = ((project.findProperty("TEST_BUILD_CODE")?.toString()
     ?: System.getenv("TEST_BUILD_CODE"))?.toIntOrNull()

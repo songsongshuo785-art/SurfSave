@@ -126,6 +126,16 @@
     <string name="player_download_only_title">仅支持下载</string>
     <string name="player_download_only_message">该视频仅支持下载，无法在线播放。</string>
     <string name="player_playback_error">播放出错</string>
+    <string name="player_back">返回</string>
+    <string name="player_more">更多</string>
+    <string name="player_overflow">⋮</string>
+    <string name="player_aspect_title">画面比例</string>
+    <string name="player_aspect_fit">适应</string>
+    <string name="player_aspect_fill">填满</string>
+    <string name="player_aspect_crop">裁切（会裁掉边缘）</string>
+    <string name="player_aspect_fit_short">适应</string>
+    <string name="player_aspect_fill_short">填满</string>
+    <string name="player_aspect_crop_short">裁切</string>
     <string name="found_videos_from">发现来自 %1$s 的视频</string>
     <string name="video_detection_threshold">视频检测阈值：</string>
     <string name="lock_screen_orientation_portrait">锁定竖屏</string>

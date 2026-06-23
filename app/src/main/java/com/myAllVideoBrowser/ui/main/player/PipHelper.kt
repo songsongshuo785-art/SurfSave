@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.myAllVideoBrowser.R
+import kotlin.math.roundToInt
 
 /**
  * Media3 版 PiP 帮助类：按 player.videoSize 构造 PiP 参数，提供 快退 / 暂停-播放 / 快进 三个 RemoteAction。
@@ -60,9 +61,10 @@ class PipHelper(private val player: Player, private val activity: android.app.Ac
     fun buildParams(context: Context): PictureInPictureParams {
         val builder = PictureInPictureParams.Builder()
 
-        val videoSize = player.videoSize
-        if (videoSize.width > 0 && videoSize.height > 0) {
-            builder.setAspectRatio(Rational(videoSize.width, videoSize.height))
+        // 复用 VideoGeometry：纳入旋转元数据 + 像素宽高比，避免裸宽高在带旋转视频上算出错误比例
+        val (displayWidth, displayHeight) = VideoGeometry.displaySizeOf(player.videoSize)
+        if (displayWidth > 0f && displayHeight > 0f) {
+            builder.setAspectRatio(Rational(displayWidth.roundToInt(), displayHeight.roundToInt()))
         }
 
         val isPlaying = player.isPlaying
