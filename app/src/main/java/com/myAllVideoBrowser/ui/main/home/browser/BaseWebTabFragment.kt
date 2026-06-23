@@ -189,9 +189,12 @@ abstract class BaseWebTabFragment : BaseFragment() {
             activityFragmentContainer?.let {
                 val transaction =
                     currentFragment.requireActivity().supportFragmentManager.beginTransaction()
+                transaction.setCustomAnimations(
+                    R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
+                    R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
+                )
                 transaction.add(it.id, HistoryFragment.newInstance())
                 transaction.addToBackStack("history")
-                transaction.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
                 transaction.commit()
             }
         } catch (e: ClassCastException) {
@@ -266,9 +269,12 @@ abstract class BaseWebTabFragment : BaseFragment() {
             activityFragmentContainer?.let {
                 val transaction =
                     currentFragment.requireActivity().supportFragmentManager.beginTransaction()
+                transaction.setCustomAnimations(
+                    R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
+                    R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
+                )
                 transaction.add(it.id, SettingsFragment.newInstance())
                 transaction.addToBackStack("settings")
-                transaction.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
                 transaction.commit()
             }
         } catch (e: ClassCastException) {
@@ -291,9 +297,12 @@ abstract class BaseWebTabFragment : BaseFragment() {
             activityFragmentContainer?.let {
                 val transaction =
                     currentFragment.requireActivity().supportFragmentManager.beginTransaction()
+                transaction.setCustomAnimations(
+                    R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
+                    R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
+                )
                 transaction.add(it.id, ProxiesFragment.newInstance())
                 transaction.addToBackStack("proxies")
-                transaction.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
                 transaction.commit()
             }
         } catch (e: ClassCastException) {
@@ -309,9 +318,12 @@ abstract class BaseWebTabFragment : BaseFragment() {
             activityFragmentContainer?.let {
                 val transaction =
                     currentFragment.requireActivity().supportFragmentManager.beginTransaction()
+                transaction.setCustomAnimations(
+                    R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
+                    R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
+                )
                 transaction.add(it.id, HelpFragment.newInstance())
                 transaction.addToBackStack("help")
-                transaction.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
                 transaction.commit()
             }
         } catch (e: ClassCastException) {
@@ -327,9 +339,12 @@ abstract class BaseWebTabFragment : BaseFragment() {
             activityFragmentContainer?.let {
                 val transaction =
                     currentFragment.requireActivity().supportFragmentManager.beginTransaction()
+                transaction.setCustomAnimations(
+                    R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
+                    R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
+                )
                 transaction.add(it.id, BookmarksFragment.newInstance())
                 transaction.addToBackStack("bookmarks")
-                transaction.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
                 transaction.commit()
             }
         } catch (e: ClassCastException) {

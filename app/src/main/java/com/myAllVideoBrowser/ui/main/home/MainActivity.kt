@@ -320,9 +320,12 @@ class MainActivity : BaseActivity() {
 
         activityFragmentContainer?.let {
             val transaction = supportFragmentManager.beginTransaction()
+            transaction.setCustomAnimations(
+                R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
+                R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
+            )
             transaction.add(it.id, MigrationCenterFragment.newInstance(), MigrationCenterFragment.TAG)
             transaction.addToBackStack(MigrationCenterFragment.TAG)
-            transaction.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
             transaction.commit()
         }
     }

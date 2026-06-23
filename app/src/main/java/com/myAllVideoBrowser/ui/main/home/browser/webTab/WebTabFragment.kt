@@ -2458,12 +2458,15 @@ class WebTabFragment : BaseWebTabFragment() {
             activityFragmentContainer?.let {
                 val transaction =
                     currentFragment.requireActivity().supportFragmentManager.beginTransaction()
+                transaction.setCustomAnimations(
+                    R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
+                    R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
+                )
                 val fragment = DetectedVideosTabFragment.newInstance()
                 fragment.detectedVideosTabViewModel = videoDetectionTabViewModel
                 fragment.candidateFormatListener = downloadListener
                 transaction.add(it.id, fragment, DetectedVideosTabFragment.DOWNLOADS_TAB_TAG)
                 transaction.addToBackStack(DetectedVideosTabFragment.DOWNLOADS_TAB_TAG)
-                transaction.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
                 transaction.commit()
             }
         } catch (e: ClassCastException) {

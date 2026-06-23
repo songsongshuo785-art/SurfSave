@@ -700,9 +700,12 @@ class SettingsFragment : BaseFragment() {
                 activity?.findViewById<FragmentContainerView>(R.id.fragment_container_view)
             activityFragmentContainer?.let {
                 val transaction = requireActivity().supportFragmentManager.beginTransaction()
+                transaction.setCustomAnimations(
+                    R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
+                    R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
+                )
                 transaction.add(it.id, ProxiesFragment.newInstance())
                 transaction.addToBackStack("proxies")
-                transaction.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
                 transaction.commit()
             }
         } catch (e: ClassCastException) {
@@ -716,9 +719,12 @@ class SettingsFragment : BaseFragment() {
                 activity?.findViewById<FragmentContainerView>(R.id.fragment_container_view)
             activityFragmentContainer?.let {
                 val transaction = requireActivity().supportFragmentManager.beginTransaction()
+                transaction.setCustomAnimations(
+                    R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
+                    R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
+                )
                 transaction.add(it.id, MigrationCenterFragment.newInstance())
                 transaction.addToBackStack(MigrationCenterFragment.TAG)
-                transaction.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)
                 transaction.commit()
             }
         } catch (e: ClassCastException) {
