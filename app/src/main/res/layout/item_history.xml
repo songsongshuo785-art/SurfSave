@@ -30,8 +30,8 @@
         android:focusable="true"
         android:onClick="@{(view) -> historyListener.onHistoryOpenClicked(view, historyId)}"
         app:cardBackgroundColor="@color/sxSurfaceRaised"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="0dp"
+        app:cardCornerRadius="@dimen/corner_sm"
+        app:cardElevation="@dimen/elev_resting"
         app:strokeColor="@color/sxOutline"
         app:strokeWidth="1dp">
 
@@ -107,8 +107,8 @@
 
             <androidx.appcompat.widget.AppCompatImageView
                 android:id="@+id/iv_more"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:layout_width="@dimen/min_touch_target"
+                android:layout_height="@dimen/min_touch_target"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/more"
                 android:onClick="@{(view) -> historyListener.onMenuClicked(view, historyItem.id)}"
