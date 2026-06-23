@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    通用错误态组件（UI 批 1）：错误图标 + 标题 + 副标题 + 可选重试按钮。
+    供批 2 把各页 Toast 错误反馈升级为带操作的错误态界面（重试/打开设置）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="@dimen/spacing_xxl"
+    android:visibility="gone">
+
+    <ImageView
+        android:id="@+id/state_icon"
+        android:layout_width="72dp"
+        android:layout_height="72dp"
+        android:alpha="0.45"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_video_24dp"
+        app:tint="?attr/colorError"
+        xmlns:app="http://schemas.android.com/apk/res-auto" />
+
+    <TextView
+        android:id="@+id/state_title"
+        style="@style/TextAppearance.Surf.Title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/spacing_lg"
+        android:gravity="center" />
+
+    <TextView
+        android:id="@+id/state_subtitle"
+        style="@style/TextAppearance.Surf.Body"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/spacing_xs"
+        android:alpha="0.7"
+        android:gravity="center" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/state_action"
+        style="@style/Widget.Surf.Button.OutlinedButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/spacing_lg"
+        android:visibility="gone" />
+</LinearLayout>
