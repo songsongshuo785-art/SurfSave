@@ -53,7 +53,7 @@
                 <com.google.android.material.appbar.MaterialToolbar
                     android:id="@+id/toolbar"
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="56dp"
                     android:background="@android:color/transparent"
                     android:clipChildren="false"
                     android:clipToPadding="false"
@@ -71,8 +71,8 @@
 
                         <ImageButton
                             android:id="@+id/browser_back_button"
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
+                            android:layout_width="@dimen/min_touch_target"
+                            android:layout_height="@dimen/min_touch_target"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:contentDescription="@string/back"
                             android:onClick="@{() -> browserMenuListener.onBrowserBackClicked()}"
@@ -85,8 +85,8 @@
 
                         <ImageButton
                             android:id="@+id/browser_forward_button"
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
+                            android:layout_width="@dimen/min_touch_target"
+                            android:layout_height="@dimen/min_touch_target"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:contentDescription="@string/forward"
                             android:onClick="@{() -> browserMenuListener.onBrowserForwardClicked()}"
@@ -126,8 +126,8 @@
 
                         <ImageButton
                             android:id="@+id/browser_reload_button"
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
+                            android:layout_width="@dimen/min_touch_target"
+                            android:layout_height="@dimen/min_touch_target"
                             android:layout_marginEnd="@dimen/padding_tiny"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:contentDescription="@{viewModel.isTabInputFocused() ? @string/go : (viewModel.isShowProgress() ? @string/all_text_cancel : @string/refresh)}"
@@ -141,16 +141,16 @@
 
                         <FrameLayout
                             android:id="@+id/tabs_overview_button_container"
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
+                            android:layout_width="@dimen/min_touch_target"
+                            android:layout_height="@dimen/min_touch_target"
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintEnd_toStartOf="@+id/browser_menu_container"
                             app:layout_constraintTop_toTopOf="parent">
 
                             <ImageButton
                                 android:id="@+id/tabs_overview_button"
-                                android:layout_width="44dp"
-                                android:layout_height="44dp"
+                                android:layout_width="@dimen/min_touch_target"
+                                android:layout_height="@dimen/min_touch_target"
                                 android:background="?attr/selectableItemBackgroundBorderless"
                                 android:contentDescription="@string/tabs"
                                 android:onClick="@{() -> browserMenuListener.onTabsOverviewClicked()}"
@@ -181,16 +181,16 @@
 
                         <FrameLayout
                             android:id="@+id/browser_menu_container"
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
+                            android:layout_width="@dimen/min_touch_target"
+                            android:layout_height="@dimen/min_touch_target"
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintEnd_toEndOf="parent"
                             app:layout_constraintTop_toTopOf="parent">
 
                             <androidx.appcompat.widget.AppCompatImageView
                                 android:id="@+id/browser_menu_button"
-                                android:layout_width="44dp"
-                                android:layout_height="44dp"
+                                android:layout_width="@dimen/min_touch_target"
+                                android:layout_height="@dimen/min_touch_target"
                                 android:background="?attr/selectableItemBackgroundBorderless"
                                 android:contentDescription="@string/menu"
                                 android:onClick="@{() -> browserMenuListener.onBrowserMenuClicked()}"
