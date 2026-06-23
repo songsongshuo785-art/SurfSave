@@ -29,7 +29,7 @@
         app:cardCornerRadius="8dp"
         app:cardElevation="0dp"
         app:strokeColor="@color/sxOutline"
-        app:strokeWidth="1dp">
+        app:strokeWidth="0dp">
 
         <ScrollView
             android:layout_width="match_parent"

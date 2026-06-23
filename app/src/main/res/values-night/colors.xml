@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ===== 现代精致配色（UI 现代化阶段1，深色）：slate 深底 + 蓝强调 =====
-         层次：surface(slate-900 底) < raised/soft(slate-800 卡片浮起)；蓝强调用 blue-300 亮蓝。 -->
+    <!-- ===== 深色：参照 Chrome 设计语言（中性深灰 + 卡片明显浮起 + Google 蓝）=====
+         对症之前的"带蓝 slate + 卡片不浮起"：背景去蓝变 Chrome 标志中性深灰，
+         卡片用 surfaceContainer 明显浮起，文字用 Chrome 中性白/灰。强调蓝保留品牌蓝亮版(≈Chrome blue)。 -->
 
     <color name="colorPrimary_20">#3393C5FD</color>
     <color name="colorPrimary">#93C5FD</color>
@@ -10,14 +11,14 @@
     <color name="colorAccent">#93C5FD</color>
     <color name="colorAccentDark">#60A5FA</color>
 
-    <!-- 中性 slate 深底体系 -->
-    <color name="sxSurface">#0F172A</color>
-    <color name="sxSurfaceRaised">#1E293B</color>
-    <color name="sxSurfaceSoft">#1E293B</color>
+    <!-- Chrome 参照：中性深灰背景 + 明显浮起卡片层次（surface < raised < soft） -->
+    <color name="sxSurface">#202124</color>
+    <color name="sxSurfaceRaised">#303030</color>
+    <color name="sxSurfaceSoft">#3C4043</color>
     <color name="sxSurfaceSelected">#1E3A8A</color>
-    <color name="sxOutline">#334155</color>
-    <color name="sxTextPrimary">#F8FAFC</color>
-    <color name="sxTextSecondary">#94A3B8</color>
+    <color name="sxOutline">#5F6368</color>
+    <color name="sxTextPrimary">#E8EAED</color>
+    <color name="sxTextSecondary">#9AA0A6</color>
 
     <!-- 语义反馈色 (night) -->
     <color name="colorSuccess">#4CC38A</color>
@@ -26,7 +27,7 @@
     <color name="colorWarning">#FFB445</color>
 
     <!-- M3 tonal extensions on primary (night) -->
-    <color name="colorOnPrimary">#0F172A</color>
-    <color name="colorPrimaryContainer">#1E3A8A</color>
-    <color name="colorOnPrimaryContainer">#DBEAFE</color>
+    <color name="colorOnPrimary">#062E6F</color>
+    <color name="colorPrimaryContainer">#004A77</color>
+    <color name="colorOnPrimaryContainer">#D3E3FF</color>
 </resources>
