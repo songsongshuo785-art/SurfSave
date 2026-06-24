@@ -117,16 +117,17 @@
                 android:gravity="center_horizontal"
                 android:orientation="vertical"
                 android:paddingHorizontal="@dimen/padding_normal"
-                android:paddingTop="@dimen/padding_large"
-                android:paddingBottom="@dimen/padding_large">
+                android:paddingTop="@dimen/spacing_xl"
+                android:paddingBottom="@dimen/spacing_xl">
 
+                <!-- ① 搜索 hero（放大 52->68dp，大字，视觉焦点） -->
                 <com.google.android.material.textfield.MaterialAutoCompleteTextView
                     android:id="@+id/home_et_search"
                     android:layout_width="match_parent"
-                    android:layout_height="52dp"
+                    android:layout_height="68dp"
                     android:background="@{viewModel.isSearchInputFocused ? @drawable/sx_search_focused_background : @drawable/sx_search_background}"
                     android:drawableStart="@drawable/search_24px"
-                    android:drawablePadding="@dimen/padding_small"
+                    android:drawablePadding="@dimen/padding_normal"
                     android:drawableTint="@color/sxTextSecondary"
                     android:focusable="@{viewModel.isSearchInputFocused}"
                     android:focusableInTouchMode="@{viewModel.isSearchInputFocused}"
@@ -139,16 +140,33 @@
                     android:text="@{viewModel.searchTextInput}"
                     android:textColor="@color/sxTextPrimary"
                     android:textColorHint="@color/sxTextSecondary"
-                    android:textSize="@dimen/text_medium"
+                    android:textSize="@dimen/text_large"
                     app:items="@{viewModel.listSuggestions}" />
 
+                <!-- ② 粘贴链接主按钮（从教程卡提取，核心操作突出为 hero 下方主按钮） -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/home_paste_link_button"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/min_touch_target"
+                    android:layout_marginTop="@dimen/padding_normal"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minWidth="0dp"
+                    android:text="@string/home_paste_link"
+                    android:textAllCaps="false"
+                    android:textColor="@color/white"
+                    app:cornerRadius="@dimen/corner_md"
+                    app:icon="@drawable/add_new_tab_icon24"
+                    app:iconTint="@color/white" />
+
+                <!-- ③ 社交平台下载 -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/home_social_downloads_card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/padding_normal"
+                    android:layout_marginTop="@dimen/spacing_xl"
                     app:cardBackgroundColor="@color/sxSurfaceRaised"
-                    app:cardCornerRadius="@dimen/corner_sm"
+                    app:cardCornerRadius="@dimen/corner_md"
                     app:cardElevation="@dimen/elev_resting"
                     app:strokeColor="@color/sxOutline"
                     app:strokeWidth="0dp">
@@ -179,13 +197,14 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                <!-- ④ 使用教程（精简：paste 已移出，步骤紧凑，了解移到卡底） -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/home_social_guide_card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/padding_small"
+                    android:layout_marginTop="@dimen/spacing_lg"
                     app:cardBackgroundColor="@color/sxSurfaceRaised"
-                    app:cardCornerRadius="@dimen/corner_sm"
+                    app:cardCornerRadius="@dimen/corner_md"
                     app:cardElevation="@dimen/elev_resting"
                     app:strokeColor="@color/sxOutline"
                     app:strokeWidth="0dp">
@@ -210,7 +229,7 @@
                                 android:maxLines="1"
                                 android:text="@string/home_social_steps_title"
                                 android:textColor="@color/sxTextPrimary"
-                                android:textSize="@dimen/text_large"
+                                android:textSize="@dimen/text_medium"
                                 android:textStyle="bold" />
 
                             <ImageButton
@@ -227,109 +246,85 @@
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/padding_normal"
+                            android:layout_marginTop="@dimen/padding_small"
                             android:gravity="center_vertical"
                             android:orientation="horizontal">
 
                             <TextView
-                                android:layout_width="28dp"
-                                android:layout_height="28dp"
+                                android:layout_width="24dp"
+                                android:layout_height="24dp"
                                 android:background="@drawable/sx_chip_background"
                                 android:gravity="center"
                                 android:text="@string/home_social_step_number_one"
                                 android:textColor="@color/colorPrimary"
-                                android:textSize="@dimen/text_small"
+                                android:textSize="@dimen/text_tiny"
                                 android:textStyle="bold" />
 
                             <com.google.android.material.textview.MaterialTextView
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
-                                android:layout_marginStart="@dimen/padding_normal"
+                                android:layout_marginStart="@dimen/padding_small"
                                 android:layout_weight="1"
                                 android:text="@string/home_social_step_copy"
-                                android:textColor="@color/sxTextPrimary"
-                                android:textSize="@dimen/text_medium"
-                                android:textStyle="bold" />
+                                android:textColor="@color/sxTextSecondary"
+                                android:textSize="@dimen/text_small" />
                         </LinearLayout>
 
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/padding_normal"
+                            android:layout_marginTop="@dimen/padding_tiny"
                             android:gravity="center_vertical"
                             android:orientation="horizontal">
 
                             <TextView
-                                android:layout_width="28dp"
-                                android:layout_height="28dp"
+                                android:layout_width="24dp"
+                                android:layout_height="24dp"
                                 android:background="@drawable/sx_chip_background"
                                 android:gravity="center"
                                 android:text="@string/home_social_step_number_two"
                                 android:textColor="@color/colorPrimary"
-                                android:textSize="@dimen/text_small"
+                                android:textSize="@dimen/text_tiny"
                                 android:textStyle="bold" />
 
                             <com.google.android.material.textview.MaterialTextView
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
-                                android:layout_marginStart="@dimen/padding_normal"
+                                android:layout_marginStart="@dimen/padding_small"
                                 android:layout_weight="1"
                                 android:text="@string/home_social_step_share"
-                                android:textColor="@color/sxTextPrimary"
-                                android:textSize="@dimen/text_medium"
-                                android:textStyle="bold" />
+                                android:textColor="@color/sxTextSecondary"
+                                android:textSize="@dimen/text_small" />
                         </LinearLayout>
 
-                        <LinearLayout
-                            android:layout_width="match_parent"
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/home_how_it_works_button"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/padding_large"
-                            android:baselineAligned="false"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal">
-
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/home_paste_link_button"
-                                android:layout_width="0dp"
-                                android:layout_height="44dp"
-                                android:layout_marginEnd="@dimen/padding_small"
-                                android:layout_weight="1"
-                                android:insetTop="0dp"
-                                android:insetBottom="0dp"
-                                android:minWidth="0dp"
-                                android:text="@string/home_paste_link"
-                                android:textAllCaps="false"
-                                android:textColor="@color/white"
-                                app:cornerRadius="@dimen/corner_sm"
-                                app:icon="@drawable/add_new_tab_icon24"
-                                app:iconTint="@color/white" />
-
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/home_how_it_works_button"
-                                style="@style/Widget.MaterialComponents.Button.TextButton"
-                                android:layout_width="wrap_content"
-                                android:layout_height="44dp"
-                                android:minWidth="0dp"
-                                android:text="@string/home_how_it_works"
-                                android:textAllCaps="false"
-                                android:textColor="@color/colorPrimary"
-                                app:icon="@drawable/help_24px"
-                                app:iconGravity="textStart"
-                                app:iconTint="@color/colorPrimary" />
-                        </LinearLayout>
+                            android:layout_marginTop="@dimen/padding_small"
+                            android:minWidth="0dp"
+                            android:padding="0dp"
+                            android:text="@string/home_how_it_works"
+                            android:textAllCaps="false"
+                            android:textColor="@color/colorPrimary"
+                            app:icon="@drawable/help_24px"
+                            app:iconGravity="textStart"
+                            app:iconTint="@color/colorPrimary" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                <!-- ⑤ 快速入口·标签（紧凑 56dp） -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/home_tabs_card"
                     android:layout_width="match_parent"
-                    android:layout_height="72dp"
-                    android:layout_marginTop="@dimen/padding_normal"
+                    android:layout_height="56dp"
+                    android:layout_marginTop="@dimen/spacing_lg"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
                     app:cardBackgroundColor="@color/sxSurfaceRaised"
-                    app:cardCornerRadius="@dimen/corner_sm"
+                    app:cardCornerRadius="@dimen/corner_md"
                     app:cardElevation="@dimen/elev_resting"
                     app:strokeColor="@color/sxOutline"
                     app:strokeWidth="0dp">
@@ -342,11 +337,11 @@
 
                         <ImageView
                             android:id="@+id/home_tabs_icon"
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
                             android:background="@drawable/sx_chip_background"
                             android:contentDescription="@string/tabs"
-                            android:padding="9dp"
+                            android:padding="8dp"
                             android:src="@drawable/tab_group_24px"
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintStart_toStartOf="parent"
@@ -399,16 +394,17 @@
                     </androidx.constraintlayout.widget.ConstraintLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                <!-- ⑥ 快速入口·书签（紧凑 56dp） -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/home_add_bookmark_card"
                     android:layout_width="match_parent"
-                    android:layout_height="64dp"
+                    android:layout_height="56dp"
                     android:layout_marginTop="@dimen/padding_small"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
                     app:cardBackgroundColor="@color/sxSurfaceRaised"
-                    app:cardCornerRadius="@dimen/corner_sm"
+                    app:cardCornerRadius="@dimen/corner_md"
                     app:cardElevation="@dimen/elev_resting"
                     app:strokeColor="@color/sxOutline"
                     app:strokeWidth="0dp">
@@ -421,11 +417,11 @@
 
                         <ImageView
                             android:id="@+id/home_add_bookmark_icon"
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
                             android:background="@drawable/sx_chip_background"
                             android:contentDescription="@string/add_bookmark"
-                            android:padding="9dp"
+                            android:padding="8dp"
                             android:src="@drawable/bookmark_add_24px"
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintStart_toStartOf="parent"
