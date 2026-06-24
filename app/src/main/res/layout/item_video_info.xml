@@ -24,8 +24,8 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="@dimen/padding_normal"
         app:cardBackgroundColor="@color/sxSurfaceRaised"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="0dp"
+        app:cardCornerRadius="@dimen/corner_md"
+        app:cardElevation="@dimen/elev_resting"
         app:strokeColor="@color/sxOutline"
         app:strokeWidth="0dp">
 
@@ -41,12 +41,12 @@
                 android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                    <com.google.android.material.card.MaterialCardView
-                    android:layout_width="104dp"
-                    android:layout_height="76dp"
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="112dp"
+                    android:layout_height="80dp"
                     android:layout_marginEnd="@dimen/padding_normal"
                     app:cardBackgroundColor="@color/sxSurfaceSoft"
-                    app:cardCornerRadius="16dp"
+                    app:cardCornerRadius="@dimen/corner_md"
                     app:cardElevation="0dp"
                     app:strokeColor="@color/sxOutline"
                     app:strokeWidth="0dp">
@@ -65,7 +65,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:minHeight="76dp"
+                    android:minHeight="80dp"
                     android:orientation="vertical">
 
                     <LinearLayout
@@ -163,13 +163,13 @@
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/tv_download"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="@dimen/min_touch_target"
                 android:layout_marginTop="@dimen/padding_normal"
                 android:onClick="@{() -> dialogListener.onDownloadVideo(videoInfo, viewModel.selectedFormats.get(videoInfo.id), viewModel.formatsTitles.get(videoInfo.id))}"
                 android:text="@string/dialog_download_video"
                 android:textColor="@color/white"
                 android:textSize="@dimen/text_medium"
-                app:cornerRadius="8dp"
+                app:cornerRadius="@dimen/corner_md"
                 app:icon="@drawable/ic_download_24dp"
                 app:iconTint="@color/white" />
 
@@ -199,14 +199,14 @@
                     android:id="@+id/tv_preview"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="48dp"
+                    android:layout_height="@dimen/min_touch_target"
                     android:layout_marginEnd="@dimen/padding_small"
                     android:layout_weight="1"
                     android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
                     android:text="@string/dialog_preview_video"
                     android:textColor="@color/sxTextPrimary"
                     android:textSize="@dimen/text_small"
-                    app:cornerRadius="8dp"
+                    app:cornerRadius="@dimen/corner_md"
                     app:icon="@drawable/play_circle_24px"
                     app:iconTint="@color/sxTextPrimary"
                     app:strokeColor="@color/sxOutline" />
@@ -215,13 +215,13 @@
                     android:id="@+id/tv_share"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="48dp"
+                    android:layout_height="@dimen/min_touch_target"
                     android:layout_weight="1"
                     android:onClick="@{() -> dialogListener.onFormatUrlShare(videoInfo, viewModel.selectedFormats.get(videoInfo.id))}"
                     android:text="@string/share_link"
                     android:textColor="@color/sxTextPrimary"
                     android:textSize="@dimen/text_small"
-                    app:cornerRadius="8dp"
+                    app:cornerRadius="@dimen/corner_md"
                     app:icon="@drawable/share_24px"
                     app:iconTint="@color/sxTextPrimary"
                     app:strokeColor="@color/sxOutline" />

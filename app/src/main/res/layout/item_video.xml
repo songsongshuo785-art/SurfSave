@@ -27,7 +27,7 @@
         android:focusable="true"
         android:onClick="@{() -> videoListener.onItemClicked(localVideo, ivThumbnail)}"
         app:cardBackgroundColor="@color/sxSurfaceRaised"
-        app:cardCornerRadius="@dimen/corner_sm"
+        app:cardCornerRadius="@dimen/corner_md"
         app:cardElevation="@dimen/elev_resting"
         app:strokeColor="@color/sxOutline"
         app:strokeWidth="0dp">
@@ -35,7 +35,6 @@
         <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:minHeight="148dp"
             android:padding="@dimen/padding_normal">
 
             <com.google.android.material.textview.MaterialTextView
@@ -44,11 +43,11 @@
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="@dimen/padding_small"
                 android:ellipsize="end"
-                android:maxLines="4"
+                android:maxLines="2"
                 android:text="@{localVideo.name}"
                 android:textAlignment="viewStart"
                 android:textColor="@color/sxTextPrimary"
-                android:textSize="@dimen/text_medium"
+                android:textSize="@dimen/text_large"
                 android:textStyle="bold"
                 app:layout_constraintEnd_toStartOf="@id/iv_more"
                 app:layout_constraintStart_toStartOf="parent"
@@ -59,10 +58,10 @@
                 android:id="@+id/iv_thumbnail"
                 android:layout_width="132dp"
                 android:layout_height="88dp"
+                android:layout_marginTop="@dimen/padding_small"
                 android:adjustViewBounds="true"
                 android:background="@drawable/sx_thumbnail_background"
                 android:scaleType="fitCenter"
-                android:layout_marginTop="@dimen/padding_small"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@id/tv_name"
                 app:shapeAppearanceOverlay="@style/customImageViewRounded" />
@@ -120,24 +119,25 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_open_source"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/padding_normal"
                 android:layout_marginTop="@dimen/padding_tiny"
+                android:gravity="start|center_vertical"
+                android:minWidth="0dp"
                 android:onClick="@{() -> videoListener.onSourceClicked(localVideo)}"
+                android:padding="0dp"
                 android:text="@string/video_return_to_source"
+                android:textAllCaps="false"
                 android:textColor="@color/colorPrimary"
                 android:textSize="@dimen/text_small"
                 android:visibility="@{localVideo.hasSourceUrl ? View.VISIBLE : View.GONE}"
-                app:backgroundTint="@color/sxSurfaceSoft"
-                app:cornerRadius="8dp"
-                app:layout_constraintEnd_toStartOf="@id/iv_more"
+                app:icon="@drawable/public_24px"
+                app:iconGravity="textStart"
+                app:iconTint="@color/colorPrimary"
                 app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
                 app:layout_constraintTop_toBottomOf="@id/tv_source"
-                app:icon="@drawable/public_24px"
-                app:iconTint="@color/colorPrimary"
-                app:strokeColor="@color/sxOutline"
-                app:strokeWidth="0dp"
                 tools:text="返回来源"
                 tools:visibility="visible" />
 
@@ -146,7 +146,7 @@
                 android:layout_width="@dimen/min_touch_target"
                 android:layout_height="@dimen/min_touch_target"
                 app:cardBackgroundColor="@android:color/transparent"
-                app:cardCornerRadius="8dp"
+                app:cardCornerRadius="@dimen/corner_md"
                 app:cardElevation="0dp"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
@@ -155,15 +155,11 @@
                 <androidx.appcompat.widget.AppCompatImageView
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:onClick="@{(view) -> videoListener.onMenuClicked(view, localVideo)}"
-                    android:padding="@dimen/padding_small"
+                    android:padding="12dp"
+                    android:scaleType="centerInside"
                     app:srcCompat="@drawable/ic_more_24dp"
-                    app:tint="@color/sxTextSecondary"
-                    tools:ignore="VectorDrawableCompat" />
+                    app:tint="@color/sxTextSecondary" />
             </com.google.android.material.card.MaterialCardView>
-
         </androidx.constraintlayout.widget.ConstraintLayout>
     </com.google.android.material.card.MaterialCardView>
-
 </layout>

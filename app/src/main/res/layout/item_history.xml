@@ -30,7 +30,7 @@
         android:focusable="true"
         android:onClick="@{(view) -> historyListener.onHistoryOpenClicked(view, historyId)}"
         app:cardBackgroundColor="@color/sxSurfaceRaised"
-        app:cardCornerRadius="@dimen/corner_sm"
+        app:cardCornerRadius="@dimen/corner_md"
         app:cardElevation="@dimen/elev_resting"
         app:strokeColor="@color/sxOutline"
         app:strokeWidth="0dp">
