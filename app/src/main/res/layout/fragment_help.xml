@@ -26,8 +26,8 @@
         android:layout_weight="1"
         android:layout_marginTop="@dimen/padding_normal"
         app:cardBackgroundColor="@color/sxSurfaceRaised"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="0dp"
+        app:cardCornerRadius="@dimen/corner_md"
+        app:cardElevation="@dimen/elev_resting"
         app:strokeColor="@color/sxOutline"
         app:strokeWidth="0dp">
 
