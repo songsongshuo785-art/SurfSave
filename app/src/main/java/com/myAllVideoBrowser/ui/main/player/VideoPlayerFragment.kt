@@ -83,6 +83,28 @@ class VideoPlayerFragment : BaseFragment() {
                 if (width > 0 && e.x < width / 2f) player.seekBack() else player.seekForward()
                 return true
             }
+
+            override fun onScroll(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                distanceX: Float,
+                distanceY: Float
+            ): Boolean {
+                // 水平滑动 = 快进/快退：手指向左滑(distanceX>0)快进、向右滑快退。
+                // 主画面实时 seekTo 预览该位置帧，并显示底部进度条/时间指示。
+                if (Math.abs(distanceX) < Math.abs(distanceY) * 1.5f) return false
+                val width = dataBinding.videoView.width
+                val duration = player.duration.coerceAtLeast(0L)
+                if (width <= 0 || duration <= 0L) return false
+                // 水平滑过整屏宽 ≈ 跳过整个视频时长（可调灵敏度）
+                val deltaMs = -(distanceX / width.toFloat()) * duration.toFloat()
+                val target = (player.currentPosition + deltaMs.toLong()).coerceIn(0L, duration)
+                player.seekTo(target)
+                if (!dataBinding.videoView.isControllerFullyVisible) {
+                    dataBinding.videoView.showController()
+                }
+                return true
+            }
         })
     }
 

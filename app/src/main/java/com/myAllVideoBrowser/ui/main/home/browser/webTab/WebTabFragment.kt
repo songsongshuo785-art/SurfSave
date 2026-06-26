@@ -17,6 +17,7 @@ import android.view.MotionEvent
 import android.app.ActivityOptions
 import android.view.View
 import android.view.ViewGroup
+import android.widget.PopupMenu
 import android.view.inputmethod.EditorInfo
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -1456,40 +1457,65 @@ class WebTabFragment : BaseWebTabFragment() {
         dataBinding.browserForwardButton.alpha = if (canGoForward) 1f else 0.38f
     }
 
-    private fun configureLinkContextMenu(webView: WebView?) {
-        webView?.setOnCreateContextMenuListener { menu, view, _ ->
-            val targetWebView = view as? WebView ?: return@setOnCreateContextMenuListener
-            val url = getLongPressedLinkUrl(targetWebView)
-                ?: return@setOnCreateContextMenuListener
+    private var lastTouchX = 0f
+    private var lastTouchY = 0f
 
-            menu.setHeaderTitle(url)
-            menu.add(
-                0,
-                MENU_OPEN_LINK_CURRENT_WINDOW,
-                0,
-                getString(R.string.open_link_current_window)
-            ).setOnMenuItemClickListener {
-                openLinkInCurrentWindow(url)
+    private fun configureLinkContextMenu(webView: WebView?) {
+        val wv = webView ?: return
+        wv.setOnTouchListener { _, e ->
+            if (e.action == MotionEvent.ACTION_DOWN) {
+                lastTouchX = e.x
+                lastTouchY = e.y
+            }
+            false
+        }
+        wv.setOnLongClickListener { v ->
+            val targetWebView = v as? WebView ?: return@setOnLongClickListener false
+            val hit = targetWebView.hitTestResult ?: return@setOnLongClickListener false
+            val isLink = hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE ||
+                hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
+            // 纯图片/文字：不消费 → WebView 内置 context menu（保存图片/复制图片/选字框）照常工作
+            if (!isLink) return@setOnLongClickListener false
+
+            if (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE) {
+                // 纯链接：hitTestResult.extra = href，同步取
+                val url = normalizeLongPressedUrl(hit.extra?.trim().orEmpty())
+                if (url != null) showLinkPopupMenu(targetWebView, url)
+                url != null
+            } else {
+                // 图片链接：hitTestResult.extra 是图片 src（Android 已知坑，不是 href），
+                // 异步用 JS elementFromPoint 找长按位置父 <a> 的 href
+                resolveImageAnchorHref(targetWebView) { href ->
+                    val url = normalizeLongPressedUrl(href)
+                    if (url != null) showLinkPopupMenu(targetWebView, url)
+                }
                 true
             }
-            menu.add(
-                0,
-                MENU_OPEN_LINK_NEW_WINDOW,
-                1,
-                getString(R.string.open_link_new_window)
-            ).setOnMenuItemClickListener {
-                openLinkInNewWindow(url)
-                true
-            }
-            menu.add(
-                0,
-                MENU_OPEN_LINK_BACKGROUND_WINDOW,
-                2,
-                getString(R.string.open_link_background_window)
-            ).setOnMenuItemClickListener {
-                openLinkInBackgroundWindow(url)
-                true
-            }
+        }
+    }
+
+    private fun showLinkPopupMenu(anchor: View, url: String) {
+        val popup = PopupMenu(requireContext(), anchor)
+        popup.menu.add(0, MENU_OPEN_LINK_CURRENT_WINDOW, 0, getString(R.string.open_link_current_window))
+            .setOnMenuItemClickListener { openLinkInCurrentWindow(url); true }
+        popup.menu.add(0, MENU_OPEN_LINK_NEW_WINDOW, 1, getString(R.string.open_link_new_window))
+            .setOnMenuItemClickListener { openLinkInNewWindow(url); true }
+        popup.menu.add(0, MENU_OPEN_LINK_BACKGROUND_WINDOW, 2, getString(R.string.open_link_background_window))
+            .setOnMenuItemClickListener { openLinkInBackgroundWindow(url); true }
+        popup.show()
+    }
+
+    private fun resolveImageAnchorHref(webView: WebView, callback: (String) -> Unit) {
+        val x = lastTouchX
+        val y = lastTouchY
+        val js = "(function(){try{var el=document.elementFromPoint($x,$y);while(el){if(el.tagName==='A'&&el.href)return el.href;el=el.parentElement;}}catch(e){}return '';})()"
+        webView.evaluateJavascript(js) { result ->
+            val href = result
+                ?.trim()
+                ?.removeSurrounding("\"")
+                ?.replace("\\/", "/")
+                .orEmpty()
+            callback(href)
         }
     }
 

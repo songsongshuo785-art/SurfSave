@@ -155,6 +155,7 @@
                 <androidx.appcompat.widget.AppCompatImageView
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
+                    android:onClick="@{(view) -> videoListener.onMenuClicked(view, localVideo)}"
                     android:padding="12dp"
                     android:scaleType="centerInside"
                     app:srcCompat="@drawable/ic_more_24dp"
