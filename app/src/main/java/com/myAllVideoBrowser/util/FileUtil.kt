@@ -1,11 +1,13 @@
 package com.myAllVideoBrowser.util
 
 //import com.allVideoDownloaderXmaster.OpenForTesting
+import android.app.RecoverableSecurityException
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.IntentSender
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
@@ -274,21 +276,113 @@ class FileUtil @Inject constructor() {
         return null
     }
 
-    fun deleteMedia(context: Context, uri: Uri) {
-        try {
-            if (!isUriExists(context, uri)) {
-                throw FileNotFoundException("File not found: $uri")
+    /**
+     * 删除指定 uri 的媒体文件，返回结构化结果。
+     * - File.delete 能删（私有目录 / 非 Q 公共目录）→ Success
+     * - File.delete 删不掉 → 查 MediaStore 拿 content Uri 再 contentResolver.delete：
+     *   Android 11+ 需授权时返回 NeedsAuth(createDeleteRequest 的 IntentSender)，交 Fragment 弹系统确认；
+     *   其他失败 → Failed
+     */
+    fun deleteMedia(context: Context, uri: Uri): DeleteMediaResult {
+        return try {
+            // 0) Document URI（SAF）最先处理：不经 isUriExists（document uri 可能无法 openInputStream，但 deleteDocument 仍可工作）
+            if (DocumentsContract.isDocumentUri(context, uri)) {
+                val ok = runCatching {
+                    DocumentsContract.deleteDocument(context.contentResolver, uri)
+                }.getOrElse { e ->
+                    AppLogger.d("deleteMedia: deleteDocument failed for $uri: ${e.message}")
+                    false
+                }
+                return if (ok) DeleteMediaResult.Success else DeleteMediaResult.Failed
             }
+            if (!isUriExists(context, uri)) {
+                AppLogger.d("deleteMedia: not exists $uri")
+                return DeleteMediaResult.Failed
+            }
+            // 1) File.delete（私有目录 / 非 Q 公共目录）
             if (isFileApiSupportedByUri(context, uri)) {
-                uri.toFile().delete()
-            } else {
-                deleteDownloadedVideoContent(context, uri)
+                val f = uri.toFile()
+                if (f.delete() && !isUriExists(context, uri)) return DeleteMediaResult.Success
+            }
+            // 2) File.delete 没删掉 → 走 MediaStore（公共目录 scoped storage）
+            val contentUri = findMediaStoreContentUri(context, uri) ?: run {
+                AppLogger.d("deleteMedia: no MediaStore mapping for $uri")
+                return DeleteMediaResult.Failed
+            }
+            try {
+                val rows = context.contentResolver.delete(contentUri, null, null)
+                if (rows > 0) DeleteMediaResult.Success else DeleteMediaResult.Failed
+            } catch (e: SecurityException) {
+                resolveDeleteAuth(context, contentUri, e)
             }
         } catch (e: Throwable) {
-            e.printStackTrace()
-
-            Toast.makeText(context, "Error", Toast.LENGTH_SHORT).show()
+            AppLogger.e("deleteMedia error: ${e.message}")
+            DeleteMediaResult.Failed
         }
+    }
+
+    /**
+     * 解析删除所需的系统授权：
+     * - Android 11+ (R)：MediaStore.createDeleteRequest
+     * - Android 10 (Q)：RecoverableSecurityException.userAction.actionIntent.intentSender
+     * - 其他：Failed
+     */
+    private fun resolveDeleteAuth(
+        context: Context, contentUri: Uri, e: SecurityException
+    ): DeleteMediaResult {
+        return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                // R+：createDeleteRequest 成功后系统执行删除，retryUri=null 表示 ViewModel 无需重试
+                DeleteMediaResult.NeedsAuth(
+                    MediaStore.createDeleteRequest(
+                        context.contentResolver, arrayListOf(contentUri)
+                    ).intentSender,
+                    null
+                )
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is RecoverableSecurityException ->
+                // Q：授权只给访问权、系统不删；retryUri=contentUri 供授权后重试 deleteMedia
+                DeleteMediaResult.NeedsAuth(e.userAction.actionIntent.intentSender, contentUri)
+            else -> {
+                AppLogger.d("deleteMedia: SecurityException (<Q) ${e.message}")
+                DeleteMediaResult.Failed
+            }
+        }
+    }
+
+    /**
+     * 把 file:// uri 映射成 MediaStore 的 content Uri（依次查 Downloads 与 Video：下载视频常落在 Downloads）；
+     * content://（非 document，document 已在 deleteMedia 开头处理）直接返回。
+     */
+    private fun findMediaStoreContentUri(context: Context, uri: Uri): Uri? {
+        if (uri.scheme != "file") return uri
+        val path = uri.path ?: return null
+        val collections = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL))
+            }
+            add(MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+        }
+        for (collection in collections) {
+            context.contentResolver.query(
+                collection,
+                arrayOf(MediaStore.Video.Media._ID),
+                "${MediaStore.Video.Media.DATA} = ?",
+                arrayOf(path),
+                null
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    return ContentUris.withAppendedId(collection, c.getLong(0))
+                }
+            }
+        }
+        return null
+    }
+
+    /** deleteMedia 的结构化结果。NeedsAuth 需由 Fragment 发起 IntentSender 系统授权。 */
+    sealed class DeleteMediaResult {
+        object Success : DeleteMediaResult()
+        data class NeedsAuth(val intentSender: IntentSender, val retryUri: Uri?) : DeleteMediaResult()
+        object Failed : DeleteMediaResult()
     }
 
     fun isUriExists(context: Context, uri: Uri): Boolean {
@@ -317,6 +411,8 @@ class FileUtil @Inject constructor() {
     }
 
     fun isFileApiSupportedByUri(context: Context, uri: Uri): Boolean {
+        // content:// / document uri 不走 File API（toFile() 会抛 IllegalStateException），只有 file:// 才用
+        if (uri.scheme != "file") return false
         val isExternalTo = isExternalUri(uri)
 
         val privateDir = getPrivateDownloadsDir(context, isExternalTo)
@@ -559,11 +655,11 @@ class FileUtil @Inject constructor() {
         return filesMap
     }
 
-    private fun deleteDownloadedVideoContent(context: Context, uri: Uri) {
-        if (DocumentsContract.isDocumentUri(context, uri)) {
+    private fun deleteDownloadedVideoContent(context: Context, uri: Uri): Boolean {
+        return if (DocumentsContract.isDocumentUri(context, uri)) {
             DocumentsContract.deleteDocument(context.contentResolver, uri)
         } else {
-            context.contentResolver.delete(uri, null, null)
+            context.contentResolver.delete(uri, null, null) > 0
         }
     }
 

@@ -59,6 +59,9 @@
   <string name="video_source_unavailable">Source page is unavailable</string>
   <string name="video_menu_rename">Rename</string>
   <string name="video_menu_delete">Delete</string>
+  <string name="video_delete_success">Deleted</string>
+  <string name="video_delete_failed">Failed to delete the file. It may be in use or require system authorization.</string>
+  <string name="video_delete_auth_cancelled">Authorization canceled. The video was not deleted.</string>
   <string name="video_menu_share">Share</string>
   <string name="video_rename_title">Rename video</string>
   <string name="video_rename_invalid">Invalid name. Please try again!</string>

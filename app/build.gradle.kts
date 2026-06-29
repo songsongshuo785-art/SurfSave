@@ -50,7 +50,7 @@ val skipGoBuild = (project.findProperty("SKIP_GO_BUILD")?.toString()
     ?.toBoolean() ?: false
 val abiFilterList = (project.findProperty("ABI_FILTERS") as? String ?: "").split(';')
 val baseVersionCode = 1_777_830_478
-val baseVersionName = "0.8.27"
+val baseVersionName = "0.8.28"
 val exportStamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
 // diagnostic versionCode 默认用秒级时间戳递增：每次构建版本号不同，覆盖安装（同
 // applicationId+签名）能识别为新版并保留数据，无需卸载重装。秒时间戳 2026 年 ~1.78e9 < 2.1e9 上限。

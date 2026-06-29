@@ -1,6 +1,7 @@
 package com.myAllVideoBrowser.ui.main.video
 
 import android.content.Context
+import android.content.IntentSender
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.core.net.toFile
@@ -14,6 +15,7 @@ import com.myAllVideoBrowser.ui.main.base.BaseViewModel
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ContextUtils
 import com.myAllVideoBrowser.util.FileUtil
+import com.myAllVideoBrowser.util.FileUtil.DeleteMediaResult
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.util.VideoFormatUi
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
@@ -43,6 +45,13 @@ class VideoViewModel @Inject constructor(
 
     val renameErrorEvent = SingleLiveEvent<Int>()
     val shareEvent = SingleLiveEvent<Uri>()
+    val deleteAuthEvent = SingleLiveEvent<IntentSender>()
+    val deleteFailedEvent = SingleLiveEvent<Unit>()
+    val deleteSuccessEvent = SingleLiveEvent<Unit>()
+    val deleteAuthCancelledEvent = SingleLiveEvent<Unit>()
+    // 删除授权期间暂存：授权回来后据此重试(Q)或直接移除列表(R+)
+    private var pendingDeleteVideo: LocalVideo? = null
+    private var pendingRetryUri: Uri? = null
     private val thumbnailFrameMicrosCache = mutableMapOf<String, Long>()
 
     override fun start() {
@@ -181,12 +190,66 @@ class VideoViewModel @Inject constructor(
     }
 
     fun deleteVideo(context: Context, video: LocalVideo) {
-        localVideos.get()?.find { it.uri.path == video.uri.path }?.let {
-            fileUtil.deleteMedia(context, video.uri)
+        // 直接用 video.uri 真删文件，不再依赖 localVideos 的 find 匹配（避免 path 比对失败时静默 return）。
+        when (val result = fileUtil.deleteMedia(context, video.uri)) {
+            is DeleteMediaResult.Success -> {
+                val list = localVideos.get()?.toMutableList() ?: mutableListOf()
+                list.removeAll {
+                    it.uri == video.uri ||
+                        it.uri.toString() == video.uri.toString() ||
+                        it.uri.path == video.uri.path
+                }
+                localVideos.set(list)
+                deleteSuccessEvent.value = Unit
+            }
+            is DeleteMediaResult.NeedsAuth -> {
+                // 文件在公共目录、需系统授权：暂存 pending，交给 Fragment 弹授权确认
+                pendingDeleteVideo = video
+                pendingRetryUri = result.retryUri
+                deleteAuthEvent.value = result.intentSender
+            }
+            is DeleteMediaResult.Failed -> {
+                deleteFailedEvent.value = Unit
+            }
+        }
+    }
 
-            val list = localVideos.get()?.toMutableList()
-            list?.remove(it)
-            localVideos.set(list ?: mutableListOf())
+    /**
+     * 删除授权回调（唯一结果来源）：!ok → 取消事件；ok+R+(retry==null) 系统已删 → 移除+成功事件；
+     * ok+Q(retry!=null) 必须等 deleteMedia 真返回 Success 才算删掉，否则失败事件。重试仍 NeedsAuth 不循环弹框。
+     */
+    fun onDeleteAuthResult(context: Context, ok: Boolean) {
+        val video = pendingDeleteVideo
+        val retry = pendingRetryUri
+        pendingDeleteVideo = null
+        pendingRetryUri = null
+        if (!ok) {
+            deleteAuthCancelledEvent.value = Unit
+            return
+        }
+        if (video == null) return
+        val deleted = when {
+            retry == null -> true  // R+：createDeleteRequest 成功后系统已删
+            else -> when (val r = fileUtil.deleteMedia(context, retry)) {
+                is DeleteMediaResult.Success -> true
+                is DeleteMediaResult.NeedsAuth -> {
+                    AppLogger.d("onDeleteAuthResult: retry still NeedsAuth, treat as failed")
+                    false
+                }
+                is DeleteMediaResult.Failed -> false
+            }
+        }
+        if (deleted) {
+            val list = localVideos.get()?.toMutableList() ?: mutableListOf()
+            list.removeAll {
+                it.uri == video.uri ||
+                    it.uri.toString() == video.uri.toString() ||
+                    it.uri.path == video.uri.path
+            }
+            localVideos.set(list)
+            deleteSuccessEvent.value = Unit
+        } else {
+            deleteFailedEvent.value = Unit
         }
     }
 

@@ -11,6 +11,9 @@
     <string name="dialog_download_cancel">取消</string>
     <string name="video_menu_rename">重命名</string>
     <string name="video_menu_delete">删除</string>
+    <string name="video_delete_success">已删除</string>
+    <string name="video_delete_failed">删除失败：无法删除该文件（可能被占用或需要系统授权）</string>
+    <string name="video_delete_auth_cancelled">已取消授权，未删除</string>
     <string name="video_menu_share">分享</string>
     <string name="video_rename_title">重命名视频</string>
     <string name="video_rename_invalid">名称无效。请重试！</string>

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.os.SystemClock
 import android.content.res.ColorStateList
 import android.text.Editable
@@ -13,11 +14,9 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.HapticFeedbackConstants
-import android.view.MotionEvent
 import android.app.ActivityOptions
 import android.view.View
 import android.view.ViewGroup
-import android.widget.PopupMenu
 import android.view.inputmethod.EditorInfo
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -1457,78 +1456,80 @@ class WebTabFragment : BaseWebTabFragment() {
         dataBinding.browserForwardButton.alpha = if (canGoForward) 1f else 0.38f
     }
 
-    private var lastTouchX = 0f
-    private var lastTouchY = 0f
-
+    /**
+     * 长按菜单：挂 setOnCreateContextMenuListener（AOSP 实现会同时 setLongClickable(true)，这是触发
+     * WebView 长按链路——内置保存图片/复制图片/文字选字框/复制链接——的必要条件）。
+     * 非链接直接 return 交内置菜单；仅链接类型追加"本窗/新窗/后台打开"三项。
+     * 切勿叠加 setOnTouchListener / JS prefetch / setOnLongClickListener —— 前几版长按失败的根因。
+     */
     private fun configureLinkContextMenu(webView: WebView?) {
-        val wv = webView ?: return
-        wv.setOnTouchListener { _, e ->
-            if (e.action == MotionEvent.ACTION_DOWN) {
-                lastTouchX = e.x
-                lastTouchY = e.y
-            }
-            false
-        }
-        wv.setOnLongClickListener { v ->
-            val targetWebView = v as? WebView ?: return@setOnLongClickListener false
-            val hit = targetWebView.hitTestResult ?: return@setOnLongClickListener false
-            val isLink = hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE ||
-                hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
-            // 纯图片/文字：不消费 → WebView 内置 context menu（保存图片/复制图片/选字框）照常工作
-            if (!isLink) return@setOnLongClickListener false
-
-            if (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE) {
-                // 纯链接：hitTestResult.extra = href，同步取
-                val url = normalizeLongPressedUrl(hit.extra?.trim().orEmpty())
-                if (url != null) showLinkPopupMenu(targetWebView, url)
-                url != null
-            } else {
-                // 图片链接：hitTestResult.extra 是图片 src（Android 已知坑，不是 href），
-                // 异步用 JS elementFromPoint 找长按位置父 <a> 的 href
-                resolveImageAnchorHref(targetWebView) { href ->
-                    val url = normalizeLongPressedUrl(href)
-                    if (url != null) showLinkPopupMenu(targetWebView, url)
+        webView?.setOnCreateContextMenuListener { menu, view, _ ->
+            val targetWebView = view as? WebView ?: return@setOnCreateContextMenuListener
+            val hit = targetWebView.hitTestResult ?: return@setOnCreateContextMenuListener
+            when (hit.type) {
+                WebView.HitTestResult.SRC_ANCHOR_TYPE -> {
+                    // 纯文字链接：hitTestResult.extra 即 <a href>
+                    val url = normalizeLongPressedUrl(hit.extra?.trim().orEmpty())
+                        ?: return@setOnCreateContextMenuListener
+                    menu.setHeaderTitle(url)
+                    menu.add(0, MENU_OPEN_LINK_CURRENT_WINDOW, 0, getString(R.string.open_link_current_window))
+                        .setOnMenuItemClickListener { openLinkInCurrentWindow(url); true }
+                    menu.add(0, MENU_OPEN_LINK_NEW_WINDOW, 1, getString(R.string.open_link_new_window))
+                        .setOnMenuItemClickListener { openLinkInNewWindow(url); true }
+                    menu.add(0, MENU_OPEN_LINK_BACKGROUND_WINDOW, 2, getString(R.string.open_link_background_window))
+                        .setOnMenuItemClickListener { openLinkInBackgroundWindow(url); true }
                 }
-                true
+                WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                    // 图片链接：hitTestResult.extra 是 <img src>（封面图），不是 href。
+                    // 菜单项点击时用 requestFocusNodeHref 取 <a href>，失败再 JS 反查；绝不用 extra。
+                    val imgSrc = hit.extra?.trim().orEmpty()
+                    menu.add(0, MENU_OPEN_LINK_CURRENT_WINDOW, 0, getString(R.string.open_link_current_window))
+                        .setOnMenuItemClickListener { resolveImageAnchorHref(targetWebView, imgSrc, ::openLinkInCurrentWindow); true }
+                    menu.add(0, MENU_OPEN_LINK_NEW_WINDOW, 1, getString(R.string.open_link_new_window))
+                        .setOnMenuItemClickListener { resolveImageAnchorHref(targetWebView, imgSrc, ::openLinkInNewWindow); true }
+                    menu.add(0, MENU_OPEN_LINK_BACKGROUND_WINDOW, 2, getString(R.string.open_link_background_window))
+                        .setOnMenuItemClickListener { resolveImageAnchorHref(targetWebView, imgSrc, ::openLinkInBackgroundWindow); true }
+                }
             }
         }
     }
 
-    private fun showLinkPopupMenu(anchor: View, url: String) {
-        val popup = PopupMenu(requireContext(), anchor)
-        popup.menu.add(0, MENU_OPEN_LINK_CURRENT_WINDOW, 0, getString(R.string.open_link_current_window))
-            .setOnMenuItemClickListener { openLinkInCurrentWindow(url); true }
-        popup.menu.add(0, MENU_OPEN_LINK_NEW_WINDOW, 1, getString(R.string.open_link_new_window))
-            .setOnMenuItemClickListener { openLinkInNewWindow(url); true }
-        popup.menu.add(0, MENU_OPEN_LINK_BACKGROUND_WINDOW, 2, getString(R.string.open_link_background_window))
-            .setOnMenuItemClickListener { openLinkInBackgroundWindow(url); true }
-        popup.show()
+    /**
+     * 图片链接专用：取 <a href>。优先 requestFocusNodeHref（官方 API，针对最后触摸节点返回 Bundle "url"=href），
+     * 为空才 fallback 用 imgSrc 在 DOM 反查父 <a>。绝不用 hitTestResult.extra（那是 <img src>=封面图）。
+     * 在菜单项点击时调（WebView 还在、context menu 已关，不碰长按触发链路）。
+     */
+    private fun resolveImageAnchorHref(webView: WebView, imgSrc: String, open: (String) -> Unit) {
+        val handler = Handler(Looper.getMainLooper()) { msg ->
+            val url = (msg.obj as? Bundle)?.getString("url")?.trim().orEmpty()
+            val normalized = normalizeLongPressedUrl(url)
+            if (normalized != null) {
+                open(normalized)
+            } else {
+                resolveImageAnchorHrefByJs(webView, imgSrc, open)
+            }
+            true
+        }
+        webView.requestFocusNodeHref(Message.obtain(handler, 0))
     }
 
-    private fun resolveImageAnchorHref(webView: WebView, callback: (String) -> Unit) {
-        val x = lastTouchX
-        val y = lastTouchY
-        val js = "(function(){try{var el=document.elementFromPoint($x,$y);while(el){if(el.tagName==='A'&&el.href)return el.href;el=el.parentElement;}}catch(e){}return '';})()"
+    /** requestFocusNodeHref 没拿到 url 时的 fallback：用 imgSrc 反查 DOM 父 <a> href。imgSrc 用 JSONObject.quote 安全转义。 */
+    private fun resolveImageAnchorHrefByJs(webView: WebView, imgSrc: String, open: (String) -> Unit) {
+        if (imgSrc.isBlank()) {
+            AppLogger.d("resolveImageAnchorHref: empty imgSrc, JS fallback skipped")
+            return
+        }
+        val quoted = JSONObject.quote(imgSrc)
+        val js = "(function(){try{var s=$quoted;var imgs=document.getElementsByTagName('img');for(var i=0;i<imgs.length;i++){if(imgs[i].src===s){var el=imgs[i];while(el){if(el.tagName==='A'&&el.href)return el.href;el=el.parentElement;}}}}catch(e){}return '';})()"
         webView.evaluateJavascript(js) { result ->
-            val href = result
-                ?.trim()
-                ?.removeSurrounding("\"")
-                ?.replace("\\/", "/")
-                .orEmpty()
-            callback(href)
+            val href = result?.trim()?.removeSurrounding("\"")?.replace("\\/", "/").orEmpty()
+            val normalized = normalizeLongPressedUrl(href)
+            if (normalized != null) {
+                open(normalized)
+            } else {
+                AppLogger.d("resolveImageAnchorHref: JS fallback found no href for $imgSrc")
+            }
         }
-    }
-
-    private fun getLongPressedLinkUrl(webView: WebView): String? {
-        val hitTestResult = webView.hitTestResult ?: return null
-        val isLink = hitTestResult.type == WebView.HitTestResult.SRC_ANCHOR_TYPE ||
-            hitTestResult.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
-        if (!isLink) {
-            return null
-        }
-
-        val url = hitTestResult.extra?.trim().orEmpty()
-        return normalizeLongPressedUrl(url)
     }
 
     private fun normalizeLongPressedUrl(rawUrl: String): String? {

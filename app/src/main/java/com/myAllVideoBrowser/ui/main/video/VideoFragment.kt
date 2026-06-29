@@ -1,5 +1,6 @@
 package com.myAllVideoBrowser.ui.main.video
 
+import android.app.Activity
 import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Color
@@ -10,6 +11,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.FileProvider
@@ -72,6 +76,13 @@ class VideoFragment : BaseFragment() {
 
     private lateinit var videoAdapter: VideoAdapter
 
+    /** 删除公共目录视频时，由系统弹 createDeleteRequest 授权确认（Android 11+）；授权后列表由轮询自动刷新。 */
+    private val deleteAuthLauncher: ActivityResultLauncher<IntentSenderRequest> =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            // 不在此 Toast：成功/失败/取消全由 ViewModel 事件驱动（Q retry 必须等真 Success 才算删掉）
+            videoViewModel.onDeleteAuthResult(requireContext(), result.resultCode == Activity.RESULT_OK)
+        }
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
@@ -100,6 +111,18 @@ class VideoFragment : BaseFragment() {
 
         videoViewModel.shareEvent.observe(viewLifecycleOwner) { uri ->
             intentUtil.shareVideo(requireContext(), uri)
+        }
+        videoViewModel.deleteAuthEvent.observe(viewLifecycleOwner) { intentSender ->
+            deleteAuthLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+        }
+        videoViewModel.deleteSuccessEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(requireContext(), R.string.video_delete_success, Toast.LENGTH_SHORT).show()
+        }
+        videoViewModel.deleteFailedEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(requireContext(), R.string.video_delete_failed, Toast.LENGTH_LONG).show()
+        }
+        videoViewModel.deleteAuthCancelledEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(requireContext(), R.string.video_delete_auth_cancelled, Toast.LENGTH_SHORT).show()
         }
 
         return dataBinding.root

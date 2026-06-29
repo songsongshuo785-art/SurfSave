@@ -39,6 +39,37 @@
             app:show_timeout="0"
             app:use_controller="true" />
 
+        <!-- 滑动 seek 预览气泡：缩略图 + 目标时间，定位在底部控制区上方（不锚内部 TimeBar） -->
+        <FrameLayout
+            android:id="@+id/seek_preview_container"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="90dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent">
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/iv_seek_preview"
+                android:layout_width="160dp"
+                android:layout_height="90dp"
+                android:background="@drawable/sx_thumbnail_background"
+                android:scaleType="fitCenter"
+                app:shapeAppearanceOverlay="@style/customImageViewRounded" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_seek_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:background="@color/black_15"
+                android:paddingHorizontal="6dp"
+                android:paddingVertical="2dp"
+                android:textColor="@android:color/white"
+                android:textSize="12sp" />
+        </FrameLayout>
+
         <ProgressBar
             android:id="@+id/loading_bar"
             android:layout_width="wrap_content"

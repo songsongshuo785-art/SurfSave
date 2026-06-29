@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -41,6 +42,8 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView.SHOW_BUFFERING_ALWAYS
+import com.bumptech.glide.Glide
+import com.bumptech.glide.request.RequestOptions
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.FragmentPlayerBinding
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
@@ -75,6 +78,16 @@ class VideoPlayerFragment : BaseFragment() {
     private lateinit var player: ExoPlayer
     private lateinit var trackSelector: DefaultTrackSelector
 
+    // 水平滑动 seek（快进/快退）状态：滑动期间暂停播放以渲染目标帧预览，松手恢复
+    private var seeking = false
+    private var seekStartPos = 0L
+    private var wasPlayingBeforeSeek = false
+    // PiP 模式标志：小窗内不响应水平滑动 seek
+    private var isPipMode = false
+    // 滑动 seek 预览气泡节流：避免每个 move 都 Glide 取帧造成请求堆积卡顿
+    private var lastPreviewTargetMs = 0L
+    private var lastPreviewWallMs = 0L
+
     private val gestureDetector by lazy {
         GestureDetector(requireContext(), object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean {
@@ -90,19 +103,32 @@ class VideoPlayerFragment : BaseFragment() {
                 distanceX: Float,
                 distanceY: Float
             ): Boolean {
-                // 水平滑动 = 快进/快退：手指向左滑(distanceX>0)快进、向右滑快退。
-                // 主画面实时 seekTo 预览该位置帧，并显示底部进度条/时间指示。
-                if (Math.abs(distanceX) < Math.abs(distanceY) * 1.5f) return false
-                val width = dataBinding.videoView.width
+                if (e1 == null || isPipMode) return false
+                val view = dataBinding.videoView
+                // 触摸落在底部进度条区域 → 不抢事件，交给 PlayerView 自带 TimeBar（避免双 seek 打架）
+                val controllerH = (120 * resources.displayMetrics.density).toInt()
+                if (view.isControllerFullyVisible && e2.y > view.height - controllerH) return false
+                // 右滑(totalDx>0)快进、左滑快退；用总位移判断主方向（避免增量 distanceX 抖动）
+                val totalDx = e2.x - e1.x
+                val totalDy = e2.y - e1.y
+                if (Math.abs(totalDx) < Math.abs(totalDy) * 1.5f) return false
+                val width = view.width
                 val duration = player.duration.coerceAtLeast(0L)
                 if (width <= 0 || duration <= 0L) return false
-                // 水平滑过整屏宽 ≈ 跳过整个视频时长（可调灵敏度）
-                val deltaMs = -(distanceX / width.toFloat()) * duration.toFloat()
-                val target = (player.currentPosition + deltaMs.toLong()).coerceIn(0L, duration)
-                player.seekTo(target)
-                if (!dataBinding.videoView.isControllerFullyVisible) {
-                    dataBinding.videoView.showController()
+                // 首次进入滑动 seek：暂停播放 + 记录起点（之后基于起点算总位移，避免累加抖动）
+                if (!seeking) {
+                    seeking = true
+                    seekStartPos = player.currentPosition
+                    wasPlayingBeforeSeek = player.playWhenReady
+                    player.playWhenReady = false
+                    if (!view.isControllerFullyVisible) view.showController()
                 }
+                // 滑满整屏最多 ±30 秒（不按视频总时长百分比，避免长视频一拉跳很远）
+                val maxSeekMs = 30_000L
+                val target = (seekStartPos + (totalDx / width.toFloat() * maxSeekMs.toFloat()).toLong())
+                    .coerceIn(0L, duration)
+                player.seekTo(target)
+                showSeekPreview(target)
                 return true
             }
         })
@@ -119,9 +145,44 @@ class VideoPlayerFragment : BaseFragment() {
 
     /** PiP 模式切换：进入时隐藏顶部控制栏（PiP 只显示视频画面），退出时恢复。 */
     fun setPipMode(inPip: Boolean) {
+        isPipMode = inPip
         if (!::dataBinding.isInitialized) return
         dataBinding.topBar.visibility = if (inPip) View.GONE else View.VISIBLE
         dataBinding.videoView.useController = !inPip
+    }
+
+    /** 滑动 seek 时显示预览气泡：目标时间始终刷新，缩略图按节流加载（仅本地视频，远程只显示时间）。 */
+    private fun showSeekPreview(targetMs: Long) {
+        if (!::dataBinding.isInitialized) return
+        dataBinding.seekPreviewContainer.visibility = View.VISIBLE
+        dataBinding.tvSeekTime.text = formatSeekTime(targetMs)
+        // 远程视频（http/m3u8/mpd）不抽帧，只显示目标时间：隐藏缩略图框避免空白/旧图
+        if (videoPlayerViewModel.videoUrl.get().toString().startsWith("http")) {
+            dataBinding.ivSeekPreview.visibility = View.GONE
+            Glide.with(this).clear(dataBinding.ivSeekPreview)
+            return
+        }
+        dataBinding.ivSeekPreview.visibility = View.VISIBLE
+        val now = SystemClock.uptimeMillis()
+        if (Math.abs(targetMs - lastPreviewTargetMs) < 500 && now - lastPreviewWallMs < 100) return
+        lastPreviewTargetMs = targetMs
+        lastPreviewWallMs = now
+        Glide.with(this)
+            .load(videoPlayerViewModel.videoUrl.get())
+            .apply(RequestOptions().frame(targetMs * 1000L))
+            .into(dataBinding.ivSeekPreview)
+    }
+
+    /** 松手后隐藏预览气泡并取消待执行的 Glide 请求，避免滑动中请求堆积卡顿。 */
+    private fun hideSeekPreview() {
+        if (!::dataBinding.isInitialized) return
+        dataBinding.seekPreviewContainer.visibility = View.GONE
+        Glide.with(this).clear(dataBinding.ivSeekPreview)
+    }
+
+    private fun formatSeekTime(ms: Long): String {
+        val totalSec = (ms / 1000L).coerceAtLeast(0L)
+        return "%02d:%02d".format(totalSec / 60, totalSec % 60)
     }
 
     override fun onCreateView(
@@ -186,9 +247,17 @@ class VideoPlayerFragment : BaseFragment() {
             // 「更多」按钮弹出真菜单（当前仅轨道选择，为后续扩展留口），避免叫"更多"却直接跳单一功能
             currentBinding.btnMore.setOnClickListener { showOverflowMenu() }
 
-            // 双击左/右半屏快退/快进；返回 false 不消费触摸，让 PlayerView controller 正常显示/隐藏
+            // 双击/滑动 seek 由 gestureDetector 处理；返回 false 不消费触摸，让 PlayerView controller 正常显示/隐藏。
+            // 松手（UP/CANCEL）时若处于滑动 seek，恢复播放状态。
             currentBinding.videoView.setOnTouchListener { _, e ->
                 gestureDetector.onTouchEvent(e)
+                if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
+                    if (seeking) {
+                        seeking = false
+                        player.playWhenReady = wasPlayingBeforeSeek
+                        hideSeekPreview()
+                    }
+                }
                 false
             }
 
