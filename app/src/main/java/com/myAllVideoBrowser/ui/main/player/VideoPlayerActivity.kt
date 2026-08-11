@@ -38,7 +38,9 @@ class VideoPlayerActivity : BaseActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_player)
 
-        intent.extras?.let { addFragment(R.id.player_content_frame, it, ::VideoPlayerFragment) }
+        if (savedInstanceState == null && playerFragment() == null) {
+            intent.extras?.let { addFragment(R.id.player_content_frame, it, ::VideoPlayerFragment) }
+        }
     }
 
     private fun playerFragment(): VideoPlayerFragment? =
@@ -90,6 +92,11 @@ class VideoPlayerActivity : BaseActivity() {
     /** fragment 在 onVideoSizeChanged 时回调；按实际显示尺寸切换方向。 */
     fun onVideoSizeChanged(videoSize: VideoSize) {
         applyOrientationFromVideo(videoSize)
+    }
+
+    /** 播放器播放状态真正变化时（onIsPlayingChanged）刷新 PiP RemoteAction 图标。 */
+    fun refreshPipActions() {
+        pipHelper?.refreshActions()
     }
 
     /**

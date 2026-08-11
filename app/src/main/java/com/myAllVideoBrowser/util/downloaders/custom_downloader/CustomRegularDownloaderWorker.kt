@@ -134,7 +134,11 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
         }
 
         AppLogger.d("handleSuccessfulDownload started for item: ${item.mId}")
-        val target = fixFileName(File(fileUtil.folderDir, File(outputFileName!!).name).path)
+        val targetFile = fileUtil.uniqueMediaTarget(
+            applicationContext,
+            File(fileUtil.folderDir, File(outputFileName!!).name)
+        )
+        val target = targetFile.path
 
         var isPreprocessed = false
 
@@ -213,69 +217,52 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
             }
 
             val finalSource = processedUri ?: sourcePath.toUri()
-            if (!finalSource.toFile().exists() && target.toUri().toFile().exists()) {
-                val finalSize = File(target).length()
-                fileMovedSuccess = true  // 目标文件已存在即视为到位，避免 finishWork 误判为移动失败
-                val finalItem = item.apply {
-                    taskState = VideoTaskState.SUCCESS
-                    filePath = target
-                    lineInfo = "Download Success"
-                    totalSize = finalSize
-                    downloadSize = finalSize
-                }
-                finishWork(finalItem)
-
-                return
+            if (!fileUtil.isUriExists(applicationContext, finalSource)) {
+                throw Error("Downloaded source is not available for publication")
             }
             AppLogger.d("START MOVING... $finalSource -> $target")
             fileMovedSuccess =
-                fileUtil.moveMedia(applicationContext, finalSource, File(target).toUri())
+                fileUtil.moveMedia(applicationContext, finalSource, targetFile.toUri())
             AppLogger.d("END MOVING... fileMovedSuccess: $fileMovedSuccess")
 
-            if (fileMovedSuccess) {
-                finalSource.toFile().parentFile?.deleteRecursively()
-            }
-            val finalItem: VideoTaskItem?
             if (!fileMovedSuccess) {
                 throw Error("File Move error")
-            } else {
-                val targetFile = File(target)
-                val validationError = DownloadedMediaValidator.validate(targetFile, item.isLive)
-                if (validationError != null) {
-                    finishWork(item.also {
-                        it.taskState = VideoTaskState.ERROR
-                        it.errorMessage = validationError
-                        it.filePath = target
-                    })
-                    return
-                }
-
-                val finalSize = targetFile.length()
-                finalItem = item.apply {
-                    taskState = VideoTaskState.SUCCESS
-                    filePath = target
-                    lineInfo = "Download Success"
-                    totalSize = finalSize
-                    downloadSize = finalSize
-                }
-                finalSource.toFile().parentFile?.deleteRecursively()
             }
-
-            finishWork(finalItem)
-
-        } catch (e: Throwable) {
-            val targetFl = File(target)
-            if (targetFl.exists()) {
-                sourcePath.parentFile?.deleteRecursively()
-                AppLogger.d("Target file exists $targetFl  marking success ${item.mId}")
-                finishWork(item.also { it.taskState = VideoTaskState.SUCCESS })
-            } else {
-                AppLogger.e("Error during post-processing: ${e.message}", e)
+            val finalUri = fileUtil.resolveMediaUri(applicationContext, targetFile)
+                ?: throw Error("Published media URI is missing")
+            val validationError = DownloadedMediaValidator.validate(
+                applicationContext,
+                finalUri,
+                item.isLive
+            )
+            if (validationError != null) {
                 finishWork(item.also {
                     it.taskState = VideoTaskState.ERROR
-                    it.errorMessage = e.message
+                    it.errorMessage = validationError
+                    it.filePath = target
                 })
+                return
             }
+
+            val finalSize = fileUtil.getContentLength(applicationContext, finalUri)
+            if (finalSize <= 0L) throw Error("Published media size is invalid")
+            if (finalSource.scheme == "file") {
+                finalSource.path?.let(::File)?.parentFile?.deleteRecursively()
+            }
+            finishWork(item.apply {
+                taskState = VideoTaskState.SUCCESS
+                filePath = target
+                lineInfo = "Download Success"
+                totalSize = finalSize
+                downloadSize = finalSize
+            })
+
+        } catch (e: Throwable) {
+            AppLogger.e("Error during post-processing: ${e.message}", e)
+            finishWork(item.also {
+                it.taskState = VideoTaskState.ERROR
+                it.errorMessage = e.message
+            })
         }
     }
 

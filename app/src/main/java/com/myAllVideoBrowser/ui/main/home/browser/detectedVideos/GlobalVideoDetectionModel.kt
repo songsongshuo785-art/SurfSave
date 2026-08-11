@@ -24,6 +24,7 @@ class GlobalVideoDetectionModel @Inject constructor(
 ) : VideoDetectionTabViewModel(videoRepository, baseSchedulers, okHttpProxyClient), IVideoDetector {
     private var lastVerifiedLink: String = ""
     private var lastVerifiedM3u8PointUrl = Pair("", "")
+    private val serviceWorkerContexts = ServiceWorkerDetectionContextTracker()
 
     private val butonStateCallBack = object :
         Observable.OnPropertyChangedCallback() {
@@ -53,7 +54,28 @@ class GlobalVideoDetectionModel @Inject constructor(
         super.cancelAllCheckJobs()
 
         lastVerifiedLink = ""
+        lastVerifiedM3u8PointUrl = Pair("", "")
     }
+
+    @Synchronized
+    fun activateServiceWorkerContext(
+        tabId: String,
+        pageUrl: String,
+        forceNewGeneration: Boolean = false
+    ) {
+        val previous = serviceWorkerContexts.snapshot()
+        val current = serviceWorkerContexts.activate(tabId, pageUrl, forceNewGeneration)
+        if (previous != current) {
+            cancelAllCheckJobs()
+        }
+    }
+
+    fun currentServiceWorkerContext(): ServiceWorkerDetectionContext? =
+        serviceWorkerContexts.snapshot()
+
+    fun serviceWorkerContextForRequest(
+        headers: Map<String, String>
+    ): ServiceWorkerDetectionContext? = serviceWorkerContexts.contextForRequest(headers)
 
     override fun hasCheckLoadingsRegular(): ObservableBoolean {
         return ObservableBoolean(false)
@@ -65,7 +87,26 @@ class GlobalVideoDetectionModel @Inject constructor(
 
     override fun verifyLinkStatus(
         resourceRequest: Request, hlsTitle: String?, isM3u8: Boolean, isMpd: Boolean
+    ) = verifyLinkStatusInternal(resourceRequest, hlsTitle, isM3u8, isMpd, null)
+
+    fun verifyLinkStatus(
+        context: ServiceWorkerDetectionContext,
+        resourceRequest: Request,
+        hlsTitle: String?,
+        isM3u8: Boolean,
+        isMpd: Boolean
+    ) = verifyLinkStatusInternal(resourceRequest, hlsTitle, isM3u8, isMpd, context)
+
+    private fun verifyLinkStatusInternal(
+        resourceRequest: Request,
+        hlsTitle: String?,
+        isM3u8: Boolean,
+        isMpd: Boolean,
+        context: ServiceWorkerDetectionContext?
     ) {
+        if (!isContextCurrent(context)) {
+            return
+        }
         if (resourceRequest.url.toString().contains("tiktok.")) {
             return
         }
@@ -79,7 +120,7 @@ class GlobalVideoDetectionModel @Inject constructor(
                 if ((currentPageUrl == lastVerifiedM3u8PointUrl.first && lastVerifiedM3u8PointUrl.second != urlToVerify) || currentPageUrl != lastVerifiedM3u8PointUrl.first) {
                     lastVerifiedM3u8PointUrl = Pair(currentPageUrl, urlToVerify)
 
-                    startVerifyProcess(resourceRequest, isM3u8, isMpd, hlsTitle)
+                    startVerifyProcessInternal(resourceRequest, isM3u8, isMpd, hlsTitle, context)
                 }
             } else {
                 if (urlToVerify.contains(
@@ -91,7 +132,13 @@ class GlobalVideoDetectionModel @Inject constructor(
                 lastVerifiedLink = urlToVerify
 
                 if (settingsModel.getIsFindVideoByUrl().get()) {
-                    startVerifyProcess(resourceRequest, isM3u8 = false, isMpd = false)
+                    startVerifyProcessInternal(
+                        resourceRequest,
+                        isM3u8 = false,
+                        isMpd = false,
+                        hlsTitle = null,
+                        context = context
+                    )
                 }
             }
         }
@@ -99,12 +146,27 @@ class GlobalVideoDetectionModel @Inject constructor(
 
     override fun startVerifyProcess(
         resourceRequest: Request, isM3u8: Boolean, isMpd: Boolean, hlsTitle: String?
+    ) = startVerifyProcessInternal(resourceRequest, isM3u8, isMpd, hlsTitle, null)
+
+    private fun startVerifyProcessInternal(
+        resourceRequest: Request,
+        isM3u8: Boolean,
+        isMpd: Boolean,
+        hlsTitle: String?,
+        context: ServiceWorkerDetectionContext?
     ) {
+        if (!isContextCurrent(context)) {
+            return
+        }
         val taskUrl = resourceRequest.url.toString()
 
         val registered = verifyVideoLinkJobStorage.tryRegister(taskUrl) { holder ->
             io.reactivex.rxjava3.core.Observable.create { emitter ->
-                setButtonState(DownloadButtonStateLoading())
+                if (!isContextCurrent(context)) {
+                    emitter.onComplete()
+                    return@create
+                }
+                setButtonState(DownloadButtonStateLoading()) { isContextCurrent(context) }
                 val info = try {
                     if (isM3u8 || isMpd) {
                         videoRepository.getVideoInfoBySuperXDetector(
@@ -122,7 +184,7 @@ class GlobalVideoDetectionModel @Inject constructor(
                     }
                 } catch (e: Throwable) {
                     AppLogger.e("GlobalDetection: verify failed url=$taskUrl", e)
-                    setDetectionError(e)
+                    setDetectionError(e, shouldPublish = { isContextCurrent(context) })
                     null
                 }
                 if (info != null) {
@@ -134,6 +196,9 @@ class GlobalVideoDetectionModel @Inject constructor(
             }.doOnTerminate {
                 verifyVideoLinkJobStorage.finish(taskUrl, holder)
             }.observeOn(baseSchedulers.mainThread).subscribeOn(baseSchedulers.io).subscribe { info ->
+                if (!isContextCurrent(context)) {
+                    return@subscribe
+                }
                 val isLastNotEmpty = lastVerifiedLink.isNotEmpty()
 
                 if (info.id.isNotEmpty()) {
@@ -156,10 +221,12 @@ class GlobalVideoDetectionModel @Inject constructor(
                         AppLogger.d(
                             "Setting set new info state... state: $state info: $info"
                         )
-                        pushNewVideoInfoToAll(info)
+                        pushNewVideoInfoForContext(context, info)
                     }
                 } else {
-                    setButtonState(DownloadButtonStateCanNotDownload())
+                    setButtonState(DownloadButtonStateCanNotDownload()) {
+                        isContextCurrent(context)
+                    }
                 }
             }
         }
@@ -171,8 +238,32 @@ class GlobalVideoDetectionModel @Inject constructor(
         request: Request?,
         isCheckOnAudio: Boolean,
         isCheckOnVideo: Boolean
+    ): Disposable? = checkRegularVideoOrAudioInternal(
+        request,
+        isCheckOnAudio,
+        isCheckOnVideo,
+        null
+    )
+
+    fun checkRegularVideoOrAudio(
+        context: ServiceWorkerDetectionContext,
+        request: Request?,
+        isCheckOnAudio: Boolean,
+        isCheckOnVideo: Boolean
+    ): Disposable? = checkRegularVideoOrAudioInternal(
+        request,
+        isCheckOnAudio,
+        isCheckOnVideo,
+        context
+    )
+
+    private fun checkRegularVideoOrAudioInternal(
+        request: Request?,
+        isCheckOnAudio: Boolean,
+        isCheckOnVideo: Boolean,
+        context: ServiceWorkerDetectionContext?
     ): Disposable? {
-        if (request == null) {
+        if (request == null || !isContextCurrent(context)) {
             return null
         }
 
@@ -194,20 +285,44 @@ class GlobalVideoDetectionModel @Inject constructor(
             mutableMapOf()
         }
 
+        val shouldPublish = { isContextCurrent(context) }
         val disposable = io.reactivex.rxjava3.core.Observable.create<Unit> {
-            propagateCheckJob(uriString, headers, isCheckOnAudio, isCheckOnVideo)
+            if (shouldPublish()) {
+                if (request.url.toString().contains(".mp4")) {
+                    setButtonState(DownloadButtonStateLoading(), shouldPublish)
+                }
+                propagateCheckJob(
+                    uriString,
+                    headers,
+                    isCheckOnAudio,
+                    isCheckOnVideo,
+                    pageUrl = context?.pageUrl ?: webTabModel?.getTabTextInput()?.get(),
+                    shouldPublish = shouldPublish,
+                    onVideoDetected = { info -> pushNewVideoInfoForContext(context, info) }
+                )
+            }
             it.onComplete()
         }.subscribeOn(baseSchedulers.io).doOnComplete {
             AppLogger.d("CHECK REGULAR MP4 IN BACKGROUND DONE")
         }.doOnError { e ->
             AppLogger.e("GlobalDetection: regularCheck failed url=$clearedUrl", e)
-            setDetectionError(e)
+            setDetectionError(e, shouldPublish = shouldPublish)
         }.onErrorComplete().subscribe()
 
         return disposable
     }
 
     override fun pushNewVideoInfoToAll(newInfo: VideoInfo) {
+        pushNewVideoInfoForContext(null, newInfo)
+    }
+
+    private fun pushNewVideoInfoForContext(
+        expectedContext: ServiceWorkerDetectionContext?,
+        newInfo: VideoInfo
+    ) {
+        if (!isContextCurrent(expectedContext)) {
+            return
+        }
         if (newInfo.formats.formats.isEmpty()) {
             return
         }
@@ -217,11 +332,20 @@ class GlobalVideoDetectionModel @Inject constructor(
             return
         }
 
-        setButtonState(DownloadButtonStateLoading())
+        setButtonState(DownloadButtonStateLoading()) {
+            isContextCurrent(expectedContext)
+        }
         Handler(Looper.getMainLooper()).postDelayed({
-            setButtonState(DownloadButtonStateCanDownload(newInfo))
+            if (isContextCurrent(expectedContext)) {
+                setButtonState(DownloadButtonStateCanDownload(newInfo)) {
+                    isContextCurrent(expectedContext)
+                }
+            }
         }, 400)
     }
+
+    private fun isContextCurrent(context: ServiceWorkerDetectionContext?): Boolean =
+        context == null || serviceWorkerContexts.isCurrent(context)
 
     override fun onStartPage(url: String, userAgentString: String) {
 

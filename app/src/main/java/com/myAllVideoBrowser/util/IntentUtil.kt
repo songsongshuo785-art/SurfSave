@@ -5,10 +5,9 @@ package com.myAllVideoBrowser.util
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.net.toFile
@@ -45,36 +44,24 @@ class IntentUtil @Inject constructor(private val fileUtil: FileUtil) {
     }
 
     fun shareVideo(context: Context, uri: Uri) {
-        val intent = Intent(Intent.ACTION_SEND)
-        intent.type = "video/*"
-        val fileSupported = fileUtil.isFileApiSupportedByUri(context, uri)
-        if (fileSupported) {
-            val fileUri = FileProvider.getUriForFile(
+        val sharedUri = if (fileUtil.isFileApiSupportedByUri(context, uri)) {
+            FileProvider.getUriForFile(
                 context,
                 context.applicationContext.packageName + ".provider",
                 uri.toFile()
             )
-            intent.setDataAndType(fileUri, "video/mp4")
-            intent.clipData = ClipData.newRawUri("", fileUri)
-            intent.putExtra(Intent.EXTRA_STREAM, fileUri)
         } else {
-            intent.clipData = ClipData.newRawUri("", uri)
-            intent.putExtra(Intent.EXTRA_STREAM, uri)
+            uri
         }
-
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-
-        val resInfoList: List<ResolveInfo> = context.packageManager.queryIntentActivities(
-            intent,
-            PackageManager.MATCH_DEFAULT_ONLY
-        )
-        for (resolveInfo in resInfoList) {
-            val packageName = resolveInfo.activityInfo.packageName
-            context.grantUriPermission(
-                packageName,
-                uri,
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
+        val mimeType = context.contentResolver.getType(uri)
+            ?: MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(uri.lastPathSegment?.substringAfterLast('.', "").orEmpty())
+            ?: "video/*"
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            clipData = ClipData.newRawUri("shared_video", sharedUri)
+            putExtra(Intent.EXTRA_STREAM, sharedUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
         if (intent.resolveActivityInfo(context.packageManager, 0) != null) {

@@ -45,20 +45,44 @@
                     android:layout_width="112dp"
                     android:layout_height="80dp"
                     android:layout_marginEnd="@dimen/padding_normal"
+                    android:clickable="true"
+                    android:contentDescription="@string/dialog_preview_video"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
+                    android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
                     app:cardBackgroundColor="@color/sxSurfaceSoft"
                     app:cardCornerRadius="@dimen/corner_md"
                     app:cardElevation="0dp"
                     app:strokeColor="@color/sxOutline"
                     app:strokeWidth="0dp">
 
-                    <com.google.android.material.imageview.ShapeableImageView
-                        android:id="@+id/video_thumbnail"
+                    <FrameLayout
                         android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:background="@drawable/sx_thumbnail_background"
-                        android:contentDescription="@string/dialog_preview_video"
-                        android:scaleType="centerCrop"
-                        app:imageUrl="@{videoInfo.thumbnail}" />
+                        android:layout_height="match_parent">
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:id="@+id/video_thumbnail"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:background="@drawable/sx_thumbnail_background"
+                            android:contentDescription="@null"
+                            android:importantForAccessibility="no"
+                            android:scaleType="centerCrop"
+                            app:imageUrl="@{videoInfo.thumbnail}" />
+
+                        <!-- 播放视觉提示：缩略图中央半透明播放角标，提示可点击播放（装饰节点，不进无障碍树） -->
+                        <ImageView
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_gravity="center"
+                            android:background="@drawable/sx_thumbnail_play_overlay"
+                            android:contentDescription="@null"
+                            android:importantForAccessibility="no"
+                            android:padding="6dp"
+                            android:src="@drawable/play_circle_24px"
+                            android:alpha="0.9"
+                            app:tint="@color/white" />
+                    </FrameLayout>
                 </com.google.android.material.card.MaterialCardView>
 
                 <LinearLayout
@@ -161,6 +185,21 @@
                 android:visibility="gone" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/tv_preview"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/min_touch_target"
+                android:layout_marginTop="@dimen/padding_normal"
+                android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
+                android:text="@string/dialog_preview_video"
+                android:textColor="@color/sxTextPrimary"
+                android:textSize="@dimen/text_medium"
+                app:cornerRadius="@dimen/corner_md"
+                app:icon="@drawable/play_circle_24px"
+                app:iconTint="@color/sxTextPrimary"
+                app:strokeColor="@color/sxOutline" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/tv_download"
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/min_touch_target"
@@ -190,42 +229,19 @@
                 android:paddingTop="@dimen/padding_small"
                 android:paddingBottom="@dimen/padding_small" />
 
-            <LinearLayout
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tv_share"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/tv_preview"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="@dimen/min_touch_target"
-                    android:layout_marginEnd="@dimen/padding_small"
-                    android:layout_weight="1"
-                    android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
-                    android:text="@string/dialog_preview_video"
-                    android:textColor="@color/sxTextPrimary"
-                    android:textSize="@dimen/text_small"
-                    app:cornerRadius="@dimen/corner_md"
-                    app:icon="@drawable/play_circle_24px"
-                    app:iconTint="@color/sxTextPrimary"
-                    app:strokeColor="@color/sxOutline" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/tv_share"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="@dimen/min_touch_target"
-                    android:layout_weight="1"
-                    android:onClick="@{() -> dialogListener.onFormatUrlShare(videoInfo, viewModel.selectedFormats.get(videoInfo.id))}"
-                    android:text="@string/share_link"
-                    android:textColor="@color/sxTextPrimary"
-                    android:textSize="@dimen/text_small"
-                    app:cornerRadius="@dimen/corner_md"
-                    app:icon="@drawable/share_24px"
-                    app:iconTint="@color/sxTextPrimary"
-                    app:strokeColor="@color/sxOutline" />
-            </LinearLayout>
+                android:layout_height="@dimen/min_touch_target"
+                android:onClick="@{() -> dialogListener.onFormatUrlShare(videoInfo, viewModel.selectedFormats.get(videoInfo.id))}"
+                android:text="@string/share_link"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                app:cornerRadius="@dimen/corner_md"
+                app:icon="@drawable/share_24px"
+                app:iconTint="@color/sxTextSecondary"
+                app:strokeColor="@color/sxOutline" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 </layout>

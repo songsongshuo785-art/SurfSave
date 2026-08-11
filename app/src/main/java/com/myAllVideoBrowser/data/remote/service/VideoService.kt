@@ -41,7 +41,7 @@ open class VideoServiceLocal(
         isMpd: Boolean,
         isAudioCheck: Boolean
     ): VideoInfoWrapper? {
-        AppLogger.d("Getting info url...:  $url  ${url.headers["Cookie"]}")
+        AppLogger.d("Getting video info from ${url.url.scheme}://${url.url.host}:${url.url.port}")
 
         var result: VideoInfoWrapper? = null
 

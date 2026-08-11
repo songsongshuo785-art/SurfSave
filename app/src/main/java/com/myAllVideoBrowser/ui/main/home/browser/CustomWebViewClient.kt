@@ -39,6 +39,7 @@ class CustomWebViewClient(
     private val proxyController: CustomProxyController,
     private val onNavigationStateChanged: () -> Unit = {},
     private val onRenderProcessLost: (WebView?, Boolean) -> Unit = { _, _ -> },
+    private val onPageContextStarted: (String, String) -> Unit = { _, _ -> },
     private val injectMediaProbe: (WebView) -> Unit = {}
 ) : WebViewClient() {
     var videoAlert: MaterialAlertDialogBuilder? = null
@@ -96,8 +97,9 @@ class CustomWebViewClient(
         if (proxyController.getCurrentRunningProxy().host == host) {
             val creds = proxyController.getProxyCredentials()
 
-            if (creds.first.isNotEmpty() || creds.second.isNotEmpty()) {
-                handler?.proceed(creds.first, creds.second)
+            if (handler != null && (creds.first.isNotEmpty() || creds.second.isNotEmpty())) {
+                handler.proceed(creds.first, creds.second)
+                return
             }
         }
         super.onReceivedHttpAuthRequest(view, handler, host, realm)
@@ -128,12 +130,12 @@ class CustomWebViewClient(
                             videoDetectionModel.verifyLinkStatus(
                                 requestWithCookies,
                                 tabViewModel.currentTitle.get(),
-                                inspection.isM3u8,
+                                inspection.shouldProbeAsM3u8,
                                 inspection.isMpd
                             )
                         }
                     }
-                    if (inspection.shouldInterruptResource) {
+                    if (inspection.shouldBlockStreamRequest) {
                         return emptyResponse()
                     }
                 }
@@ -177,9 +179,10 @@ class CustomWebViewClient(
         currentPageUrl = url
         onNavigationStateChanged()
 
-        injectMediaProbe(view)
         videoAlert = null
         val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+        onPageContextStarted(pageTab.id, url)
+        injectMediaProbe(view)
         val headers = pageTab.getHeaders() ?: emptyMap()
         val favi = pageTab.getFavicon() ?: view.favicon ?: favicon
 

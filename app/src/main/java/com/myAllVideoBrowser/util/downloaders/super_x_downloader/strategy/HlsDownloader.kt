@@ -85,21 +85,17 @@ class HlsDownloader(
                 }
             }
 
-            // --- Download Encryption Keys (for TS) ---
-            (videoSegments?.firstOrNull() as? HlsPlaylistParser.UrlMediaSegment)?.encryptionKey?.let { key ->
-                val keyFile = downloadDir.resolve("video_encryption.key")
-                if (!keyFile.exists() || keyFile.length() == 0L) {
-                    AppLogger.d("HLS: Downloading video encryption key from ${key.uri}")
-                    DownloaderUtils.downloadKey(httpClient, key.uri, keyFile, headers.toHeaders())
-                }
-            }
-            (audioSegments?.firstOrNull() as? HlsPlaylistParser.UrlMediaSegment)?.encryptionKey?.let { key ->
-                val keyFile = downloadDir.resolve("audio_encryption.key")
-                if (!keyFile.exists() || keyFile.length() == 0L) {
-                    AppLogger.d("HLS: Downloading audio encryption key from ${key.uri}")
-                    DownloaderUtils.downloadKey(httpClient, key.uri, keyFile, headers.toHeaders())
-                }
-            }
+            // Every segment keeps the key state that was active when it was parsed. Prepare every
+            // distinct AES-128 key before downloading media so rotation cannot silently reuse the
+            // first key for the whole playlist.
+            DownloaderUtils.prepareHlsEncryptionKeys(
+                httpClient,
+                downloadDir,
+                headers.toHeaders(),
+                videoSegments,
+                audioSegments,
+                shouldAbort = controller::isInterrupted
+            )
 
             // 2. Handle Resuming: Calculate initial progress from already downloaded files
             val alreadyDownloadedVideo = videoSegments?.filter { segment ->
@@ -214,10 +210,14 @@ class HlsDownloader(
                             this.lineInfo = "Merging segments... $percentage"
                             this.taskState = VideoTaskState.PREPARE
                         });
-                }
+                },
+                shouldAbort = controller::isInterrupted
             )
             if (!ReturnCode.isSuccess(mergeSession.returnCode)) {
                 throw IOException("FFmpeg failed to merge segments. Return code: ${mergeSession.returnCode}. Logs: ${mergeSession.allLogsAsString}")
+            }
+            if (!finalOutputFile.isFile || finalOutputFile.length() <= 0L) {
+                throw IOException("FFmpeg reported success but produced no HLS output.")
             }
 
             AppLogger.d("HLS: Merge completed successfully.")

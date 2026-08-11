@@ -18,7 +18,7 @@ data class VideoInfo(
     var id: String = UUID.randomUUID().toString(),
 
     @ColumnInfo(name = "downloadUrls")
-    @SerializedName("urls")
+    @SerializedName(value = "downloadUrls", alternate = ["urls"])
     @Expose
     var downloadUrls: List<DownloadRequestData> = emptyList(),
 
@@ -43,6 +43,7 @@ data class VideoInfo(
     var duration: Long = 0,
 
     @ColumnInfo(name = "originalUrl")
+    @SerializedName(value = "originalUrl", alternate = ["original_url"])
     var originalUrl: String = "",
 
     @ColumnInfo(name = "formats")
@@ -51,7 +52,7 @@ data class VideoInfo(
     var formats: VideFormatEntityList = VideFormatEntityList(emptyList()),
 
     @ColumnInfo(name = "isRegular")
-    @SerializedName("isRegular")
+    @SerializedName(value = "isRegularDownload", alternate = ["isRegular"])
     @Expose
     var isRegularDownload: Boolean = false,
 
@@ -61,7 +62,7 @@ data class VideoInfo(
     var isLive: Boolean = false,
 
     @ColumnInfo(name = "isDetectedBySuperX", defaultValue = "0")
-    @SerializedName("isDetectedBySuperX")
+    @SerializedName(value = "isDetectedBySuperX", alternate = ["detectedBySuperX"])
     @Expose
     var isDetectedBySuperX: Boolean = false
 ) {

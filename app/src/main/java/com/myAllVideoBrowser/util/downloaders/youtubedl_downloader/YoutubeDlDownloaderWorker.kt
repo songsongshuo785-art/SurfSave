@@ -2,21 +2,20 @@ package com.myAllVideoBrowser.util.downloaders.youtubedl_downloader
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.net.Uri
 import android.util.Base64
-import androidx.core.net.toUri
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.myAllVideoBrowser.DLApplication
+import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.local.model.Proxy
 import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.util.CookieUtils
+import com.myAllVideoBrowser.util.downloaders.DownloadTaskLogger
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.GenericDownloader
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskItem
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.workers.GenericDownloadWorkerWrapper
 import com.google.gson.Gson
 import com.myAllVideoBrowser.util.AppLogger
-import com.myAllVideoBrowser.util.DownloadedMediaValidator
 import com.myAllVideoBrowser.util.FileUtil
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -27,13 +26,26 @@ import io.reactivex.rxjava3.schedulers.Schedulers
 import java.io.File
 import java.util.Date
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
+import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.suspendCancellableCoroutine
+
+internal fun dispatchYoutubeDlInitializationTerminalCommit(
+    terminalEffectsAvailable: Boolean,
+    applyTerminalEffects: () -> Unit,
+    advanceQueue: () -> Unit
+) {
+    if (terminalEffectsAvailable) {
+        applyTerminalEffects()
+    } else {
+        advanceQueue()
+    }
+}
 
 class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParameters) :
     GenericDownloadWorkerWrapper(appContext, workerParams) {
     companion object {
-        var isCanceled = false
-
         const val IS_FINISHED_DOWNLOAD_ACTION_ERROR_KEY = "IS_FINISHED_DOWNLOAD_ACTION_ERROR_KEY"
         const val DOWNLOAD_FILENAME_KEY = "download_filename"
         const val IS_FINISHED_DOWNLOAD_ACTION_KEY = "action"
@@ -49,177 +61,177 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
     private var downloadJobDisposable: Disposable? = null
     private var cookieFile: File? = null
     private var lastTmpDirSize = 0L
+    private var taskId = ""
+    private var executionToken = ""
+    private var executionKey = ""
+    private lateinit var executionResources: YoutubeDlExecutionResources
+    private lateinit var finalizationCoordinator: YoutubeDlFinalizationCoordinator
+    private lateinit var terminalEffects: YoutubeDlTerminalEffects
+    private var workerContinuation: CancellableContinuation<Result>? = null
+    private val continuationCompleted = AtomicBoolean(false)
 
     @Volatile
     var time = 0L
 
+    override suspend fun doWork(): Result {
+        return suspendCancellableCoroutine { continuation ->
+            workerContinuation = continuation
+            continuation.invokeOnCancellation { onWorkCancelled() }
+            try {
+                bindExecutionInput()
+                executionResources = YoutubeDlExecutionResources(fileUtil)
+                finalizationCoordinator = YoutubeDlFinalizationCoordinator(
+                    progressRepository,
+                    YoutubeDlMediaPublisher(applicationContext, fileUtil)
+                )
+                terminalEffects = YoutubeDlTerminalEffects(
+                    applicationContext as DLApplication,
+                    progressRepository,
+                    notificationsHelper,
+                    downloadQueueManager,
+                    downloadTaskLogger
+                )
+                val action = inputData.getString(GenericDownloader.Constants.ACTION_KEY)
+                    ?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("yt-dlp action is missing")
+                handleAction(
+                    action,
+                    getTaskFromInput(),
+                    emptyMap(),
+                    inputData.getBoolean(GenericDownloader.Constants.IS_FILE_REMOVE_KEY, false)
+                )
+            } catch (error: Throwable) {
+                handleInitializationFailure(error)
+            }
+        }.also { afterDone() }
+    }
+
     override fun afterDone() {
         monitorProcessDisposable?.dispose()
+        monitorProcessDisposable = null
+        downloadJobDisposable?.dispose()
+        downloadJobDisposable = null
+        CookieUtils.deleteTemporaryCookieFile(cookieFile)
+        cookieFile = null
+    }
+
+    override fun onWorkCancelled() {
+        destroyExecutionProcess()
+        monitorProcessDisposable?.dispose()
+        downloadJobDisposable?.dispose()
+        CookieUtils.deleteTemporaryCookieFile(cookieFile)
     }
 
     override fun handleAction(
         action: String, task: VideoTaskItem, headers: Map<String, String>, isFileRemove: Boolean
     ) {
+        if (currentExecutionFor(action) == null) {
+            completeWorker(Result.success())
+            return
+        }
         when (action) {
-            GenericDownloader.DownloaderActions.DOWNLOAD -> {
-                isCanceled = false
-                startDownload(task)
-            }
-
-            GenericDownloader.DownloaderActions.CANCEL -> {
-                isCanceled = true
-                cancelDownload(task)
-            }
-
-            GenericDownloader.DownloaderActions.PAUSE -> {
-                isCanceled = false
-                pauseDownload(task)
-            }
-
-            GenericDownloader.DownloaderActions.RESUME -> {
-                isCanceled = false
-                resumeDownload(task)
-            }
-
-            GenericDownloader.DownloaderActions.STOP_SAVE_ACTION -> {
-                stopAndSave(task)
-            }
+            GenericDownloader.DownloaderActions.DOWNLOAD -> startDownload(task)
+            GenericDownloader.DownloaderActions.RESUME -> resumeDownload(task)
+            GenericDownloader.DownloaderActions.PAUSE -> pauseDownload()
+            GenericDownloader.DownloaderActions.CANCEL -> cancelDownload(isFileRemove)
+            GenericDownloader.DownloaderActions.STOP_SAVE_ACTION -> stopAndSave(task)
+            GenericDownloader.DownloaderActions.RECOVER_FINALIZATION -> recoverFinalization()
+            else -> throw IllegalArgumentException("Unsupported yt-dlp action: $action")
         }
     }
 
     private fun stopAndSave(task: VideoTaskItem) {
-        val taskId = inputData.getString(GenericDownloader.Constants.TASK_ID_KEY)
-
-        if (taskId != null) {
-            YoutubeDL.getInstance().destroyProcessById(taskId)
-
-            val partsFolder = fileUtil.tmpDir.resolve(taskId)
-            val firstPart = partsFolder.listFiles()?.firstOrNull()
-
-            val dist = File(fileUtil.folderDir.absolutePath, "${task.title}.mp4")
-
-            if (firstPart != null && firstPart.exists()) {
-                try {
-                    val moved =
-                        fileUtil.moveMedia(applicationContext, firstPart.toUri(), dist.toUri())
-                    if (moved) {
-                        finishWork(task.also { it.taskState = VideoTaskState.SUCCESS })
-                    } else {
-                        finishWork(task.also { it.taskState = VideoTaskState.ERROR })
-                    }
-                } catch (e: Throwable) {
-                    AppLogger.e("YtDl: post-download move/finish failed", e)
-                    finishWork(task.also { it.taskState = VideoTaskState.ERROR })
-                }
-            } else {
-                finishWork(task.also { it.taskState = VideoTaskState.ERROR })
-            }
-        }
+        destroyExecutionProcess()
+        tmpFile = executionResources.prepare(taskId, executionKey, true)
+        val source = executionResources.findStopAndSaveSource(tmpFile)
+        val requestedName = task.fileName.orEmpty()
+            .ifBlank { task.title.orEmpty() }
+            .ifBlank { "download" }
+        val target = uniqueTargetFor(
+            "${File(requestedName).nameWithoutExtension.ifBlank { "download" }}.mp4"
+        )
+        finalizeCandidate(source?.absolutePath.orEmpty(), target.absolutePath)
     }
 
     @SuppressLint("CheckResult")
     private fun startDownload(
         task: VideoTaskItem, isContinue: Boolean = false
     ) {
-        val taskId = inputData.getString(GenericDownloader.Constants.TASK_ID_KEY)!!
-        downloadTaskLogger.info(taskId, "yt-dlp download started: ${task.fileName}")
-
-        val vFormat = deserializeVideoFormat(taskId)
-
-        /** URL FROM INPUT NOT FROM FORMAT BECAUSE FORMAT URL MAY NOT BE APPROPRIATE IN SOME CASES,
-        FOR EXAMPLE SOUND SEPARATE FROM FORMAT IN MASTER LIST
-         **/
-        val url = inputData.getString(
-            GenericDownloader.Constants.ORIGIN_KEY
-        ) ?: throw Throwable("URL is NULL")
-
-        AppLogger.d("Start download dl:  ${vFormat.formatId} $url $task")
-
-        val taskTitle = task.title
-
+        downloadTaskLogger.info(taskId, "yt-dlp execution started for ${task.fileName}")
+        val vFormat = deserializeVideoFormat()
+        val url = inputData.getString(GenericDownloader.Constants.ORIGIN_KEY)
+            ?.takeIf { it.isNotBlank() }
+            ?: inputData.getString(GenericDownloader.Constants.URL_KEY)
+                ?.takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("yt-dlp URL is missing")
+        val taskTitle = task.title.orEmpty().ifBlank { task.fileName.orEmpty() }
         hideNotifications(taskId)
-
         val request = YoutubeDLRequest(url)
-
-        cookieFile = CookieUtils.addCookiesToRequest(
-            url, request, inputData.getString(GenericDownloader.Constants.ORIGIN_KEY)
+        cookieFile = CookieUtils.addCookiesToRequest(url, request)
+        tmpFile = executionResources.prepare(taskId, executionKey, isContinue)
+        val shouldContinue = isContinue || !tmpFile.listFiles().isNullOrEmpty()
+        configureYoutubedlRequest(
+            request,
+            vFormat,
+            task.fileName.orEmpty().ifBlank { taskTitle },
+            shouldContinue
         )
 
-        tmpFile = File(
-            "${fileUtil.tmpDir}/$taskId"
-        )
-
-        if (!tmpFile.exists()) {
-            tmpFile.mkdir()
-        }
-
-        // Monitoring for LIVE stream downloading (youtubedlp doesn't show progress on live streams)
-        monitorDownloadProcess(taskId, task)
-
-        configureYoutubedlRequest(request, vFormat, taskTitle, isContinue)
-
-        showProgress(taskId, taskTitle, 0, "Starting...", tmpFile)
-        saveProgress(
+        task.taskState = VideoTaskState.DOWNLOADING
+        if (!saveProgress(
             taskId,
             line = LineInfo(taskId, 0.0, 0.0, sourceLine = "Starting..."),
-            task.also { it.taskState = VideoTaskState.DOWNLOADING }).blockingFirst(Unit)
-
-        downloadJobDisposable?.dispose()
-
-        if (fileUtil.isFreeSpaceAvailable()) {
-            startDownloadProcess(url, request, task, taskId)
-        } else {
-            finishWork(task.also {
-                task.mId = taskId
-                task.taskState = VideoTaskState.ERROR
-                task.errorMessage = "Not enough space"
-            })
+            task
+        )) {
+            completeWorker(Result.success())
+            return
         }
+        showProgress(taskId, taskTitle, 0, "Starting...", tmpFile)
+        monitorDownloadProcess(taskId, task)
+
+        if (!fileUtil.isFreeSpaceAvailable()) {
+            commitActiveError("Not enough space")
+            return
+        }
+        startDownloadProcess(url, request, task, taskId)
     }
 
     private fun resumeDownload(task: VideoTaskItem) {
         startDownload(task, true)
     }
 
-    private fun pauseDownload(task: VideoTaskItem) {
-        if (getDone()) return
-
-        val id = inputData.getString(GenericDownloader.Constants.TASK_ID_KEY)
-        if (id != null) {
-            YoutubeDL.getInstance().destroyProcessById(id)
-
-            WorkManager.getInstance(applicationContext).cancelAllWorkByTag(id)
-
-            if (task.taskState != VideoTaskState.DOWNLOADING) {
-                finishWork(task.also {
-                    it.mId = id.toString()
-                    it.taskState = VideoTaskState.PAUSE
-                })
-            }
-        }
+    private fun pauseDownload() {
+        destroyExecutionProcess()
+        commitPause(progressRepository.getProgressInfoById(taskId))
     }
 
-    private fun cancelDownload(task: VideoTaskItem) {
-        val taskId = inputData.getString(GenericDownloader.Constants.TASK_ID_KEY)
-        val isFileRemove =
-            inputData.getBoolean(GenericDownloader.Constants.IS_FILE_REMOVE_KEY, false)
+    private fun commitPause(current: ProgressInfo?) {
+        val infoLine = if (current?.queuedForLater == true) "Saved for later" else "Paused"
+        val committed = progressRepository.commitYtDlpPause(taskId, executionToken, infoLine)
+        checkAffectedRows(committed, "commit pause")
+        if (committed == 1) applyTerminalEffects(VideoTaskState.PAUSE)
+        completeWorker(Result.success())
+    }
 
-        if (taskId != null) {
-            YoutubeDL.getInstance().destroyProcessById(taskId)
+    private fun cancelDownload(removeFileFromWorkData: Boolean) {
+        destroyExecutionProcess()
+        val current = progressRepository.getProgressInfoById(taskId)
+        commitCanceled(current?.removePartialOnCancel == true || removeFileFromWorkData)
+    }
 
-            val fileToRemove = File("${fileUtil.tmpDir}/$taskId")
-
-            if (isFileRemove) {
-                fileToRemove.deleteRecursively()
-            }
-
-            if (task.taskState != VideoTaskState.DOWNLOADING) {
-                finishWork(task.also {
-                    it.mId = taskId.toString()
-                    it.taskState = VideoTaskState.CANCELED
-                })
+    private fun commitCanceled(removePartial: Boolean) {
+        val committed = progressRepository.commitYtDlpCanceled(
+            taskId,
+            executionToken,
+            System.currentTimeMillis()
+        )
+        checkAffectedRows(committed, "commit cancel")
+        if (committed == 1) {
+            applyTerminalEffects(VideoTaskState.CANCELED) {
+                if (removePartial) executionResources.deleteExecution(taskId, executionKey)
             }
         }
+        completeWorker(Result.success())
     }
 
     @SuppressLint("CheckResult")
@@ -229,8 +241,9 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
         task: VideoTaskItem,
         taskId: String,
     ) {
+        downloadJobDisposable?.dispose()
         downloadJobDisposable = Observable.fromCallable<YoutubeDLResponse> {
-            YoutubeDL.getInstance().execute(request, taskId) { pr, _, line ->
+            YoutubeDL.getInstance().execute(request, executionKey) { pr, _, line ->
                 if (line.contains("[download] Destination:")) {
                     isDownloadJustStarted = true
                 }
@@ -246,12 +259,12 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
 
                 progressCached = pr.toInt()
 
-                if (Date().time - time > UPDATE_INTERVAL && !getDone()) {
+                if (Date().time - time > UPDATE_INTERVAL && !continuationCompleted.get()) {
                     time = Date().time
 
                     val totalBytes = (lineInfo?.total ?: 0).toLong()
 
-                    val downloadBytes = (totalBytes * (pr / 100)).toLong()
+                    val downloadBytes = (totalBytes * (pr / 100.0)).toLong()
                     val downloadBytesFixed = if (downloadBytes > 0) {
                         downloadBytes
                     } else {
@@ -264,86 +277,44 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
                         it.taskState = VideoTaskState.DOWNLOADING
                     }
 
-                    saveProgress(
-                        taskId, lineInfo, task
-                    ).blockingFirst(Unit)
-                    showProgress(
-                        taskId, task.title, pr.toInt(), line, tmpFile
-                    )
+                    if (saveProgress(taskId, lineInfo, task)) {
+                        showProgress(
+                            taskId,
+                            task.title.orEmpty().ifBlank { task.fileName.orEmpty() },
+                            pr.toInt(),
+                            line,
+                            tmpFile
+                        )
+                    }
 
                     if (!fileUtil.isFreeSpaceAvailable()) {
-                        finishWork(task.also {
-                            it.mId = taskId
-                            it.taskState = VideoTaskState.ERROR
-                            it.errorMessage = "Not enough space"
-                        })
-
+                        destroyExecutionProcess()
+                        commitActiveError("Not enough space")
                         return@execute
                     }
                 }
             }
-        }.doOnError {
-            handleError(taskId, url, progressCached, it, task.title)
-        }.onErrorComplete().subscribe { dlResponse ->
-            // Seems like youtube-dlp has a bug and sometimes skip removing already merged fragments
-            val list = tmpFile.listFiles()
-            val finalFile = if (!list.isNullOrEmpty()) {
-                tmpFile.walkTopDown()
-                    .filter {
-                        it.isFile && it.extension.equals(
-                            "mp4",
-                            ignoreCase = true
-                        ) || it.isFile && it.extension.equals("mp3", ignoreCase = true)
-                    }
-                    .firstOrNull()
-            } else {
-                null
-            }
-            if (dlResponse.exitCode == 0 && finalFile != null) {
-                val destinationFile = fileUtil.folderDir.resolve(finalFile.name).let {
-                    fixFileName(it.absolutePath)
-                }.let {
-                    File(it)
-                }
-                val moved = fileUtil.moveMedia(
-                    this@YoutubeDlDownloaderWorker.applicationContext,
-                    Uri.fromFile(finalFile),
-                    Uri.fromFile(destinationFile)
-                )
-
-                CookieUtils.deleteTemporaryCookieFile(this@YoutubeDlDownloaderWorker.cookieFile)
-
-                val validationError = if (moved) {
-                    DownloadedMediaValidator.validate(destinationFile)
-                } else {
-                    "Error moving file"
-                }
-
-                if (moved && validationError == null) {
-                    tmpFile.deleteRecursively()
-                }
-                finishWork(VideoTaskItem(url).also { f ->
-                    f.fileName = finalFile.name
-                    f.errorCode = if (moved && validationError == null) 0 else 1
-                    f.errorMessage = validationError
-                    f.percent = 100F
-                    f.taskState =
-                        if (moved && validationError == null) VideoTaskState.SUCCESS else VideoTaskState.ERROR
-                })
-            } else {
-                val fixedList = tmpFile.listFiles()?.filter { !it.name.contains("part") }
-                CookieUtils.deleteTemporaryCookieFile(this@YoutubeDlDownloaderWorker.cookieFile)
-                fixedList?.firstOrNull().let {
-                    finishWork(VideoTaskItem(url).also { f ->
-                        if (it != null) {
-                            f.fileName = it.name
-                        }
-                        f.errorCode = 1
-                        f.taskState = VideoTaskState.ERROR
-                    })
-                }
-            }
         }
+            .subscribeOn(Schedulers.io())
+            .subscribe(
+                { response -> handleDownloadResponse(response) },
+                { error -> handleExecutionError(error, task) }
+            )
+    }
+
+    private fun handleDownloadResponse(response: YoutubeDLResponse) {
+        if (continuationCompleted.get()) return
+        if (response.exitCode != 0) {
+            commitActiveError("yt-dlp exited with code ${response.exitCode}")
+            return
+        }
+        val source = executionResources.findFinalMedia(tmpFile)
+        if (source == null) {
+            commitActiveError("yt-dlp completed without a media file")
+            return
+        }
+        val target = uniqueTargetFor(source.name)
+        finalizeCandidate(source.absolutePath, target.absolutePath)
     }
 
     private fun configureYoutubedlRequest(
@@ -411,7 +382,7 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
             Observable.interval(0, 1, TimeUnit.SECONDS).subscribeOn(Schedulers.io())
                 .map { FileUtil.calculateFolderSize(tmpFile) }.onErrorReturn { -1 }
                 .subscribe { folderSize ->
-                    if (folderSize > 0 && folderSize != lastTmpDirSize) {
+                    if (!continuationCompleted.get() && folderSize > 0 && folderSize != lastTmpDirSize) {
                         val downloadedTmpFolderSize =
                             FileUtil.getFileSizeReadable(folderSize.toDouble())
                         lastTmpDirSize = folderSize
@@ -428,7 +399,7 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
                                 isLiveCounter = 3
 
                                 val downloaded = lastTmpDirSize
-                                saveProgress(
+                                val saved = saveProgress(
                                     taskId, LineInfo(
                                         "LIVE",
                                         downloaded.toDouble(),
@@ -439,43 +410,45 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
                                         item.lineInfo = downloadedTmpFolderSize
                                         item.downloadSize = downloaded
                                         item.totalSize = downloaded
-                                    }).blockingFirst(Unit)
-                                showProgress(
-                                    taskId,
-                                    task.title,
-                                    99,
-                                    "Downloading Live Stream... $downloadedTmpFolderSize",
-                                    tmpFile
-                                )
+                                    })
+                                if (saved) {
+                                    showProgress(
+                                        taskId,
+                                        task.title.orEmpty().ifBlank { task.fileName.orEmpty() },
+                                        99,
+                                        "Downloading Live Stream... $downloadedTmpFolderSize",
+                                        tmpFile
+                                    )
+                                }
                             }
                         }
                     }
                 }
     }
 
-    private fun handleError(
-        taskId: String, url: String, progressCached: Int, throwable: Throwable, name: String
-    ) {
-        AppLogger.d("Download Error: $throwable \ntaskId: $taskId")
-        downloadTaskLogger.error(taskId, "yt-dlp download failed for $name", throwable)
-
-        finishWork(VideoTaskItem(url).also { f ->
-            if (isCanceled && throwable is YoutubeDL.CanceledException) {
-                f.taskState = VideoTaskState.CANCELED
-                f.errorCode = 0
-            } else if (throwable is YoutubeDL.CanceledException) {
-                f.taskState = VideoTaskState.PAUSE
-                f.errorCode = 0
-            } else {
-                f.taskState = VideoTaskState.ERROR
-                f.errorCode = 1
-                f.errorMessage = throwable.message?.replace(Regex("WARNING:.+\n"), "") ?: ""
-            }
-            f.fileName = name
-            f.percent = progressCached.toFloat()
-
-        })
-
+    private fun handleExecutionError(throwable: Throwable, task: VideoTaskItem) {
+        downloadTaskLogger.error(
+            taskId,
+            "yt-dlp process failed for ${task.fileName.orEmpty()}",
+            throwable
+        )
+        val current = progressRepository.getProgressInfoById(taskId)
+        if (current == null || current.executionToken != executionToken) {
+            completeWorker(Result.success())
+            return
+        }
+        when {
+            current.downloadStatus == VideoTaskState.PAUSING &&
+                current.stopReason == YoutubeDlStopReason.STOP_AND_SAVE -> stopAndSave(task)
+            current.downloadStatus == VideoTaskState.PAUSING -> commitPause(current)
+            current.downloadStatus == VideoTaskState.CANCELING ->
+                commitCanceled(current.removePartialOnCancel)
+            current.downloadStatus == VideoTaskState.FINALIZING -> recoverFinalization()
+            current.downloadStatus.isStableState() -> completeWorker(Result.success())
+            throwable is YoutubeDL.CanceledException ->
+                commitActiveError("yt-dlp process stopped unexpectedly")
+            else -> commitActiveError(throwable.message ?: "yt-dlp download failed")
+        }
     }
 
     //[download]   0.3% of ~  49.94MiB at  438.62KiB/s ETA 04:41 (frag 2/201)
@@ -578,154 +551,261 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
 
     @SuppressLint("CheckResult")
     override fun finishWork(item: VideoTaskItem?) {
-        if (getDone()) {
-            try {
-                getContinuation().resume(Result.success())
-            } catch (e: Throwable) {
-                AppLogger.e("YtDl: resume success failed (already done)", e)
-            }
-            return
-        }
-
-        val taskId = inputData.getString(GenericDownloader.Constants.TASK_ID_KEY)
-
-        if (taskId != null) {
-            YoutubeDlDownloader.deleteHeadersStringFromSharedPreferences(applicationContext, taskId)
-        }
-
-        notificationsHelper.hideNotification(taskId.hashCode())
-        if (item != null) {
-            showNotificationFinal(
-                taskId.hashCode(), notificationsHelper.createNotificationBuilder(item.also {
-                    it.mId = taskId
-                }).second
-            )
-        }
-
-        downloadJobDisposable?.dispose()
-        downloadJobDisposable = null
-        CookieUtils.deleteTemporaryCookieFile(cookieFile)
-
-        if (taskId == null || item == null) {
-            try {
-                getContinuation().resume(Result.failure())
-            } catch (e: Throwable) {
-                AppLogger.e("YtDl: resume failure failed (null task/item)", e)
-            }
-
-            return
-        }
-
-        saveProgress(
-            taskId, line = LineInfo(taskId, 0.0, 0.0, sourceLine = item.errorMessage ?: ""), item
-        ).blockingFirst(Unit)
-        downloadQueueManager.onTaskTerminal(taskId, item.taskState, item.errorMessage)
-        setDone()
-
-        try {
-            if (item.taskState == VideoTaskState.ERROR) {
-                getContinuation().resume(Result.failure())
-            } else {
-                getContinuation().resume(Result.success())
-            }
-        } catch (e: Exception) {
-            AppLogger.e("YtDl: resume final state failed", e)
-        }
+        val failed = item?.taskState == VideoTaskState.ERROR ||
+            item?.taskState == VideoTaskState.ENOSPC
+        completeWorker(if (failed) Result.failure() else Result.success())
     }
 
     private fun saveProgress(
         taskId: String, line: LineInfo? = null, task: VideoTaskItem
-    ): Observable<Unit> {
-        if (getDone() && task.taskState == VideoTaskState.DOWNLOADING) {
-            AppLogger.d(
-                "saveProgress task returned cause DONE!!!"
-            )
-            return Observable.empty()
-        }
-        val isBytesNoTouch = line?.total == null || line.total == 0.0
-        val iProgressUpdate = task.downloadSize.toInt() > 0
+    ): Boolean {
+        if (continuationCompleted.get()) return false
+        val current = progressRepository.getProgressInfoById(taskId) ?: return false
+        val total = line?.total?.takeIf { it > 0.0 }?.toLong()
+            ?: task.totalSize.takeIf { it > 0L }
+            ?: current.progressTotal
+        val downloaded = task.downloadSize.takeIf { it > 0L } ?: current.progressDownloaded
+        val updated = progressRepository.updateYtDlpProgress(
+            id = taskId,
+            token = executionToken,
+            downloaded = downloaded,
+            total = total,
+            fragDownloaded = line?.fragDownloaded ?: current.fragmentsDownloaded,
+            fragTotal = line?.fragTotal ?: current.fragmentsTotal,
+            infoLine = line?.sourceLine.orEmpty(),
+            startedAt = System.currentTimeMillis(),
+            logPath = current.logPath.ifBlank { downloadTaskLogger.logPath(taskId) },
+            isLive = current.isLive || line?.id == "LIVE"
+        )
+        checkAffectedRows(updated, "update progress")
+        return updated == 1
+    }
 
-        return Observable.defer {
-            // 单条查询取代全表订阅，避免每秒全表读
-            val dbTask = progressRepository.getProgressInfoById(taskId)
+    private fun deserializeVideoFormat(): VideoFormatEntity {
+        val raw = YoutubeDlDownloader.loadHeadersStringFromSharedPreferences(
+            applicationContext,
+            executionKey
+        ) ?: throw IllegalStateException("yt-dlp format cache is missing")
+        val decompressed = YoutubeDlDownloader.decompressString(raw)
+        val json = String(Base64.decode(decompressed, Base64.DEFAULT), Charsets.UTF_8)
+        return Gson().fromJson(json, VideoFormatEntity::class.java)
+            ?: throw IllegalStateException("yt-dlp format cache is invalid")
+    }
 
-            if (!isBytesNoTouch) {
-                dbTask?.progressTotal = (line?.total ?: task.totalSize).toLong()
-            }
-
-            if (task.taskState != VideoTaskState.SUCCESS) {
-                if (!isBytesNoTouch && iProgressUpdate) {
-                    dbTask?.progressDownloaded = task.downloadSize
-                }
-            } else {
-                if (dbTask != null && !isBytesNoTouch) {
-                    dbTask.progressDownloaded = dbTask.progressTotal
-                }
-            }
-
-            dbTask?.fragmentsTotal = line?.fragTotal ?: 1
-            dbTask?.fragmentsDownloaded = line?.fragDownloaded ?: 0
-            dbTask?.downloadStatus = task.taskState
-
-            dbTask?.infoLine = line?.sourceLine ?: ""
-            if (dbTask?.logPath.isNullOrBlank()) {
-                dbTask?.logPath = downloadTaskLogger.logPath(taskId)
-            }
-            if (task.taskState == VideoTaskState.PREPARE ||
-                task.taskState == VideoTaskState.START ||
-                task.taskState == VideoTaskState.DOWNLOADING
-            ) {
-                dbTask?.startedAt = dbTask?.startedAt?.takeIf { it > 0 } ?: System.currentTimeMillis()
-            }
-            if (task.taskState == VideoTaskState.ERROR || task.taskState == VideoTaskState.ENOSPC) {
-                dbTask?.lastError = task.errorMessage ?: line?.sourceLine.orEmpty()
-            }
-            if (task.taskState == VideoTaskState.SUCCESS ||
-                task.taskState == VideoTaskState.ERROR ||
-                task.taskState == VideoTaskState.ENOSPC ||
-                task.taskState == VideoTaskState.CANCELED
-            ) {
-                dbTask?.completedAt = System.currentTimeMillis()
-            }
-
-            if (line?.id == "LIVE" && dbTask?.isLive != true) {
-                dbTask?.isLive = true
-            }
-
-            if (dbTask != null) {
-                if (getDone() && task.taskState == VideoTaskState.DOWNLOADING) {
-                    AppLogger.d(
-                        "saveProgress task returned cause DONE!!!"
-                    )
-                } else {
-                    // 按列更新：进度/状态列，queuePosition 不被碰；fragments 由 yt-dlp 维护
-                    progressRepository.updateProgressFields(
-                        id = dbTask.id,
-                        downloaded = dbTask.progressDownloaded,
-                        total = dbTask.progressTotal,
-                        fragDownloaded = dbTask.fragmentsDownloaded,
-                        fragTotal = dbTask.fragmentsTotal,
-                        status = dbTask.downloadStatus,
-                        infoLine = dbTask.infoLine,
-                        startedAt = dbTask.startedAt,
-                        completedAt = dbTask.completedAt,
-                        lastError = dbTask.lastError,
-                        logPath = dbTask.logPath,
-                        isLive = dbTask.isLive
-                    )
-                }
-            }
-            Observable.empty<Unit>()
+    private fun bindExecutionInput() {
+        taskId = inputData.getString(GenericDownloader.Constants.TASK_ID_KEY).orEmpty()
+        executionToken = inputData.getString(GenericDownloader.Constants.EXECUTION_TOKEN_KEY).orEmpty()
+        executionKey = inputData.getString(GenericDownloader.Constants.EXECUTION_KEY).orEmpty()
+        require(taskId.isNotBlank()) { "yt-dlp task id is missing" }
+        require(executionToken.isNotBlank()) { "yt-dlp execution token is missing" }
+        require(executionKey.isNotBlank()) { "yt-dlp execution key is missing" }
+        require(executionKey == YoutubeDlDownloader.executionKey(taskId, executionToken)) {
+            "yt-dlp execution key does not match its task and token"
         }
     }
 
-    private fun deserializeVideoFormat(taskId: String): VideoFormatEntity {
-        val rawHeaders = GenericDownloader.getInstance()
-            .loadHeadersStringFromSharedPreferences(applicationContext, taskId)
-        val decompressedRaw = rawHeaders?.let { YoutubeDlDownloader.decompressString(it) }
-        val decodedHeadersString = String(Base64.decode(decompressedRaw, Base64.DEFAULT))
+    private fun currentExecutionFor(action: String): ProgressInfo? {
+        val current = progressRepository.getProgressInfoById(taskId) ?: return null
+        if (current.executionToken != executionToken) return null
+        val accepted = when (action) {
+            GenericDownloader.DownloaderActions.DOWNLOAD,
+            GenericDownloader.DownloaderActions.RESUME ->
+                current.stopReason == YoutubeDlStopReason.NONE &&
+                    current.downloadStatus.isActiveYtDlpState()
+            GenericDownloader.DownloaderActions.PAUSE ->
+                current.downloadStatus == VideoTaskState.PAUSING &&
+                    current.stopReason == YoutubeDlStopReason.PAUSE
+            GenericDownloader.DownloaderActions.CANCEL ->
+                current.downloadStatus == VideoTaskState.CANCELING &&
+                    current.stopReason == YoutubeDlStopReason.CANCEL
+            GenericDownloader.DownloaderActions.STOP_SAVE_ACTION ->
+                current.downloadStatus == VideoTaskState.PAUSING &&
+                    current.stopReason == YoutubeDlStopReason.STOP_AND_SAVE
+            GenericDownloader.DownloaderActions.RECOVER_FINALIZATION ->
+                current.downloadStatus == VideoTaskState.FINALIZING
+            else -> false
+        }
+        return current.takeIf { accepted }
+    }
 
-        return Gson().fromJson(decodedHeadersString, VideoFormatEntity::class.java)
+    private fun recoverFinalization() {
+        val current = progressRepository.getProgressInfoById(taskId)
+        if (current == null || current.executionToken != executionToken) {
+            completeWorker(Result.success())
+            return
+        }
+        handleFinalizationResult(finalizationCoordinator.recover(current))
+    }
+
+    private fun finalizeCandidate(sourcePath: String, targetPath: String) {
+        handleFinalizationResult(
+            finalizationCoordinator.claimAndFinalize(
+                taskId,
+                executionToken,
+                sourcePath,
+                targetPath
+            )
+        )
+    }
+
+    private fun handleFinalizationResult(result: YoutubeDlFinalizationCoordinator.Result) {
+        when (result) {
+            YoutubeDlFinalizationCoordinator.Result.NotOwner -> completeWorker(Result.success())
+            is YoutubeDlFinalizationCoordinator.Result.Committed -> {
+                applyTerminalEffects(
+                    result.status,
+                    result.error,
+                    result.targetPath
+                ) {
+                    if (result.status == VideoTaskState.SUCCESS) {
+                        executionResources.deleteExecution(taskId, executionKey)
+                    }
+                }
+                completeWorker(
+                    if (result.status == VideoTaskState.SUCCESS) Result.success()
+                    else Result.failure()
+                )
+            }
+        }
+    }
+
+    private fun commitActiveError(rawError: String) {
+        val error = cleanError(rawError)
+        val committed = progressRepository.commitYtDlpError(
+            taskId,
+            executionToken,
+            System.currentTimeMillis(),
+            error
+        )
+        checkAffectedRows(committed, "commit error")
+        if (committed == 1) {
+            applyTerminalEffects(VideoTaskState.ERROR, error)
+            completeWorker(Result.failure())
+        } else {
+            completeWorker(Result.success())
+        }
+    }
+
+    private fun uniqueTargetFor(fileName: String): File {
+        val safeName = File(fileName).name.ifBlank { "download.mp4" }
+        return fileUtil.uniqueMediaTarget(
+            applicationContext,
+            File(fileUtil.folderDir, safeName)
+        )
+    }
+
+    private fun destroyExecutionProcess() {
+        if (executionKey.isBlank()) return
+        try {
+            YoutubeDL.getInstance().destroyProcessById(executionKey)
+        } catch (error: Throwable) {
+            AppLogger.e("Failed to stop yt-dlp execution $executionKey", error)
+        }
+    }
+
+    private fun applyTerminalEffects(
+        status: Int,
+        error: String = "",
+        outputPath: String = "",
+        cleanup: () -> Unit = {}
+    ) {
+        try {
+            terminalEffects.apply(taskId, executionToken, status, error, outputPath, cleanup)
+        } catch (effectError: Throwable) {
+            AppLogger.e("yt-dlp terminal effects failed for $taskId", effectError)
+            try {
+                downloadQueueManager.onYtDlpTerminal()
+            } catch (scheduleError: Throwable) {
+                AppLogger.e("yt-dlp fallback queue scheduling failed for $taskId", scheduleError)
+            }
+        }
+    }
+
+    private fun handleInitializationFailure(error: Throwable) {
+        AppLogger.e("yt-dlp worker initialization failed for $taskId", error)
+        try {
+            val action = inputData.getString(GenericDownloader.Constants.ACTION_KEY).orEmpty()
+            if (taskId.isBlank() || executionToken.isBlank()) {
+                completeWorker(Result.failure())
+                return
+            }
+            val message = cleanError(error.message ?: "yt-dlp worker initialization failed")
+            val committed = progressRepository.commitYtDlpError(
+                taskId,
+                executionToken,
+                System.currentTimeMillis(),
+                message
+            )
+            checkAffectedRows(committed, "commit initialization error")
+            if (committed == 1) {
+                dispatchYoutubeDlInitializationTerminalCommit(
+                    terminalEffectsAvailable = ::terminalEffects.isInitialized,
+                    applyTerminalEffects = {
+                        applyTerminalEffects(VideoTaskState.ERROR, message)
+                    },
+                    advanceQueue = ::advanceQueueAfterInitializationFailure
+                )
+                completeWorker(Result.failure())
+                return
+            }
+
+            val current = progressRepository.getProgressInfoById(taskId)
+            if (current == null ||
+                current.executionToken != executionToken ||
+                current.downloadStatus.isStableState()
+            ) {
+                completeWorker(Result.success())
+                return
+            }
+            val controlAction = action == GenericDownloader.DownloaderActions.PAUSE ||
+                action == GenericDownloader.DownloaderActions.CANCEL ||
+                action == GenericDownloader.DownloaderActions.STOP_SAVE_ACTION ||
+                action == GenericDownloader.DownloaderActions.RECOVER_FINALIZATION
+            completeWorker(if (controlAction) Result.retry() else Result.failure())
+        } catch (commitError: Throwable) {
+            AppLogger.e("Failed to persist yt-dlp initialization error for $taskId", commitError)
+            completeWorker(Result.failure())
+        }
+    }
+
+    private fun advanceQueueAfterInitializationFailure() {
+        try {
+            downloadQueueManager.onYtDlpTerminal()
+        } catch (scheduleError: Throwable) {
+            AppLogger.e(
+                "Failed to advance queue after yt-dlp initialization error for $taskId",
+                scheduleError
+            )
+        }
+    }
+
+    private fun cleanError(raw: String): String {
+        return sanitizeYoutubeDlError(raw, "yt-dlp download failed")
+    }
+
+    private fun checkAffectedRows(rows: Int, operation: String) {
+        check(rows in 0..1) { "yt-dlp $operation updated $rows rows" }
+    }
+
+    private fun completeWorker(result: Result) {
+        if (!continuationCompleted.compareAndSet(false, true)) return
+        setDone()
+        workerContinuation?.takeIf { it.isActive }?.resume(result)
+    }
+
+    private fun Int.isActiveYtDlpState(): Boolean {
+        return this == VideoTaskState.PREPARE ||
+            this == VideoTaskState.START ||
+            this == VideoTaskState.DOWNLOADING ||
+            this == VideoTaskState.PROXYREADY
+    }
+
+    private fun Int.isStableState(): Boolean {
+        return this == VideoTaskState.PAUSE ||
+            this == VideoTaskState.CANCELED ||
+            this == VideoTaskState.SUCCESS ||
+            this == VideoTaskState.ERROR ||
+            this == VideoTaskState.ENOSPC
     }
 
     private fun hideNotifications(taskId: String) {

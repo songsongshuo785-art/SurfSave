@@ -9,6 +9,13 @@ import java.net.URL
 
 object RedirectResolver {
 
+    private const val MAX_REDIRECTS = 10
+    private const val COOKIE = "Cookie"
+    private const val AUTHORIZATION = "Authorization"
+    private const val PROXY_AUTHORIZATION = "Proxy-Authorization"
+    private const val HOST = "Host"
+    private const val REFERER = "Referer"
+
     private val REDIRECT_CODES = setOf(
         HttpURLConnection.HTTP_MOVED_PERM,  // 301
         HttpURLConnection.HTTP_MOVED_TEMP,  // 302
@@ -20,45 +27,87 @@ object RedirectResolver {
     fun getFinalRedirectURL(
         url: URL,
         headers: Map<String, String>,
-        httpClient: OkHttpClient
+        httpClient: OkHttpClient,
+        cookieProvider: (URL) -> String? = { null }
     ): Pair<URL, Headers>? {
-        val currentHeaders = headers.toMutableMap()
+        var currentHeaders = headers.toHeaders()
         var currentUrl = url
+        var redirectCount = 0
+        val noRedirectClient = httpClient.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
 
         try {
-            val maxRedirects = 10
-            repeat(maxRedirects) {
+            while (true) {
+                val requestHeaders = headersForTarget(currentHeaders, currentUrl, cookieProvider)
                 val request = Request.Builder()
                     .url(currentUrl)
-                    .headers(currentHeaders.toHeaders())
+                    .headers(requestHeaders)
                     .build()
 
-                val noRedirectClient = httpClient.newBuilder()
-                    .followRedirects(false)
-                    .followSslRedirects(false)
-                    .build()
-
-                val response = noRedirectClient.newCall(request).execute()
-                val code = response.code
-                response.close()
-
-                if (code in REDIRECT_CODES) {
+                noRedirectClient.newCall(request).execute().use { response ->
+                    if (response.code !in REDIRECT_CODES) {
+                        return Pair(currentUrl, requestHeaders)
+                    }
+                    if (redirectCount >= MAX_REDIRECTS) {
+                        return null
+                    }
                     val location = response.header("Location")
-                        ?: return Pair(currentUrl, currentHeaders.toHeaders())
+                        ?: return null
+                    val nextUrl = URL(currentUrl, location)
+                    val nextHeaders = requestHeaders.newBuilder()
+                        .removeAll(COOKIE)
 
-                    val origin = response.header("Access-Control-Allow-Origin")
-                    if (origin != null) {
-                        currentHeaders["Referer"] = origin
+                    if (!isSameOrigin(currentUrl, nextUrl)) {
+                        nextHeaders.removeAll(AUTHORIZATION)
+                        nextHeaders.removeAll(PROXY_AUTHORIZATION)
+                        nextHeaders.removeAll(HOST)
                     }
 
-                    currentUrl = URL(currentUrl, location)
-                } else {
-                    return Pair(currentUrl, currentHeaders.toHeaders())
+                    if (isHttpsDowngrade(currentUrl, nextUrl)) {
+                        nextHeaders.removeAll(REFERER)
+                    } else {
+                        nextHeaders.set(REFERER, currentUrl.toExternalForm())
+                    }
+
+                    currentHeaders = nextHeaders.build()
+                    currentUrl = nextUrl
+                    redirectCount++
                 }
             }
         } catch (_: Exception) {
+            return null
         }
+    }
 
-        return Pair(currentUrl, currentHeaders.toHeaders())
+    private fun headersForTarget(
+        headers: Headers,
+        target: URL,
+        cookieProvider: (URL) -> String?
+    ): Headers {
+        return headers.newBuilder()
+            .removeAll(COOKIE)
+            .apply {
+                cookieProvider(target)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { set(COOKIE, it) }
+            }
+            .build()
+    }
+
+    private fun isSameOrigin(first: URL, second: URL): Boolean {
+        return first.protocol.equals(second.protocol, ignoreCase = true) &&
+            first.host.equals(second.host, ignoreCase = true) &&
+            effectivePort(first) == effectivePort(second)
+    }
+
+    private fun effectivePort(url: URL): Int {
+        return url.port.takeIf { it >= 0 } ?: url.defaultPort
+    }
+
+    private fun isHttpsDowngrade(from: URL, to: URL): Boolean {
+        return from.protocol.equals("https", ignoreCase = true) &&
+            to.protocol.equals("http", ignoreCase = true)
     }
 }

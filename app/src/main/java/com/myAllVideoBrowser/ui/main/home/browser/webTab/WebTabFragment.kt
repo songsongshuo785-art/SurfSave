@@ -1285,6 +1285,7 @@ class WebTabFragment : BaseWebTabFragment() {
             onRenderProcessLost = { lostWebView, didCrash ->
                 handleRenderProcessLost(lostWebView, didCrash)
             },
+            onPageContextStarted = tabManagerProvider::onTabNavigationStarted,
         ) { webView ->
             injectPageScripts(webView)
         }
@@ -1757,7 +1758,6 @@ class WebTabFragment : BaseWebTabFragment() {
             }
 
             val cookie = CookieManager.getInstance().getCookie(url)
-                ?: CookieManager.getInstance().getCookie(pageUrl)
             if (!cookie.isNullOrBlank()) {
                 builder.header("Cookie", cookie)
             }

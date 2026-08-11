@@ -6,7 +6,6 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
 import android.content.IntentSender
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -17,16 +16,16 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
-import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.core.net.toFile
-import androidx.core.net.toUri
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.file.Files
+import java.security.MessageDigest
 import java.text.DecimalFormat
 import java.util.Arrays
 import java.util.Locale
@@ -48,6 +47,8 @@ class FileUtil @Inject constructor() {
         const val TMP_DATA_FOLDER_NAME = "surfsave_tmp_data"
         const val LEGACY_FOLDER_NAME = "SuperX"
         const val LEGACY_TMP_DATA_FOLDER_NAME = "superx_tmp_data"
+        val PUBLIC_RELATIVE_PATH = "${Environment.DIRECTORY_DOWNLOADS}/$FOLDER_NAME/"
+        val LEGACY_PUBLIC_RELATIVE_PATH = "${Environment.DIRECTORY_DOWNLOADS}/"
 
         private const val KB = 1024
         private const val MB = 1024 * 1024
@@ -107,6 +108,20 @@ class FileUtil @Inject constructor() {
         }
     }
 
+    enum class MediaStorageClass {
+        MANAGED_PUBLIC,
+        LEGACY_PUBLIC,
+        EXTERNAL_PRIVATE,
+        INTERNAL_PRIVATE
+    }
+
+    data class MediaEntry(
+        val id: Long,
+        val displayName: String,
+        val uri: Uri,
+        val storageClass: MediaStorageClass
+    )
+
     val folderDir: File
         get() {
             if (!INITIIALIZED) {
@@ -117,10 +132,7 @@ class FileUtil @Inject constructor() {
 
             when {
                 IS_EXTERNAL_STORAGE_USE && !IS_APP_DATA_DIR_USE -> {
-                    return File(
-                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                            .toURI()
-                    )
+                    return publicDownloadsDir
                 }
 
                 IS_EXTERNAL_STORAGE_USE && IS_APP_DATA_DIR_USE -> {
@@ -133,6 +145,12 @@ class FileUtil @Inject constructor() {
                 }
             }
         }
+
+    val publicDownloadsDir: File
+        get() = File(legacyPublicDownloadsDir, FOLDER_NAME)
+
+    val legacyPublicDownloadsDir: File
+        get() = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
 
     val tmpDir: File
         get() {
@@ -164,116 +182,340 @@ class FileUtil @Inject constructor() {
         )
     }
 
-    val listFiles: Map<String, Pair<Long, Uri>>
+    val listFiles: List<MediaEntry>
         get() {
             val context = ContextUtils.getApplicationContext()
-            val result = mutableMapOf<String, Pair<Long, Uri>>()
+            val result = mutableListOf<MediaEntry>()
 
-            val externalPrivateFilesObjs = getPrivateDownloadsDirFilesObj(context, true)
-            val internalPrivateFilesObjs = getPrivateDownloadsDirFilesObj(context, false)
-            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-                val externalPublicFilesObjs = getPublicDownloadsDirFilesObjOld(context, true)
-                val internalPublicFilesObjs = getPublicDownloadsDirFilesObjOld(context, false)
-                result.putAll(externalPublicFilesObjs)
-                result.putAll(internalPublicFilesObjs)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                result.addAll(getPublicDownloadsDirFilesObjMediaStore(context))
             } else {
-                val externalPublicFilesObjsNew = getPublicDownloadsDirFilesObjNew()
-                result.putAll(externalPublicFilesObjsNew)
+                result.addAll(listLegacyPublicFiles())
             }
-            result.putAll(externalPrivateFilesObjs)
-            result.putAll(internalPrivateFilesObjs)
+            result.addAll(
+                getPrivateDownloadsDirFilesObj(
+                    context,
+                    isExternal = true,
+                    storageClass = MediaStorageClass.EXTERNAL_PRIVATE
+                )
+            )
+            result.addAll(
+                getPrivateDownloadsDirFilesObj(
+                    context,
+                    isExternal = false,
+                    storageClass = MediaStorageClass.INTERNAL_PRIVATE
+                )
+            )
 
-            return result
+            return result.distinctBy { it.uri.toString() }
 
         }
 
     fun isFreeSpaceAvailable(): Boolean {
-        return getFreeDiskSpace(folderDir) > FREE_SPACE_TRESHOLD
+        var probe: File? = folderDir
+        while (probe != null && !probe.exists()) {
+            probe = probe.parentFile
+        }
+        return probe != null && getFreeDiskSpace(probe) > FREE_SPACE_TRESHOLD
+    }
+
+    fun ensureDownloadDestination(): Boolean {
+        return if (isManagedPublicDestinationSelected() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            isExternalStorageWritable()
+        } else {
+            folderDir.exists() || folderDir.mkdirs()
+        }
+    }
+
+    fun ensurePublicDownloadDestination(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            isExternalStorageWritable()
+        } else {
+            publicDownloadsDir.exists() || publicDownloadsDir.mkdirs()
+        }
+    }
+
+    /** Exact, non-recursive duplicate lookup used by the queue and final publishers. */
+    fun hasDownloadWithName(context: Context, displayName: String): Boolean {
+        if (displayName.isBlank()) return false
+        val publicExists = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            hasVisiblePublicMediaStoreName(context.contentResolver, displayName)
+        } else {
+            File(publicDownloadsDir, displayName).isFile ||
+                File(legacyPublicDownloadsDir, displayName).isFile
+        }
+        if (publicExists) return true
+        return File(getPrivateDownloadsDir(context, true), displayName).isFile ||
+            File(getPrivateDownloadsDir(context, false), displayName).isFile
     }
 
     fun isFileWithNameNotExists(context: Context, uri: Uri, newName: String): Boolean {
-        return if (isFileApiSupportedByUri(context, uri)) {
-            !File(uri.toFile().parentFile, newName).exists()
+        if (newName.isBlank()) return false
+        if (isFileApiSupportedByUri(context, uri)) {
+            return !File(uri.toFile().parentFile, newName).exists()
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+        val contentUri = findMediaStoreContentUri(context, uri)
+        val relativePath = contentUri?.let {
+            queryStringColumn(
+                context.contentResolver,
+                it,
+                MediaStore.MediaColumns.RELATIVE_PATH
+            )
+        } ?: return true
+        return !hasMediaStoreNameAtPath(
+            context.contentResolver,
+            newName,
+            relativePath,
+            contentUri
+        )
+    }
+
+    fun uniqueMediaTarget(context: Context, requestedTarget: File): File {
+        val parent = requestedTarget.parentFile ?: publicDownloadsDir
+        val normalizedName = sanitizeDisplayName(requestedTarget.name)
+        var candidate = File(parent, normalizedName)
+        if (!mediaTargetExists(context, candidate)) return candidate
+
+        val extension = candidate.extension.takeIf { it.isNotBlank() }?.let { ".$it" }.orEmpty()
+        val base = candidate.nameWithoutExtension.ifBlank { "download" }
+        var counter = 1
+        do {
+            candidate = File(parent, "${base}_cp$counter$extension")
+            counter += 1
+        } while (mediaTargetExists(context, candidate))
+        return candidate
+    }
+
+    fun resolveMediaUri(context: Context, target: File): Uri? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isManagedPublicFile(target)) {
+            findManagedPublicMediaUri(context, target.name)
         } else {
-            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-                !isDownloadedVideoContentExistsByName(context.contentResolver, uri, newName)
-            } else {
-                throw Exception("File api support ERROR")
-            }
+            target.takeIf { it.isFile }?.let(Uri::fromFile)
+        }
+    }
+
+    fun isManagedPublicMedia(context: Context, uri: Uri): Boolean {
+        if (uri.scheme == "file") {
+            return uri.path?.let(::File)?.let(::isManagedPublicFile) == true
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || uri.authority != MediaStore.AUTHORITY) {
+            return false
+        }
+        return queryStringColumn(
+            context.contentResolver,
+            uri,
+            MediaStore.MediaColumns.RELATIVE_PATH
+        ) == PUBLIC_RELATIVE_PATH
+    }
+
+    fun isSharedPublicMedia(context: Context, uri: Uri): Boolean {
+        if (uri.scheme == "file") {
+            return uri.path?.let(::File)?.let(::isSharedPublicFile) == true
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || uri.authority != MediaStore.AUTHORITY) {
+            return false
+        }
+        return queryStringColumn(
+            context.contentResolver,
+            uri,
+            MediaStore.MediaColumns.RELATIVE_PATH
+        ) in visiblePublicRelativePaths()
+    }
+
+    private fun mediaTargetExists(context: Context, target: File): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isManagedPublicFile(target)) {
+            hasManagedMediaStoreName(context.contentResolver, target.name)
+        } else {
+            target.exists()
         }
     }
 
     @Synchronized
     fun moveMedia(context: Context, from: Uri, to: Uri): Boolean {
-        if (isFileApiSupportedByUri(context, to)) {
-            AppLogger.d("IS_FILE_API: TRUE -- from $from to $to")
-            val newFile = to.toFile()
-            var success: Boolean
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Files.move(from.toFile().toPath(), newFile.toPath())
-                success = true
-            } else {
-                success = renameWithLock(from.toFile(), newFile)
+        if (to.scheme == "file") {
+            val target = to.path?.let(::File) ?: return false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isManagedPublicFile(target)) {
+                return moveFileToDownloadsFolder(context, from, target.name)
             }
-
-            if (success) {
-                AppLogger.d("File move success, triggering media scan for: ${newFile.absolutePath}")
-                scanFile(context, newFile)
-            }
-            return success
-        } else {
-            AppLogger.d("IS_FILE_API: FALSE -- from $from to $to")
-            return if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-                val result = moveFileToDownloadsFolder(
-                    context.contentResolver, from.toFile(), to.toFile().name
-                )
-                if (result) {
-                    scanFile(context, to.toFile())
-                }
-                result
-            } else {
-                throw Exception("File API support ERROR!!!")
+            if (isFileApiSupportedByUri(context, to)) {
+                return moveToFile(context, from, target)
             }
         }
+        AppLogger.e("Unsupported media move destination: $to")
+        return false
     }
 
-    fun renameMedia(context: Context, from: Uri, newName: String): Pair<String, Uri>? {
-        try {
-            val originExtension = from.toFile().extension
-            val cleanedFileName = FileNameCleaner.cleanFileName(newName) + ".$originExtension"
-            val isNewFileNotExists = isFileWithNameNotExists(context, from, newName)
-
-            if (cleanedFileName.isEmpty()) {
-                throw Error("Empty file name")
+    fun renameMedia(context: Context, from: Uri, newName: String): RenameMediaResult {
+        if (newName.isBlank()) return RenameMediaResult.Invalid
+        return try {
+            when (val existence = uriExistence(context, from)) {
+                UriExistence.Exists -> Unit
+                UriExistence.NotFound -> return RenameMediaResult.Failed("Media not found")
+                is UriExistence.Unknown -> return RenameMediaResult.Failed(existence.reason)
+            }
+            val currentName = queryDisplayName(context, from)
+                ?: return RenameMediaResult.Failed("Unable to read the current media name")
+            val cleanedFileName = sanitizeDisplayName(
+                requestedName = newName,
+                forcedExtension = currentName.substringAfterLast('.', "")
+            )
+            if (cleanedFileName == currentName) {
+                return RenameMediaResult.Success(currentName, from)
+            }
+            if (mediaNameExistsBeside(context, from, cleanedFileName)) {
+                return RenameMediaResult.AlreadyExists
             }
 
-            if (!isUriExists(context, from)) {
-                throw FileNotFoundException("File not found: $from")
-            }
-
-            if (!isNewFileNotExists) {
-                throw Exception("File already exists")
-            }
             if (isFileApiSupportedByUri(context, from)) {
                 val fromFile = from.toFile()
                 val toFile = File(fromFile.parentFile, cleanedFileName)
                 if (toFile.exists()) {
-                    throw Exception("File already exists: $toFile")
+                    return RenameMediaResult.AlreadyExists
                 }
-                fromFile.renameTo(toFile)
-
-                return Pair(toFile.name, Uri.fromFile(toFile))
-            } else {
-                val newUri = renameVideoContentFromDownloads(context, from, cleanedFileName)
-
-                return Pair(cleanedFileName, newUri ?: from)
+                val renamed = renameWithLock(fromFile, toFile)
+                return if (
+                    renamed && !fromFile.exists() && toFile.isFile && toFile.name == cleanedFileName
+                ) {
+                    RenameMediaResult.Success(toFile.name, Uri.fromFile(toFile))
+                } else {
+                    RenameMediaResult.Failed("File rename did not reach the requested final state")
+                }
             }
-        } catch (e: Throwable) {
-            Toast.makeText(context, "Error", Toast.LENGTH_SHORT).show()
-        }
 
-        return null
+            if (DocumentsContract.isDocumentUri(context, from)) {
+                val renamedUri = DocumentsContract.renameDocument(
+                    context.contentResolver,
+                    from,
+                    cleanedFileName
+                ) ?: return RenameMediaResult.Failed("Document provider rejected the rename")
+                return if (queryDisplayName(context, renamedUri) == cleanedFileName) {
+                    RenameMediaResult.Success(cleanedFileName, renamedUri)
+                } else {
+                    RenameMediaResult.Failed("Document name was not updated")
+                }
+            }
+
+            val contentUri = findMediaStoreContentUri(context, from)
+                ?: return RenameMediaResult.Failed("MediaStore item was not found")
+            val updated = context.contentResolver.update(
+                contentUri,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, cleanedFileName)
+                },
+                null,
+                null
+            )
+            if (updated == 1 && queryDisplayName(context, contentUri) == cleanedFileName) {
+                RenameMediaResult.Success(cleanedFileName, contentUri)
+            } else {
+                RenameMediaResult.Failed("MediaStore update did not reach the requested name")
+            }
+        } catch (error: SecurityException) {
+            val contentUri = findMediaStoreContentUri(context, from) ?: from
+            resolveRenameAuth(context, contentUri, newName, error)
+        } catch (error: Throwable) {
+            AppLogger.e("renameMedia failed for $from", error)
+            RenameMediaResult.Failed(error.message ?: "Media rename failed")
+        }
+    }
+
+    sealed class RenameMediaResult {
+        data class Success(val name: String, val uri: Uri) : RenameMediaResult()
+        data class NeedsAuth(
+            val intentSender: IntentSender,
+            val retryUri: Uri,
+            val requestedName: String
+        ) : RenameMediaResult()
+        object AlreadyExists : RenameMediaResult()
+        object Invalid : RenameMediaResult()
+        data class Failed(val reason: String) : RenameMediaResult()
+    }
+
+    private fun resolveRenameAuth(
+        context: Context,
+        contentUri: Uri,
+        requestedName: String,
+        error: SecurityException
+    ): RenameMediaResult {
+        return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                contentUri.authority == MediaStore.AUTHORITY -> RenameMediaResult.NeedsAuth(
+                MediaStore.createWriteRequest(
+                    context.contentResolver,
+                    arrayListOf(contentUri)
+                ).intentSender,
+                contentUri,
+                requestedName
+            )
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && error is RecoverableSecurityException ->
+                RenameMediaResult.NeedsAuth(
+                    error.userAction.actionIntent.intentSender,
+                    contentUri,
+                    requestedName
+                )
+            else -> RenameMediaResult.Failed(
+                error.message ?: "Write authorization is unavailable"
+            )
+        }
+    }
+
+    private fun mediaNameExistsBeside(context: Context, uri: Uri, displayName: String): Boolean {
+        if (DocumentsContract.isDocumentUri(context, uri)) return false
+        if (isFileApiSupportedByUri(context, uri)) {
+            val source = uri.toFile()
+            return File(source.parentFile, displayName).exists()
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val contentUri = findMediaStoreContentUri(context, uri) ?: return false
+        val relativePath = queryStringColumn(
+            context.contentResolver,
+            contentUri,
+            MediaStore.MediaColumns.RELATIVE_PATH
+        ) ?: return false
+        if (relativePath !in visiblePublicRelativePaths()) return false
+        return hasMediaStoreNameAtPath(
+            context.contentResolver,
+            displayName,
+            relativePath,
+            contentUri
+        )
+    }
+
+    private fun queryDisplayName(context: Context, uri: Uri): String? {
+        if (uri.scheme == "file" || uri.scheme == null) {
+            return uri.path?.let(::File)?.name
+        }
+        return queryStringColumn(context.contentResolver, uri, OpenableColumns.DISPLAY_NAME)
+    }
+
+    private fun queryStringColumn(
+        contentResolver: ContentResolver,
+        uri: Uri,
+        column: String
+    ): String? {
+        return contentResolver.query(uri, arrayOf(column), null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val index = cursor.getColumnIndex(column)
+            if (index < 0 || cursor.isNull(index)) null else cursor.getString(index)
+        }
+    }
+
+    private fun sanitizeDisplayName(
+        requestedName: String,
+        forcedExtension: String? = null
+    ): String {
+        val leafName = File(requestedName).name
+        val requestedExtension = leafName.substringAfterLast('.', "")
+        val baseName = if (requestedExtension.isBlank()) {
+            leafName
+        } else {
+            leafName.substringBeforeLast('.')
+        }
+        val cleanBase = FileNameCleaner.cleanFileName(baseName)
+        val extension = (forcedExtension ?: requestedExtension)
+            .filter { it.isLetterOrDigit() }
+        return if (extension.isBlank()) cleanBase else "$cleanBase.$extension"
     }
 
     /**
@@ -285,38 +527,55 @@ class FileUtil @Inject constructor() {
      */
     fun deleteMedia(context: Context, uri: Uri): DeleteMediaResult {
         return try {
-            // 0) Document URI（SAF）最先处理：不经 isUriExists（document uri 可能无法 openInputStream，但 deleteDocument 仍可工作）
             if (DocumentsContract.isDocumentUri(context, uri)) {
-                val ok = runCatching {
-                    DocumentsContract.deleteDocument(context.contentResolver, uri)
-                }.getOrElse { e ->
-                    AppLogger.d("deleteMedia: deleteDocument failed for $uri: ${e.message}")
-                    false
+                return try {
+                    val deleted = DocumentsContract.deleteDocument(context.contentResolver, uri)
+                    if (deleted && isUriDefinitelyAbsent(context, uri)) {
+                        DeleteMediaResult.Success
+                    } else {
+                        DeleteMediaResult.Failed
+                    }
+                } catch (error: SecurityException) {
+                    resolveDeleteAuth(context, uri, error)
                 }
-                return if (ok) DeleteMediaResult.Success else DeleteMediaResult.Failed
             }
-            if (!isUriExists(context, uri)) {
-                AppLogger.d("deleteMedia: not exists $uri")
+
+            val operationUri = if (isFileApiSupportedByUri(context, uri)) {
+                uri
+            } else {
+                findMediaStoreContentUri(context, uri) ?: run {
+                    AppLogger.d("deleteMedia: no MediaStore mapping for $uri")
+                    return DeleteMediaResult.Failed
+                }
+            }
+            if (uriExistence(context, operationUri) != UriExistence.Exists) {
+                AppLogger.d("deleteMedia: URI is not definitely present: $operationUri")
                 return DeleteMediaResult.Failed
             }
-            // 1) File.delete（私有目录 / 非 Q 公共目录）
-            if (isFileApiSupportedByUri(context, uri)) {
-                val f = uri.toFile()
-                if (f.delete() && !isUriExists(context, uri)) return DeleteMediaResult.Success
+            if (operationUri.scheme == "file") {
+                val file = operationUri.toFile()
+                return if (file.delete() && isUriDefinitelyAbsent(context, operationUri)) {
+                    DeleteMediaResult.Success
+                } else {
+                    DeleteMediaResult.Failed
+                }
             }
-            // 2) File.delete 没删掉 → 走 MediaStore（公共目录 scoped storage）
-            val contentUri = findMediaStoreContentUri(context, uri) ?: run {
-                AppLogger.d("deleteMedia: no MediaStore mapping for $uri")
-                return DeleteMediaResult.Failed
-            }
+
             try {
-                val rows = context.contentResolver.delete(contentUri, null, null)
-                if (rows > 0) DeleteMediaResult.Success else DeleteMediaResult.Failed
-            } catch (e: SecurityException) {
-                resolveDeleteAuth(context, contentUri, e)
+                val rows = context.contentResolver.delete(operationUri, null, null)
+                if (rows == 1 && isUriDefinitelyAbsent(context, operationUri)) {
+                    DeleteMediaResult.Success
+                } else {
+                    AppLogger.e(
+                        "deleteMedia: expected one row and an absent URI, rows=$rows uri=$operationUri"
+                    )
+                    DeleteMediaResult.Failed
+                }
+            } catch (error: SecurityException) {
+                resolveDeleteAuth(context, operationUri, error)
             }
-        } catch (e: Throwable) {
-            AppLogger.e("deleteMedia error: ${e.message}")
+        } catch (error: Throwable) {
+            AppLogger.e("deleteMedia error for $uri", error)
             DeleteMediaResult.Failed
         }
     }
@@ -328,22 +587,26 @@ class FileUtil @Inject constructor() {
      * - 其他：Failed
      */
     private fun resolveDeleteAuth(
-        context: Context, contentUri: Uri, e: SecurityException
+        context: Context, contentUri: Uri, error: SecurityException
     ): DeleteMediaResult {
         return when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
-                // R+：createDeleteRequest 成功后系统执行删除，retryUri=null 表示 ViewModel 无需重试
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                contentUri.authority == MediaStore.AUTHORITY ->
                 DeleteMediaResult.NeedsAuth(
                     MediaStore.createDeleteRequest(
                         context.contentResolver, arrayListOf(contentUri)
                     ).intentSender,
-                    null
+                    retryUri = null,
+                    verificationUri = contentUri
                 )
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is RecoverableSecurityException ->
-                // Q：授权只给访问权、系统不删；retryUri=contentUri 供授权后重试 deleteMedia
-                DeleteMediaResult.NeedsAuth(e.userAction.actionIntent.intentSender, contentUri)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && error is RecoverableSecurityException ->
+                DeleteMediaResult.NeedsAuth(
+                    error.userAction.actionIntent.intentSender,
+                    retryUri = contentUri,
+                    verificationUri = contentUri
+                )
             else -> {
-                AppLogger.d("deleteMedia: SecurityException (<Q) ${e.message}")
+                AppLogger.e("deleteMedia authorization unavailable for $contentUri", error)
                 DeleteMediaResult.Failed
             }
         }
@@ -354,25 +617,30 @@ class FileUtil @Inject constructor() {
      * content://（非 document，document 已在 deleteMedia 开头处理）直接返回。
      */
     private fun findMediaStoreContentUri(context: Context, uri: Uri): Uri? {
-        if (uri.scheme != "file") return uri
-        val path = uri.path ?: return null
-        val collections = buildList {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                add(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL))
+        if (uri.scheme == "content") return uri
+        if (uri.scheme != "file") return null
+        val file = uri.path?.let(::File) ?: return null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val relativePath = when {
+                isManagedPublicFile(file) -> PUBLIC_RELATIVE_PATH
+                isLegacyPublicFile(file) -> LEGACY_PUBLIC_RELATIVE_PATH
+                else -> return null
             }
-            add(MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            return findPublicMediaUri(context, file.name, relativePath)
         }
-        for (collection in collections) {
-            context.contentResolver.query(
-                collection,
-                arrayOf(MediaStore.Video.Media._ID),
-                "${MediaStore.Video.Media.DATA} = ?",
-                arrayOf(path),
-                null
-            )?.use { c ->
-                if (c.moveToFirst()) {
-                    return ContentUris.withAppendedId(collection, c.getLong(0))
-                }
+
+        context.contentResolver.query(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Video.Media._ID),
+            "${MediaStore.Video.Media.DATA} = ?",
+            arrayOf(file.absolutePath),
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                return ContentUris.withAppendedId(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    cursor.getLong(0)
+                )
             }
         }
         return null
@@ -381,25 +649,74 @@ class FileUtil @Inject constructor() {
     /** deleteMedia 的结构化结果。NeedsAuth 需由 Fragment 发起 IntentSender 系统授权。 */
     sealed class DeleteMediaResult {
         object Success : DeleteMediaResult()
-        data class NeedsAuth(val intentSender: IntentSender, val retryUri: Uri?) : DeleteMediaResult()
+        data class NeedsAuth(
+            val intentSender: IntentSender,
+            val retryUri: Uri?,
+            val verificationUri: Uri = retryUri ?: Uri.EMPTY
+        ) : DeleteMediaResult()
         object Failed : DeleteMediaResult()
     }
 
+    sealed class UriExistence {
+        object Exists : UriExistence()
+        object NotFound : UriExistence()
+        data class Unknown(val reason: String) : UriExistence()
+    }
+
     fun isUriExists(context: Context, uri: Uri): Boolean {
-        if (isFileApiSupportedByUri(context, uri)) {
-            return uri.toFile().exists()
+        return uriExistence(context, uri) == UriExistence.Exists
+    }
+
+    fun isUriDefinitelyAbsent(context: Context, uri: Uri): Boolean {
+        return uriExistence(context, uri) == UriExistence.NotFound
+    }
+
+    fun uriExistence(context: Context, uri: Uri): UriExistence {
+        if (uri.scheme == "file" || uri.scheme == null) {
+            val path = uri.path ?: return UriExistence.Unknown("File URI has no path")
+            return if (File(path).exists()) UriExistence.Exists else UriExistence.NotFound
+        }
+        if (uri.scheme != "content") {
+            return UriExistence.Unknown("Unsupported URI scheme: ${uri.scheme}")
         }
 
-        try {
-            context.contentResolver.openInputStream(uri)?.close()
-        } catch (e: FileNotFoundException) {
-            return false
-        } catch (e: Exception) {
-            // Handle other exceptions as needed
+        return try {
+            val cursor = context.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )
+            if (cursor == null) {
+                probeContentDescriptor(context, uri)
+            } else {
+                cursor.use {
+                    if (it.moveToFirst()) UriExistence.Exists else UriExistence.NotFound
+                }
+            }
+        } catch (_: FileNotFoundException) {
+            UriExistence.NotFound
+        } catch (error: SecurityException) {
+            UriExistence.Unknown(error.message ?: "URI access denied")
+        } catch (error: Throwable) {
+            AppLogger.w("URI query failed for $uri: ${error.message}")
+            probeContentDescriptor(context, uri)
         }
+    }
 
-        // If there were no exceptions, the URI exists
-        return true
+    private fun probeContentDescriptor(context: Context, uri: Uri): UriExistence {
+        return try {
+            val descriptor = context.contentResolver.openAssetFileDescriptor(uri, "r")
+                ?: return UriExistence.Unknown("Content provider returned no descriptor")
+            descriptor.use { UriExistence.Exists }
+        } catch (_: FileNotFoundException) {
+            UriExistence.NotFound
+        } catch (error: SecurityException) {
+            UriExistence.Unknown(error.message ?: "URI access denied")
+        } catch (error: Throwable) {
+            UriExistence.Unknown(error.message ?: "Unable to verify URI existence")
+        }
     }
 
     fun getContentLength(context: Context, uri: Uri): Long {
@@ -411,14 +728,43 @@ class FileUtil @Inject constructor() {
     }
 
     fun isFileApiSupportedByUri(context: Context, uri: Uri): Boolean {
-        // content:// / document uri 不走 File API（toFile() 会抛 IllegalStateException），只有 file:// 才用
         if (uri.scheme != "file") return false
-        val isExternalTo = isExternalUri(uri)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+        val file = uri.path?.let(::File) ?: return false
+        return isDescendantOf(file, context.filesDir) ||
+            context.getExternalFilesDir(null)?.let { isDescendantOf(file, it) } == true
+    }
 
-        val privateDir = getPrivateDownloadsDir(context, isExternalTo)
-        val isAppDir = uri.toString().startsWith(Uri.fromFile(privateDir).toString())
+    private fun isManagedPublicFile(file: File): Boolean {
+        return file.parentFile?.let { parent ->
+            runCatching { parent.canonicalFile == publicDownloadsDir.canonicalFile }
+                .getOrDefault(false)
+        } == true
+    }
 
-        return !(Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && !isAppDir)
+    private fun isLegacyPublicFile(file: File): Boolean {
+        return file.parentFile?.let { parent ->
+            runCatching { parent.canonicalFile == legacyPublicDownloadsDir.canonicalFile }
+                .getOrDefault(false)
+        } == true
+    }
+
+    private fun isSharedPublicFile(file: File): Boolean {
+        return isManagedPublicFile(file) || isLegacyPublicFile(file)
+    }
+
+    private fun isDescendantOf(file: File, root: File): Boolean {
+        return runCatching {
+            val canonicalFile = file.canonicalFile
+            val canonicalRoot = root.canonicalFile
+            val rootPath = canonicalRoot.path
+            val rootPrefix = if (rootPath.endsWith(File.separator)) {
+                rootPath
+            } else {
+                rootPath + File.separator
+            }
+            canonicalFile == canonicalRoot || canonicalFile.path.startsWith(rootPrefix)
+        }.getOrDefault(false)
     }
 
     // WITHOUT LOCK EXISTS PROBABILITY OF CORRUPTED FILE AFTER renameTo()
@@ -449,7 +795,7 @@ class FileUtil @Inject constructor() {
     private fun getContentSize(context: Context, uri: Uri): Long {
         return context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-            if (cursor.moveToFirst() && !cursor.isNull(sizeIndex)) {
+            if (sizeIndex >= 0 && cursor.moveToFirst() && !cursor.isNull(sizeIndex)) {
                 cursor.getLong(sizeIndex)
             } else {
                 -1 // Return -1 if size is unknown or an error occurred
@@ -457,51 +803,6 @@ class FileUtil @Inject constructor() {
         } ?: -1 // Return -1 if the query failed
     }
 
-    private fun renameVideoContentFromDownloads(context: Context, uri: Uri, newName: String): Uri? {
-        // Check if the URI is a document URI
-        if (DocumentsContract.isDocumentUri(context, uri)) {
-            // Rename the document using the DocumentsContract API
-            return DocumentsContract.renameDocument(context.contentResolver, uri, newName)
-        } else {
-            // Rename the file using the ContentResolver
-            val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, newName)
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-            }
-
-            context.contentResolver.update(uri, values, null, null)
-
-            return uri.toString().toUri()
-        }
-    }
-
-    @RequiresApi(Build.VERSION_CODES.Q)
-    private fun isDownloadedVideoContentExistsByName(
-        contentResolver: ContentResolver, contentOrig: Uri, fileName: String
-    ): Boolean {
-        val isExternal = isExternalUri(contentOrig)
-        val contentUri = if (isExternal) {
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        } else {
-            MediaStore.Downloads.INTERNAL_CONTENT_URI
-        }
-        // Query the Downloads collection for files with the given name
-        val projection = arrayOf(MediaStore.Downloads._ID)
-        val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ?"
-        val selectionArgs = arrayOf(fileName)
-
-        val cursor = contentResolver.query(
-            contentUri, projection, selection, selectionArgs, null
-        )
-
-        // Check if the cursor is not null and has at least one row
-        val exists = (cursor?.count ?: 0) > 0
-
-        // Close the cursor
-        cursor?.close()
-
-        return exists
-    }
 
     private fun getTmpDataDir(context: Context, isExternal: Boolean): File {
         val file = getNamedTmpDataDir(context, isExternal, TMP_DATA_FOLDER_NAME)
@@ -513,26 +814,17 @@ class FileUtil @Inject constructor() {
     }
 
     private fun getPrivateDownloadsDirFilesObj(
-        context: Context, isExternal: Boolean
-    ): Map<String, Pair<Long, Uri>> {
-        val filesMap = mutableMapOf<String, Pair<Long, Uri>>()
-
-        val path = getPrivateDownloadsDir(context, isExternal).absolutePath
-
-        val file = File(path)
-        if (!file.exists()) {
-            file.mkdirs()
+        context: Context,
+        isExternal: Boolean,
+        storageClass: MediaStorageClass
+    ): List<MediaEntry> {
+        val directory = getPrivateDownloadsDir(context, isExternal)
+        if (!directory.exists()) {
+            directory.mkdirs()
         }
-
-        val files = file.listFiles()
-
-        if (files != null) {
-            for (f in files) {
-                filesMap[f.name] = Pair(f.length(), Uri.fromFile(f))
-            }
-        }
-
-        return filesMap
+        return directory.listFiles().orEmpty()
+            .filter(File::isFile)
+            .map { mediaEntryForFile(it, storageClass) }
     }
 
     private fun getPrivateDownloadsDir(context: Context, isExternal: Boolean): File {
@@ -559,12 +851,23 @@ class FileUtil @Inject constructor() {
         return File(path)
     }
 
-    private fun migratePrivateDirectory(legacy: File, current: File) {
+    internal fun migratePrivateDirectory(
+        legacy: File,
+        current: File,
+        moveOperation: (File, File) -> Boolean = { source, target -> source.renameTo(target) },
+        copyOperation: (File, File) -> Boolean = { source, target ->
+            source.copyRecursively(
+                target,
+                overwrite = false,
+                onError = { _, _ -> kotlin.io.OnErrorAction.TERMINATE }
+            )
+        }
+    ) {
         if (!legacy.exists() || legacy.absolutePath == current.absolutePath) {
             return
         }
 
-        if (!current.exists() && legacy.renameTo(current)) {
+        if (!current.exists() && moveOperation(legacy, current)) {
             AppLogger.d("Migrated private directory ${legacy.absolutePath} -> ${current.absolutePath}")
             return
         }
@@ -577,16 +880,39 @@ class FileUtil @Inject constructor() {
         legacy.listFiles()?.forEach { source ->
             val target = File(current, source.name)
             if (target.exists()) {
+                AppLogger.w(
+                    "Migration target already exists; preserving source ${source.absolutePath}"
+                )
                 return@forEach
             }
 
-            runCatching {
-                if (!source.renameTo(target)) {
-                    source.copyRecursively(target, overwrite = false)
-                    source.deleteRecursively()
+            val moved = runCatching { moveOperation(source, target) }
+                .getOrElse { error ->
+                    AppLogger.e("Failed to move ${source.absolutePath}: ${error.message}")
+                    false
                 }
-            }.onFailure {
-                AppLogger.e("Failed to migrate ${source.absolutePath}: ${it.message}")
+            if (moved) {
+                return@forEach
+            }
+
+            val copied = runCatching { copyOperation(source, target) }
+                .getOrElse { error ->
+                    AppLogger.e("Failed to copy ${source.absolutePath}: ${error.message}")
+                    false
+                }
+            val verified = copied && copiedTreeMatches(source, target)
+            if (!verified) {
+                if (target.exists() && !target.deleteRecursively()) {
+                    AppLogger.e("Failed to clean incomplete migration target ${target.absolutePath}")
+                }
+                AppLogger.e("Migration copy verification failed for ${source.absolutePath}")
+                return@forEach
+            }
+
+            if (!source.deleteRecursively() || source.exists()) {
+                AppLogger.w(
+                    "Verified migration target but could not fully remove source ${source.absolutePath}"
+                )
             }
         }
 
@@ -595,199 +921,454 @@ class FileUtil @Inject constructor() {
         }
     }
 
-    private fun getPublicDownloadsDirFilesObjNew(): Map<String, Pair<Long, Uri>> {
-        val downloadsDir = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).toURI()
-        )
-        val filesList =
-            downloadsDir.listFiles()
-                ?.filter { file ->
-                    file.isFile && PUBLIC_MEDIA_EXTENSIONS.contains(
-                        file.extension.lowercase(Locale.US)
-                    )
+    private fun copiedTreeMatches(source: File, target: File): Boolean {
+        return runCatching {
+            when {
+                source.isFile -> target.isFile && filesHaveSameContent(source, target)
+                source.isDirectory -> {
+                    if (!target.isDirectory) return@runCatching false
+                    val sourceChildren = source.listFiles() ?: return@runCatching false
+                    val targetChildren = target.listFiles() ?: return@runCatching false
+                    val targetByName = targetChildren.associateBy { it.name }
+                    sourceChildren.size == targetChildren.size && sourceChildren.all { child ->
+                        val copiedChild = targetByName[child.name] ?: return@all false
+                        copiedTreeMatches(child, copiedChild)
+                    }
                 }
-                ?.toTypedArray()
-                ?: emptyArray<File>()
-        val filesMap = mutableMapOf<String, Pair<Long, Uri>>()
+                else -> false
+            }
+        }.getOrDefault(false)
+    }
 
-        for (file in filesList) {
-            filesMap[file.name] = Pair(file.name.hashCode().toLong(), Uri.fromFile(file))
+    private fun filesHaveSameContent(source: File, target: File): Boolean {
+        if (source.length() != target.length()) return false
+        return fileDigest(source).contentEquals(fileDigest(target))
+    }
+
+    private fun fileDigest(file: File): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        file.inputStream().buffered().use { input ->
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
         }
+        return digest.digest()
+    }
 
-        return filesMap
+    internal fun listLegacyPublicFiles(): List<MediaEntry> {
+        return publicMediaFilesIn(publicDownloadsDir, MediaStorageClass.MANAGED_PUBLIC) +
+            publicMediaFilesIn(legacyPublicDownloadsDir, MediaStorageClass.LEGACY_PUBLIC)
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun getPublicDownloadsDirFilesObjOld(
-        context: Context, isExternalStorage: Boolean
-    ): Map<String, Pair<Long, Uri>> {
-        val filesMap = mutableMapOf<String, Pair<Long, Uri>>()
-        val targetUri = if (isExternalStorage) {
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        } else {
-            MediaStore.Downloads.INTERNAL_CONTENT_URI
-        }
-
+    private fun getPublicDownloadsDirFilesObjMediaStore(
+        context: Context
+    ): List<MediaEntry> {
+        val files = mutableListOf<MediaEntry>()
+        val targetUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
         context.contentResolver.query(
             targetUri,
-            arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME),
-            null,
-            null, null
+            arrayOf(
+                MediaStore.MediaColumns._ID,
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.RELATIVE_PATH
+            ),
+            "${MediaStore.MediaColumns.RELATIVE_PATH} IN (?, ?) AND " +
+                "${MediaStore.MediaColumns.IS_PENDING} = 0",
+            visiblePublicRelativePaths().toTypedArray(),
+            "${MediaStore.MediaColumns.DATE_ADDED} DESC"
         )?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
-            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
-
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+            val pathColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idColumn)
                 val name = cursor.getString(nameColumn)
-
-                val contentUri: Uri = ContentUris.withAppendedId(
-                    targetUri, id
-                )
-
-                val isUriExists = isUriExists(context, contentUri)
-                if (isUriExists) {
-                    filesMap[name] = Pair(id, contentUri)
+                if (name.substringAfterLast('.', "").lowercase(Locale.US) in PUBLIC_MEDIA_EXTENSIONS) {
+                    val contentUri = ContentUris.withAppendedId(targetUri, id)
+                    val storageClass = when (cursor.getString(pathColumn)) {
+                        PUBLIC_RELATIVE_PATH -> MediaStorageClass.MANAGED_PUBLIC
+                        LEGACY_PUBLIC_RELATIVE_PATH -> MediaStorageClass.LEGACY_PUBLIC
+                        else -> continue
+                    }
+                    files += MediaEntry(
+                        id = stableMediaId(contentUri),
+                        displayName = name,
+                        uri = contentUri,
+                        storageClass = storageClass
+                    )
                 }
             }
         }
-
-        return filesMap
+        return files
     }
 
-    private fun deleteDownloadedVideoContent(context: Context, uri: Uri): Boolean {
-        return if (DocumentsContract.isDocumentUri(context, uri)) {
-            DocumentsContract.deleteDocument(context.contentResolver, uri)
-        } else {
-            context.contentResolver.delete(uri, null, null) > 0
+    private fun publicMediaFilesIn(
+        directory: File,
+        storageClass: MediaStorageClass
+    ): List<MediaEntry> {
+        return directory.listFiles().orEmpty()
+            .filter { file ->
+                file.isFile && file.extension.lowercase(Locale.US) in PUBLIC_MEDIA_EXTENSIONS
+            }
+            .map { mediaEntryForFile(it, storageClass) }
+    }
+
+    private fun mediaEntryForFile(file: File, storageClass: MediaStorageClass): MediaEntry {
+        val uri = Uri.fromFile(file)
+        return MediaEntry(
+            id = stableMediaId(uri),
+            displayName = file.name,
+            uri = uri,
+            storageClass = storageClass
+        )
+    }
+
+    private fun stableMediaId(uri: Uri): Long {
+        var hash = -0x340d631b7bdddcdbL
+        uri.toString().forEach { character ->
+            hash = hash xor character.code.toLong()
+            hash *= 0x100000001b3L
         }
+        return hash
     }
 
-    private fun isExternalUri(uri: Uri): Boolean {
-        val context = ContextUtils.getApplicationContext()
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun hasManagedMediaStoreName(
+        contentResolver: ContentResolver,
+        displayName: String,
+        excludeUri: Uri? = null
+    ): Boolean {
+        return hasMediaStoreNameAtPath(
+            contentResolver,
+            displayName,
+            PUBLIC_RELATIVE_PATH,
+            excludeUri
+        )
+    }
 
-        val ext1 = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun hasMediaStoreNameAtPath(
+        contentResolver: ContentResolver,
+        displayName: String,
+        relativePath: String,
+        excludeUri: Uri? = null
+    ): Boolean {
+        val excludedId = excludeUri?.let { runCatching { ContentUris.parseId(it) }.getOrNull() }
+        val baseSelection =
+            "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND " +
+                "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND " +
+                "${MediaStore.MediaColumns.IS_PENDING} = 0"
+        val selection = if (excludedId == null) {
+            baseSelection
         } else {
+            "$baseSelection AND ${MediaStore.MediaColumns._ID} != ?"
+        }
+        val args = if (excludedId == null) {
+            arrayOf(displayName, relativePath)
+        } else {
+            arrayOf(displayName, relativePath, excludedId.toString())
+        }
+        return contentResolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.MediaColumns._ID),
+            selection,
+            args,
             null
+        )?.use { it.moveToFirst() } == true
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun hasVisiblePublicMediaStoreName(
+        contentResolver: ContentResolver,
+        displayName: String
+    ): Boolean {
+        return contentResolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.MediaColumns._ID),
+            "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND " +
+                "${MediaStore.MediaColumns.RELATIVE_PATH} IN (?, ?) AND " +
+                "${MediaStore.MediaColumns.IS_PENDING} = 0",
+            arrayOf(displayName, PUBLIC_RELATIVE_PATH, LEGACY_PUBLIC_RELATIVE_PATH),
+            null
+        )?.use { it.moveToFirst() } == true
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    fun findManagedPublicMediaUri(context: Context, displayName: String): Uri? {
+        return findPublicMediaUri(context, displayName, PUBLIC_RELATIVE_PATH)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun findPublicMediaUri(
+        context: Context,
+        displayName: String,
+        relativePath: String
+    ): Uri? {
+        return context.contentResolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.MediaColumns._ID),
+            "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND " +
+                "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND " +
+                "${MediaStore.MediaColumns.IS_PENDING} = 0",
+            arrayOf(displayName, relativePath),
+            "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            ContentUris.withAppendedId(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+            )
         }
-        val ext2 = Uri.fromFile(context.getExternalFilesDir(null))
-        val ext3 =
-            Uri.fromFile(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS))
+    }
 
-        val result = uri.toString().contains(ext1.toString()) || uri.toString()
-            .contains(ext2.toString()) || uri.toString().contains(ext3.toString())
+    private fun visiblePublicRelativePaths(): List<String> {
+        return listOf(PUBLIC_RELATIVE_PATH, LEGACY_PUBLIC_RELATIVE_PATH)
+    }
 
-        return result
+    private fun isManagedPublicDestinationSelected(): Boolean {
+        return IS_EXTERNAL_STORAGE_USE && !IS_APP_DATA_DIR_USE
+    }
+
+    private fun moveToFile(context: Context, sourceUri: Uri, target: File): Boolean {
+        if (uriExistence(context, sourceUri) != UriExistence.Exists || target.exists()) return false
+        val parent = target.parentFile ?: return false
+        if (!parent.exists() && !parent.mkdirs()) return false
+        val sourceLength = getContentLength(context, sourceUri)
+
+        if (sourceUri.scheme == "file") {
+            val source = sourceUri.toFile()
+            val moved = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    Files.move(source.toPath(), target.toPath())
+                    true
+                } else {
+                    renameWithLock(source, target)
+                }
+            } catch (error: Throwable) {
+                AppLogger.e("File move failed from $source to $target", error)
+                false
+            }
+            if (!moved || source.exists() || !target.isFile) return false
+            if (sourceLength >= 0L && target.length() != sourceLength) return false
+        } else {
+            val copied = try {
+                openSourceInputStream(context, sourceUri).use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+            } catch (error: Throwable) {
+                AppLogger.e("Content copy failed from $sourceUri to $target", error)
+                target.delete()
+                return false
+            }
+            if (copied <= 0L || (sourceLength >= 0L && copied != sourceLength) || target.length() != copied) {
+                target.delete()
+                return false
+            }
+            when (deleteSourceAndVerify(context, sourceUri)) {
+                UriExistence.NotFound -> Unit
+                UriExistence.Exists -> {
+                    target.delete()
+                    return false
+                }
+                is UriExistence.Unknown -> return false
+            }
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && isManagedPublicFile(target)) {
+            scanFile(context, target)
+        }
+        return target.isFile && (sourceLength < 0L || target.length() == sourceLength)
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun moveFileToDownloadsFolder(
-        contentResolver: ContentResolver, sourceFile: File, fileName: String
+        context: Context,
+        sourceUri: Uri,
+        fileName: String
     ): Boolean {
-        AppLogger.d(
-            "moveFileToDownloadsFoldermoveFileToDownloadsFolder $sourceFile $fileName"
-        )
-        val isAudio = sourceFile.extension == "mp3"
+        if (uriExistence(context, sourceUri) != UriExistence.Exists) return false
+        val sourceLength = getContentLength(context, sourceUri)
+        if (sourceLength == 0L) return false
+        val displayName = sanitizeDisplayName(fileName)
+        if (hasManagedMediaStoreName(context.contentResolver, displayName)) return false
 
-        // Check if there is enough free space in the Downloads folder
-        val downloadsDirectory = folderDir
-        val isFolderExternal = isExternalUri(folderDir.toUri())
-        val availableSpace = downloadsDirectory.freeSpace
-
-        if (availableSpace < sourceFile.length()) {
-            // Handle the case where there is not enough free space
-            throw Error("Not available space $availableSpace, file size: ${sourceFile.length()}")
-        }
-
-        // Create a ContentValues object to specify the file details
-        var name = fileName
-        var counter = 1
-        while (isDownloadExists(contentResolver, name)) {
-            name = "$name($counter)"
-            counter++
-        }
-
-        val cleaned = FileNameCleaner.cleanFileName(name)
         val values = ContentValues().apply {
-            val mimeType = if (isAudio) "audio/mpeg" else "video/mp4"
-            put(MediaStore.MediaColumns.DISPLAY_NAME, cleaned)
-            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeTypeForName(displayName))
+            put(MediaStore.MediaColumns.RELATIVE_PATH, PUBLIC_RELATIVE_PATH)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
+        val insertedUri = context.contentResolver.insert(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            values
+        ) ?: return false
 
-        // Insert the file into the Downloads collection
-        val collectionUri = if (isFolderExternal) {
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        } else {
-            MediaStore.Downloads.INTERNAL_CONTENT_URI
-        }
-        var fileUri = contentResolver.insert(collectionUri, values)
-        if (fileUri == null) {
-            values.put(
-                MediaStore.MediaColumns.DISPLAY_NAME,
-                cleaned.replace("mp4", "").replace("mp3", "") + "_e"
-            )
-            fileUri = contentResolver.insert(collectionUri, values)
-        }
-
-        // Copy the file to the Downloads folder
-        val isMoved = fileUri?.let { uri ->
-            try {
-                // 1. Acquire a lock on the source file
-                val randomAccessFile = RandomAccessFile(sourceFile, "rw")
-                val fileChannel: FileChannel = randomAccessFile.channel
-                val fileLock: FileLock = fileChannel.lock()
-
-                try {
-                    contentResolver.openOutputStream(uri)?.use { outputStream ->
-                        val copied = sourceFile.inputStream().use { inputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                        if (copied > 0) {
-                            AppLogger.d("Source removing... $sourceFile")
-                            // Delete the source file
-                            sourceFile.delete()
-                            true
-                        } else {
-                            AppLogger.d("Source move error $sourceFile")
-                            false
-                        }
-                    }
-                } finally {
-                    // 3. Release the lock in the finally block
-                    fileLock.release()
-                    randomAccessFile.close()
+        var completed = false
+        var retainTargetOnFailure = false
+        try {
+            val copied = openSourceInputStream(context, sourceUri).use { input ->
+                val output = context.contentResolver.openOutputStream(insertedUri, "w")
+                    ?: throw IOException("MediaStore returned no output stream")
+                output.use {
+                    val count = input.copyTo(it)
+                    it.flush()
+                    count
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                AppLogger.d("Source move error $sourceFile $e")
-                false
+            }
+            if (copied <= 0L || (sourceLength >= 0L && copied != sourceLength)) {
+                throw IOException("Copied byte count does not match the source")
+            }
+
+            val pending = queryMediaStoreRecord(context.contentResolver, insertedUri)
+                ?: throw IOException("Pending MediaStore record disappeared")
+            if (
+                pending.displayName != displayName ||
+                pending.relativePath != PUBLIC_RELATIVE_PATH ||
+                pending.isPending != 1 ||
+                pending.size != copied
+            ) {
+                throw IOException("Pending MediaStore record failed verification")
+            }
+
+            val publishedRows = context.contentResolver.update(
+                insertedUri,
+                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                null,
+                null
+            )
+            if (publishedRows != 1) {
+                throw IOException("Expected one published MediaStore row, got $publishedRows")
+            }
+            val published = queryMediaStoreRecord(context.contentResolver, insertedUri)
+                ?: throw IOException("Published MediaStore record disappeared")
+            if (
+                published.displayName != displayName ||
+                published.relativePath != PUBLIC_RELATIVE_PATH ||
+                published.isPending != 0 ||
+                published.size != copied
+            ) {
+                throw IOException("Published MediaStore record failed verification")
+            }
+
+            when (deleteSourceAndVerify(context, sourceUri)) {
+                UriExistence.NotFound -> retainTargetOnFailure = true
+                UriExistence.Exists -> throw IOException("Source still exists after publication")
+                is UriExistence.Unknown -> {
+                    retainTargetOnFailure = true
+                    throw IOException("Unable to verify source deletion")
+                }
+            }
+            if (uriExistence(context, insertedUri) != UriExistence.Exists) {
+                throw IOException("Published media URI is not definitely present")
+            }
+            completed = true
+            return true
+        } catch (error: Throwable) {
+            AppLogger.e("MediaStore publication failed for $displayName", error)
+            return false
+        } finally {
+            if (!completed && !retainTargetOnFailure) {
+                cleanupInsertedMediaStoreRow(context, insertedUri)
             }
         }
-        return isMoved ?: false
+    }
+
+    private fun openSourceInputStream(context: Context, uri: Uri) = when (uri.scheme) {
+        "file", null -> File(uri.path ?: throw FileNotFoundException("Source path is missing"))
+            .inputStream()
+        "content" -> context.contentResolver.openInputStream(uri)
+            ?: throw FileNotFoundException("Unable to open source URI")
+        else -> throw FileNotFoundException("Unsupported source URI scheme: ${uri.scheme}")
+    }
+
+    private fun deleteSourceAndVerify(context: Context, uri: Uri): UriExistence {
+        try {
+            when {
+                uri.scheme == "file" || uri.scheme == null -> {
+                    val file = File(uri.path ?: return UriExistence.Unknown("Source path is missing"))
+                    if (!file.delete() && file.exists()) return UriExistence.Exists
+                }
+                DocumentsContract.isDocumentUri(context, uri) -> {
+                    if (!DocumentsContract.deleteDocument(context.contentResolver, uri)) {
+                        return uriExistence(context, uri)
+                    }
+                }
+                uri.scheme == "content" -> {
+                    if (context.contentResolver.delete(uri, null, null) != 1) {
+                        return uriExistence(context, uri)
+                    }
+                }
+                else -> return UriExistence.Unknown("Unsupported source URI scheme: ${uri.scheme}")
+            }
+        } catch (error: Throwable) {
+            return UriExistence.Unknown(error.message ?: "Source deletion failed")
+        }
+        return uriExistence(context, uri)
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun isDownloadExists(contentResolver: ContentResolver, displayName: String): Boolean {
-        val projection = arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)
-        val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ?"
-        val selectionArgs = arrayOf(displayName)
-
-        val uri = if (isExternalUri(folderDir.toUri())) {
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        } else {
-            MediaStore.Downloads.INTERNAL_CONTENT_URI
+    private fun cleanupInsertedMediaStoreRow(context: Context, uri: Uri) {
+        val rows = runCatching { context.contentResolver.delete(uri, null, null) }
+            .getOrElse { error ->
+                AppLogger.e("Failed to clean MediaStore row $uri", error)
+                -1
+            }
+        if (rows != 1 || !isUriDefinitelyAbsent(context, uri)) {
+            AppLogger.e("MediaStore row cleanup was incomplete: rows=$rows uri=$uri")
         }
-        val cursor = contentResolver.query(
-            uri, projection, selection, selectionArgs, null
-        )
-
-        val exists = cursor?.moveToFirst() ?: false
-        cursor?.close()
-
-        return exists
     }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun queryMediaStoreRecord(
+        contentResolver: ContentResolver,
+        uri: Uri
+    ): MediaStoreRecord? {
+        return contentResolver.query(
+            uri,
+            arrayOf(
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.RELATIVE_PATH,
+                MediaStore.MediaColumns.IS_PENDING,
+                MediaStore.MediaColumns.SIZE
+            ),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            MediaStoreRecord(
+                displayName = cursor.getString(
+                    cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                ),
+                relativePath = cursor.getString(
+                    cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
+                ),
+                isPending = cursor.getInt(
+                    cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.IS_PENDING)
+                ),
+                size = cursor.getLong(
+                    cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                )
+            )
+        }
+    }
+
+    private fun mimeTypeForName(displayName: String): String {
+        return MimeTypeMap.getSingleton()
+            .getMimeTypeFromExtension(displayName.substringAfterLast('.', ""))
+            ?: "application/octet-stream"
+    }
+
+    private data class MediaStoreRecord(
+        val displayName: String,
+        val relativePath: String,
+        val isPending: Int,
+        val size: Long
+    )
 
     private fun scanFile(context: Context, file: File) {
         try {

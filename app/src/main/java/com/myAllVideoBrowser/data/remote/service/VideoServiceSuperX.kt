@@ -22,6 +22,17 @@ class VideoServiceSuperX(
     private val client: OkHttpProxyClient
 ) : VideoService {
 
+    companion object {
+        internal fun confirmedHlsPlaylistContent(content: String): String? {
+            val normalized = normalizeManifestContent(content)
+            return normalized.takeIf { it.startsWith("#EXTM3U") }
+        }
+
+        private fun normalizeManifestContent(content: String): String {
+            return content.trimStart().removePrefix("\uFEFF").trimStart()
+        }
+    }
+
     override fun getVideoInfo(
         url: Request, isM3u8: Boolean, isMpd: Boolean,
         isAudioCheck: Boolean
@@ -51,28 +62,44 @@ class VideoServiceSuperX(
         AppLogger.d("PlaylistService: Fetching manifest from $urlString")
 
         // 1. Fetch the manifest content
-        val response = client.getProxyOkHttpClient().newCall(url).execute()
-        val content = response.body.string()
-        AppLogger.d("Manifest body: $content")
-
-        if (!response.isSuccessful || content.isEmpty()) {
-            throw IOException("Failed to download playlist at $urlString. HTTP ${response.code}")
+        val responsePayload = client.getProxyOkHttpClient().newCall(url).execute().use { response ->
+            val content = response.body.string()
+            if (!response.isSuccessful || content.isEmpty()) {
+                throw IOException("Failed to download playlist at $urlString. HTTP ${response.code}")
+            }
+            ManifestResponse(content, response.header("Content-Type").orEmpty())
         }
 
         // 2. Determine playlist type and parse
         return if (isM3u8) {
+            val playlistContent = confirmedHlsPlaylistContent(responsePayload.content)
+            if (playlistContent == null) {
+                AppLogger.w(
+                    "PlaylistService: Rejected HLS candidate without #EXTM3U header " +
+                        "at $urlString (${responsePayload.contentType.ifBlank { "unknown content type" }})"
+                )
+                return null
+            }
             AppLogger.d("PlaylistService: Detected HLS manifest.")
-            val manifest = HlsPlaylistParser.parse(content, urlString)
+            val manifest = HlsPlaylistParser.parse(playlistContent, urlString)
             parseHlsManifest(manifest, url.headers.toMap())
         } else if (isMpd) {
             AppLogger.d("PlaylistService: Detected MPD manifest.")
-            val manifest = MpdPlaylistParser.parse(content, urlString)
+            val manifest = MpdPlaylistParser.parse(
+                normalizeManifestContent(responsePayload.content),
+                urlString
+            )
             parseMpdManifest(manifest, url.headers.toMap())
         } else {
             AppLogger.w("PlaylistService: URL was flagged as a playlist but extension is not .m3u8 or .mpd.")
             null
         }
     }
+
+    private data class ManifestResponse(
+        val content: String,
+        val contentType: String
+    )
 
     private fun parseHlsManifest(
         manifest: HlsPlaylistParser.HlsPlaylist, headers: Map<String, String>

@@ -209,7 +209,7 @@ class ProgressViewModel @Inject constructor(
     }
 
     private fun canCreateDownload(): Boolean {
-        if (!fileUtil.folderDir.exists() && !fileUtil.folderDir.mkdirs()) {
+        if (!fileUtil.ensureDownloadDestination()) {
             return false
         }
 

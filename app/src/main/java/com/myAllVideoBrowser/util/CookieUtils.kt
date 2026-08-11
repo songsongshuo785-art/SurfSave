@@ -13,9 +13,54 @@ import okhttp3.Headers
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.Request
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.File
 import java.net.URL
 import java.util.Date
+
+internal fun resolveCookieDomainFilter(domain: String?): String? {
+    val host = domain?.trim()?.trimEnd('.')?.takeIf { it.isNotBlank() } ?: return null
+    return runCatching {
+        val parsed = InternetDomainName.from(host)
+        if (parsed.hasPublicSuffix()) parsed.topPrivateDomain().toString() else host
+    }.getOrDefault(host)
+}
+
+internal fun webViewCookiesToNetscape(url: String, rawCookies: String?): String? {
+    val target = url.toHttpUrlOrNull() ?: return null
+    val host = target.host.takeIf { it.isNotBlank() } ?: return null
+    val cookieLines = rawCookies.orEmpty().split(';').mapNotNull { rawCookie ->
+        val cookie = rawCookie.trim()
+        val separator = cookie.indexOf('=')
+        if (separator <= 0) {
+            return@mapNotNull null
+        }
+        val name = cookie.substring(0, separator).trim()
+        val value = cookie.substring(separator + 1).trim()
+        if (name.isBlank() || name.any { it == '\t' || it == '\r' || it == '\n' } ||
+            value.any { it == '\t' || it == '\r' || it == '\n' }
+        ) {
+            return@mapNotNull null
+        }
+        listOf(
+            host,
+            "FALSE",
+            "/",
+            if (target.isHttps) "TRUE" else "FALSE",
+            "0",
+            name,
+            value
+        ).joinToString("\t")
+    }
+    if (cookieLines.isEmpty()) {
+        return null
+    }
+    return buildString {
+        appendLine("# Netscape HTTP Cookie File")
+        appendLine("# Generated from Android WebView cookies for this request target.")
+        cookieLines.forEach(::appendLine)
+    }
+}
 
 
 object CookieUtils {
@@ -48,49 +93,34 @@ object CookieUtils {
 
     fun addCookiesToRequest(
         url: String,
-        request: YoutubeDLRequest,
-        additionalUrl: String? = null
-    ): File {
+        request: YoutubeDLRequest
+    ): File? {
         CookieProfileStore(ContextUtils.getApplicationContext())
-            .writeBestProfileCookieFile(url, additionalUrl)
+            .writeBestProfileCookieFile(url)
             ?.let { cookieProfileFile ->
-                request.addOption("--cookies", cookieProfileFile.path)
-                return cookieProfileFile
+                try {
+                    request.addOption("--cookies", cookieProfileFile.path)
+                    return cookieProfileFile
+                } catch (error: Throwable) {
+                    cookieProfileFile.delete()
+                    throw error
+                }
             }
 
-        // TODO: May be should remove this If
-        if (Build.VERSION.SDK_INT > 32) {
-            val cookieFile =
-                File(chromeDefaultPathApi29More)
-            if (cookieFile.exists() && !cookieFile.isFile) {
-                request.addOption("--cookies-from-browser", "chrome:${cookieFile.path}")
-            }
-
-            return cookieFile
-        }
-
+        val rawCookies = runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()
+        val cookieContent = webViewCookiesToNetscape(url, rawCookies) ?: return null
         val cookieFile = createTmpCookieFile(url.hashCode().toString())
-        var cookies = readCookiesForUrlFromDb(url)
-
-        if (additionalUrl != null && cookies.split("\n").size <= 3) {
-            cookies = readCookiesForUrlFromDb(additionalUrl)
-        }
-        if (cookieFile.exists() && cookieFile.isFile) {
-            cookieFile.writeText(cookies)
+        try {
+            cookieFile.writeText(cookieContent, Charsets.UTF_8)
             request.addOption("--cookies", cookieFile.path)
+            return cookieFile
+        } catch (error: Throwable) {
+            cookieFile.delete()
+            throw error
         }
-
-        return cookieFile
     }
 
-    fun getCookiesForUrlNetScape(url: String, additionalUrl: String? = null): String {
-        var cookies = readCookiesForUrlFromDb(url)
-
-        if (additionalUrl != null && cookies.split("\n").size <= 3) {
-            cookies = readCookiesForUrlFromDb(additionalUrl)
-        }
-        return cookies
-    }
+    fun getCookiesForUrlNetScape(url: String): String = readCookiesForUrlFromDb(url)
 
     fun deleteTemporaryCookieFile(cookieFile: File?) {
         val file = cookieFile ?: return
@@ -108,7 +138,10 @@ object CookieUtils {
         headers: Map<String, String>,
         httpClient: OkHttpClient
     ): Pair<URL, Headers>? {
-        return RedirectResolver.getFinalRedirectURL(url, headers, httpClient)
+        val cookieManager = CookieManager.getInstance()
+        return RedirectResolver.getFinalRedirectURL(url, headers, httpClient) { target ->
+            cookieManager.getCookie(target.toExternalForm())
+        }
     }
 
     private fun readCookiesForUrlFromDb(url: String): String {
@@ -302,8 +335,7 @@ class ChromeBrowser : Browser() {
      */
 
     fun getCookiesNetscapeForDomain(domain: String?, cookiesStore: File): String {
-        val dm: String =
-            domain?.let { InternetDomainName.from(it).topPrivateDomain().toString() }.toString()
+        val dm = resolveCookieDomainFilter(domain) ?: return ""
 
         return processCookiesToNetscape(cookiesStore, dm)
     }
@@ -322,10 +354,14 @@ class ChromeBrowser : Browser() {
         netscapeCookieFile.appendLine("# This is a generated file! Do not edit.\n")
 
         cookieStore?.takeIf { it.exists() }?.let { file ->
-            val cookieStoreCopy = File.createTempFile("cookieStoreCopy", ".db")
-            file.copyTo(cookieStoreCopy, overwrite = true)
+            val cookieStoreCopy = File.createTempFile(
+                "cookieStoreCopy",
+                ".db",
+                ContextUtils.getApplicationContext().cacheDir
+            )
 
             try {
+                file.copyTo(cookieStoreCopy, overwrite = true)
                 SQLiteDatabase.openDatabase(
                     cookieStoreCopy.absolutePath,
                     null,

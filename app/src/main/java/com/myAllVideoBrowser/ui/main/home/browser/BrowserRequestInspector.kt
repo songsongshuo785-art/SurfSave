@@ -2,6 +2,7 @@ package com.myAllVideoBrowser.ui.main.home.browser
 
 import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
 import com.myAllVideoBrowser.util.VideoUtils
+import java.util.Locale
 
 enum class ContentType {
     M3U8,
@@ -23,8 +24,11 @@ data class BrowserRequestInspection(
     val shouldInterruptResource: Boolean
 ) {
     val shouldInspectMedia: Boolean = shouldCheckStream || shouldCheckRegular
-    val isM3u8: Boolean = contentType == ContentType.M3U8 || isTxtHlsCandidate
+    val isM3u8: Boolean = contentType == ContentType.M3U8
+    val shouldProbeAsM3u8: Boolean = isM3u8 || isTxtHlsCandidate
     val isMpd: Boolean = contentType == ContentType.MPD || url.contains(".mpd")
+    val shouldBlockStreamRequest: Boolean =
+        shouldCheckStream && shouldInterruptResource && isM3u8
 }
 
 class BrowserRequestInspector(
@@ -38,7 +42,7 @@ class BrowserRequestInspector(
     ): BrowserRequestInspection {
         val normalizedUrl = url.trim()
         val contentType = VideoUtils.getContentTypeByUrlPath(normalizedUrl)
-        val isTxtHlsCandidate = normalizedUrl.contains(".txt") && normalizedUrl.contains("hentaihaven")
+        val isTxtHlsCandidate = isTextPlaylistCandidate(normalizedUrl)
         val shouldCheckM3u8 = settingsModel.isCheckIfEveryRequestOnM3u8.get()
         val shouldCheckMp4 = settingsModel.getIsCheckEveryRequestOnMp4Video().get()
         val shouldCheckAudio = settingsModel.isCheckOnAudio.get()
@@ -60,5 +64,13 @@ class BrowserRequestInspector(
             shouldCheckVideo = shouldCheckMp4,
             shouldInterruptResource = settingsModel.isInterruptIntreceptedResources.get()
         )
+    }
+
+    private fun isTextPlaylistCandidate(url: String): Boolean {
+        val path = url
+            .substringBefore('#')
+            .substringBefore('?')
+            .lowercase(Locale.US)
+        return path.endsWith(".txt")
     }
 }

@@ -56,6 +56,7 @@ import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import io.reactivex.rxjava3.disposables.CompositeDisposable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 
 
@@ -70,6 +71,8 @@ interface TabManagerProvider {
     fun getCloseTabEvent(): SingleLiveEvent<WebTab>
 
     fun getUpdateTabEvent(): SingleLiveEvent<WebTab>
+
+    fun onTabNavigationStarted(tabId: String, pageUrl: String)
 
     fun getTabsListChangeEvent(): ObservableField<List<WebTab>>
 }
@@ -128,6 +131,9 @@ const val TAB_INDEX_KEY = "TAB_INDEX_KEY"
 class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
     companion object {
+        private val serviceWorkerClientLock = Any()
+        private val installedServiceWorkerClient = AtomicReference<ServiceWorkerClient?>()
+
         fun newInstance() = BrowserFragment()
         var DESKTOP_USER_AGENT =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
@@ -185,9 +191,6 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
     private var backPressedOnce = false
 
-    @Volatile
-    private var activePageUrlForInspection: String = ""
-
     private lateinit var requestInspector: BrowserRequestInspector
 
     private val buttonStateCallback = object :
@@ -216,8 +219,12 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
     private val serviceWorkerClient = object : ServiceWorkerClient() {
         override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
+            val detectionContext = videoDetectionModel.serviceWorkerContextForRequest(
+                request.requestHeaders
+            )
+                ?: return super.shouldInterceptRequest(request)
             val url = request.url.toString()
-            val pageUrl = activePageUrlForInspection.ifBlank { url }
+            val pageUrl = detectionContext.pageUrl
             val inspection = requestInspector.inspect(url, pageUrl, request.isForMainFrame)
 
             if (inspection.shouldInspectMedia) {
@@ -231,9 +238,10 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
                     lifecycleScope.launch(Dispatchers.Main) {
                         if (requestWithCookies != null) {
                             videoDetectionModel.verifyLinkStatus(
+                                detectionContext,
                                 requestWithCookies,
                                 "",
-                                inspection.isM3u8,
+                                inspection.shouldProbeAsM3u8,
                                 inspection.isMpd
                             )
                         }
@@ -241,6 +249,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
                 } else if (inspection.shouldCheckRegular) {
                     lifecycleScope.launch(Dispatchers.Main) {
                         videoDetectionModel.checkRegularVideoOrAudio(
+                            detectionContext,
                             requestWithCookies,
                             inspection.shouldCheckAudio,
                             inspection.shouldCheckVideo
@@ -311,6 +320,21 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
     override fun getUpdateTabEvent(): SingleLiveEvent<WebTab> {
         return browserViewModel.updateWebTabEvent
+    }
+
+    override fun onTabNavigationStarted(tabId: String, pageUrl: String) {
+        if (!::browserViewModel.isInitialized || !::videoDetectionModel.isInitialized) {
+            return
+        }
+        val tabs = browserViewModel.tabs.get().orEmpty()
+        val currentIndex = browserViewModel.currentTab.get()
+        if (tabs.getOrNull(currentIndex)?.id == tabId) {
+            videoDetectionModel.activateServiceWorkerContext(
+                tabId,
+                pageUrl,
+                forceNewGeneration = true
+            )
+        }
     }
 
     override fun getTabsListChangeEvent(): ObservableField<List<WebTab>> {
@@ -422,6 +446,8 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     override fun onDestroyView() {
         mainHandler.removeCallbacks(tabsUiSyncRunnable)
         tabsUiSyncScheduled = false
+        clearServiceWorkerInterception()
+        videoDetectionModel.activateServiceWorkerContext("", "")
         videoDetectionModel.downloadButtonState.removeOnPropertyChangedCallback(buttonStateCallback)
         browserViewModel.currentTab.removeOnPropertyChangedCallback(currentTabCallback)
         super.onDestroyView()
@@ -784,7 +810,11 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     }
 
     private fun updateActivePageUrlForInspection(tabs: List<WebTab>, currentIndex: Int) {
-        activePageUrlForInspection = tabs.getOrNull(currentIndex)?.getUrl().orEmpty()
+        val currentTab = tabs.getOrNull(currentIndex)
+        videoDetectionModel.activateServiceWorkerContext(
+            currentTab?.id.orEmpty(),
+            currentTab?.getUrl().orEmpty()
+        )
     }
 
     private fun configureServiceWorkerInterception() {
@@ -794,10 +824,27 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
         try {
             val swController = ServiceWorkerController.getInstance()
-            swController.setServiceWorkerClient(serviceWorkerClient)
-            swController.serviceWorkerWebSettings.allowContentAccess = true
+            synchronized(serviceWorkerClientLock) {
+                swController.setServiceWorkerClient(serviceWorkerClient)
+                installedServiceWorkerClient.set(serviceWorkerClient)
+                swController.serviceWorkerWebSettings.allowContentAccess = true
+            }
         } catch (e: Throwable) {
             AppLogger.e("ServiceWorker interception unavailable: ${e.message}")
+        }
+    }
+
+    private fun clearServiceWorkerInterception() {
+        try {
+            val swController = ServiceWorkerController.getInstance()
+            synchronized(serviceWorkerClientLock) {
+                if (installedServiceWorkerClient.get() === serviceWorkerClient) {
+                    swController.setServiceWorkerClient(null)
+                    installedServiceWorkerClient.set(null)
+                }
+            }
+        } catch (e: Throwable) {
+            AppLogger.e("ServiceWorker interception cleanup failed: ${e.message}")
         }
     }
 

@@ -9,6 +9,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 class NotificationReceiver : DaggerBroadcastReceiver() {
@@ -23,38 +25,44 @@ class NotificationReceiver : DaggerBroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
 
-        val taskId = intent.extras?.getString(TASK_ID)
+        val pendingResult = goAsync()
         receiverScope.launch {
-            val progressInfo = progressRepository.getProgressInfos().blockingFirst()
-                .firstOrNull { it.id == taskId }
+            try {
+                withTimeout(RECEIVER_TIMEOUT_MILLIS) {
+                    val taskId = intent.getStringExtra(TASK_ID)
+                    if (taskId.isNullOrBlank()) {
+                        AppLogger.w("Notification action ignored: missing task id")
+                        return@withTimeout
+                    }
+                    val progressInfo = progressRepository.getProgressInfos()
+                        .timeout(RECEIVER_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+                        .blockingFirst()
+                        .firstOrNull { it.id == taskId }
 
-            AppLogger.d("-----------------------------------   $taskId  $progressInfo")
+                    AppLogger.d("Notification action ${intent.action} for $taskId: $progressInfo")
 
-            if (progressInfo == null) {
-                return@launch
-            }
+                    if (progressInfo == null) {
+                        AppLogger.w("Notification action ignored: task $taskId was not found")
+                        return@withTimeout
+                    }
 
-            when (intent.action) {
-                ACTION_PAUSE -> {
-                    downloadQueueManager.pause(progressInfo.id)
+                    when (intent.action) {
+                        ACTION_PAUSE -> downloadQueueManager.pause(progressInfo.id)
+                        ACTION_RESUME -> downloadQueueManager.resume(progressInfo.id)
+                        ACTION_CANCEL -> downloadQueueManager.cancel(progressInfo.id, true)
+                        else -> AppLogger.w("Notification action is not supported: ${intent.action}")
+                    }
                 }
-
-                ACTION_RESUME -> {
-                    downloadQueueManager.resume(progressInfo.id)
-                }
-
-                ACTION_CANCEL -> {
-                    downloadQueueManager.cancel(progressInfo.id, true)
-                }
-
-                else -> {
-                    AppLogger.d("ACTION NOT SUPPORTED ${intent.action}")
-                }
+            } catch (error: Throwable) {
+                AppLogger.e("Notification action failed: ${intent.action}", error)
+            } finally {
+                pendingResult.finish()
             }
         }
     }
 
     companion object {
+        private const val RECEIVER_TIMEOUT_MILLIS = 9_000L
         const val TASK_ID = "TASK_ID"
         const val ACTION_PAUSE = "ACTION_PAUSE"
         const val ACTION_RESUME = "ACTION_RESUME"

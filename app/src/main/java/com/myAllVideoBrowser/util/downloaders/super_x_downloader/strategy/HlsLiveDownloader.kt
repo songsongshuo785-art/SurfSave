@@ -42,162 +42,176 @@ class HlsLiveDownloader(
         onProgress: (progress: Progress) -> Unit
     ): File {
         return withContext(Dispatchers.IO) {
+            val finalOutputFile = downloadDir.resolve("merged_output.mp4")
+            if (mergeOnly) {
+                AppLogger.d("HLS (Live): Starting in MERGE-ONLY mode from the last complete capture snapshot.")
+                val mergeSession = DownloaderUtils.mergePreparedHlsCapture(
+                    hlsTmpDir = downloadDir,
+                    finalOutputPath = finalOutputFile.absolutePath,
+                    videoCodec = videoCodec,
+                    onMergeProgress = { percentage ->
+                        onMergeProgress(
+                            Progress(percentage.toLong(), 100L),
+                            task.apply {
+                                lineInfo = "Merging segments... $percentage%"
+                                taskState = VideoTaskState.PREPARE
+                                setIsLive(true)
+                            }
+                        )
+                    },
+                    shouldAbort = controller::isPauseOrCancelRequested
+                )
+                requireSuccessfulMerge(mergeSession, finalOutputFile)
+                return@withContext finalOutputFile
+            }
+
             val allVideoSegments = mutableListOf<HlsPlaylistParser.MediaSegment>()
             val allAudioSegments = mutableListOf<HlsPlaylistParser.MediaSegment>()
             var totalBytesDownloaded = 0L
-            var downloadException: Exception? = null
-            lateinit var finalOutputFile: File
 
             val progressCallback: (bytes: Long) -> Unit = { bytes ->
                 totalBytesDownloaded += bytes
                 onProgress(Progress(totalBytesDownloaded, 0))
             }
 
-            try {
-                if (!mergeOnly) {
-                    var targetDuration = 10.0 // Default HLS target duration
-                    val downloadedSegmentUrls = mutableSetOf<String>()
-                    val segmentDownloader =
-                        SegmentDownloader(httpClient, headers, controller, progressCallback)
+            var targetDuration = 10.0
+            val downloadedVideoUrls = mutableSetOf<String>()
+            val downloadedAudioUrls = mutableSetOf<String>()
+            val segmentDownloader =
+                SegmentDownloader(httpClient, headers, controller, progressCallback)
 
-                    AppLogger.d("HLS (Live): Starting download loop for task ${task.mId}")
-                    task.setIsLive(true)
+            AppLogger.d("HLS (Live): Starting download loop for task ${task.mId}")
+            task.setIsLive(true)
 
-                    while (!controller.isInterrupted()) {
-                        AppLogger.d("HLS (Live): Fetching latest playlist for task ${task.mId}...")
-                        val (currentVideoPlaylist, currentAudioPlaylist) = getMediaPlaylists(
-                            task.url,
-                            headers
-                        )
-
-                        targetDuration = (currentVideoPlaylist?.targetDuration?.toDouble()
-                            ?: currentAudioPlaylist?.targetDuration?.toDouble() ?: targetDuration)
-
-                        val newVideoSegments =
-                            currentVideoPlaylist?.segments?.filter { downloadedSegmentUrls.add(it.url) }
-                                ?: emptyList()
-                        val newAudioSegments =
-                            currentAudioPlaylist?.segments?.filter { downloadedSegmentUrls.add(it.url) }
-                                ?: emptyList()
-
-                        if (newVideoSegments.isNotEmpty() || newAudioSegments.isNotEmpty()) {
-                            AppLogger.d("HLS (Live): Found ${newVideoSegments.size} new video and ${newAudioSegments.size} new audio segments.")
-                            val newDuration =
-                                (newVideoSegments.sumOf { it.duration } + newAudioSegments.sumOf { it.duration }).toLong()
-                            task.accumulatedDuration += newDuration
-                            allVideoSegments.addAll(newVideoSegments)
-                            allAudioSegments.addAll(newAudioSegments)
-
-                            downloadLiveSegments(
-                                newVideoSegments,
-                                newAudioSegments,
-                                segmentDownloader,
-                                allVideoSegments,
-                                allAudioSegments,
-                                downloadDir
-                            )
-                        } else {
-                            AppLogger.d("HLS (Live): No new segments found.")
-                        }
-
-                        val isVideoFinished = currentVideoPlaylist?.isFinished ?: true
-                        val isAudioFinished = currentAudioPlaylist?.isFinished ?: true
-                        if (isVideoFinished && isAudioFinished) {
-                            AppLogger.d("HLS (Live): Stream finished naturally. Proceeding to merge.")
-                            break
-                        }
-
-                        val waitTime = (targetDuration / 2 * 1000).toLong()
-                        AppLogger.d("HLS (Live): Waiting for up to ${waitTime / 1000.0} seconds...")
-                        interruptibleDelay(waitTime, controller)
-                    }
-                } else {
-                    AppLogger.d("HLS (Live): Starting in MERGE-ONLY mode.")
-                    // In merge-only, we must discover existing segments
-                    val (videoPlaylist, audioPlaylist) = getMediaPlaylists(task.url, headers)
-                    allVideoSegments.addAll(videoPlaylist?.segments ?: emptyList())
-                    allAudioSegments.addAll(audioPlaylist?.segments ?: emptyList())
+            while (true) {
+                when (controller.interruptionReason()) {
+                    FileBasedDownloadController.InterruptionReason.PAUSE ->
+                        throw CancellationException("Download was paused.")
+                    FileBasedDownloadController.InterruptionReason.CANCEL ->
+                        throw CancellationException("Download was canceled.")
+                    FileBasedDownloadController.InterruptionReason.STOP_AND_SAVE -> break
+                    FileBasedDownloadController.InterruptionReason.NONE -> Unit
                 }
 
-                // Check reason for loop exit
-                when {
-                    controller.isCancelRequested() -> throw CancellationException("Download was canceled.")
-                    controller.isPauseRequested() -> throw CancellationException("Download was paused.")
-                }
-
-            } catch (e: Exception) {
-                downloadException = e
-                AppLogger.w("HLS (Live): Exception caught during download loop: ${e.message}", e)
-            } finally {
-                AppLogger.d("HLS (Live): Entering 'finally' block to attempt merge.")
-
-                if (allVideoSegments.isEmpty() && allAudioSegments.isEmpty()) {
-                    if (downloadException != null) {
-                        throw downloadException
-                    }
-                    throw IOException("No segments were downloaded, nothing to merge.")
-                }
-
-                // --- Download Encryption Keys before merging ---
-                (allVideoSegments.firstOrNull() as? HlsPlaylistParser.UrlMediaSegment)?.encryptionKey?.let { key ->
-                    val keyFile = downloadDir.resolve("video_encryption.key")
-                    if (!keyFile.exists() || keyFile.length() == 0L) {
-                        AppLogger.d("HLS: Downloading video encryption key from ${key.uri}")
-                        DownloaderUtils.downloadKey(httpClient, key.uri, keyFile, headers.toHeaders())
-                    }
-                }
-                (allAudioSegments.firstOrNull() as? HlsPlaylistParser.UrlMediaSegment)?.encryptionKey?.let { key ->
-                    val keyFile = downloadDir.resolve("audio_encryption.key")
-                    if (!keyFile.exists() || keyFile.length() == 0L) {
-                        AppLogger.d("HLS: Downloading audio encryption key from ${key.uri}")
-                        DownloaderUtils.downloadKey(httpClient, key.uri, keyFile, headers.toHeaders())
-                    }
-                }
-
-                AppLogger.d("HLS (Live): Proceeding to merge ${allVideoSegments.size} video and ${allAudioSegments.size} audio segments.")
-                onMergeProgress(
-                    Progress(totalBytesDownloaded, totalBytesDownloaded),
-                    task.apply {
-                        this.taskState = VideoTaskState.PREPARE
-                        this.lineInfo = "Merging segments..."
-                        this.setIsLive(true)
-                    })
-                finalOutputFile = downloadDir.resolve("merged_output.mp4")
-                val mergeSession = DownloaderUtils.mergeHlsSegments(
-                    hlsTmpDir = downloadDir,
-                    videoSegments = allVideoSegments,
-                    audioSegments = allAudioSegments,
-                    finalOutputPath = finalOutputFile.absolutePath,
-                    videoCodec = videoCodec,
-                    onMergeProgress = { percentage ->
-                        onMergeProgress(
-                            Progress(totalBytesDownloaded * percentage / 100, totalBytesDownloaded),
-                            task.apply {
-                                this.lineInfo = "Merging segments... $percentage"
-                                this.taskState = VideoTaskState.PREPARE
-                                this.setIsLive(true)
-                            });
-                    }
+                AppLogger.d("HLS (Live): Fetching latest playlist for task ${task.mId}...")
+                val (currentVideoPlaylist, currentAudioPlaylist) = getMediaPlaylists(
+                    task.url,
+                    headers
                 )
+                throwIfPauseOrCancelRequested(controller)
 
-                if (!ReturnCode.isSuccess(mergeSession.returnCode)) {
-                    val mergeError =
-                        IOException("FFmpeg failed to merge live stream segments. Log: ${mergeSession.allLogsAsString}")
-                    if (downloadException != null) {
-                        mergeError.initCause(downloadException)
-                    }
-                    throw mergeError
+                targetDuration = (currentVideoPlaylist?.targetDuration?.toDouble()
+                    ?: currentAudioPlaylist?.targetDuration?.toDouble() ?: targetDuration)
+
+                val newVideoSegments = currentVideoPlaylist?.segments
+                    ?.filterNot { it.url in downloadedVideoUrls }
+                    ?: emptyList()
+                val newAudioSegments = currentAudioPlaylist?.segments
+                    ?.filterNot { it.url in downloadedAudioUrls }
+                    ?: emptyList()
+
+                if (newVideoSegments.isNotEmpty() || newAudioSegments.isNotEmpty()) {
+                    AppLogger.d("HLS (Live): Found ${newVideoSegments.size} new video and ${newAudioSegments.size} new audio segments.")
+                    val candidateVideoSegments = allVideoSegments + newVideoSegments
+                    val candidateAudioSegments = allAudioSegments + newAudioSegments
+
+                    DownloaderUtils.prepareHlsEncryptionKeys(
+                        httpClient,
+                        downloadDir,
+                        headers.toHeaders(),
+                        candidateVideoSegments,
+                        candidateAudioSegments,
+                        shouldAbort = controller::isPauseOrCancelRequested
+                    )
+                    ensureInitializationSegment(
+                        candidateVideoSegments,
+                        "init_video.mp4",
+                        "HLS-Live-Video-Init",
+                        segmentDownloader,
+                        downloadDir
+                    )
+                    ensureInitializationSegment(
+                        candidateAudioSegments,
+                        "init_audio.mp4",
+                        "HLS-Live-Audio-Init",
+                        segmentDownloader,
+                        downloadDir
+                    )
+                    downloadLiveSegments(
+                        videoSegments = newVideoSegments,
+                        audioSegments = newAudioSegments,
+                        segmentDownloader = segmentDownloader,
+                        videoStartIndex = allVideoSegments.size,
+                        audioStartIndex = allAudioSegments.size,
+                        videoUsesFmp4 = usesFmp4(candidateVideoSegments),
+                        audioUsesFmp4 = usesFmp4(candidateAudioSegments),
+                        downloadDir = downloadDir
+                    )
+                    throwIfPauseOrCancelRequested(controller)
+
+                    allVideoSegments.addAll(newVideoSegments)
+                    allAudioSegments.addAll(newAudioSegments)
+                    downloadedVideoUrls.addAll(newVideoSegments.map { it.url })
+                    downloadedAudioUrls.addAll(newAudioSegments.map { it.url })
+                    persistCaptureSnapshot(
+                        allVideoSegments,
+                        allAudioSegments,
+                        downloadDir,
+                        controller
+                    )
+                    task.accumulatedDuration +=
+                        (newVideoSegments.takeIf { it.isNotEmpty() } ?: newAudioSegments)
+                            .sumOf { it.duration }
+                            .toLong()
+                } else {
+                    AppLogger.d("HLS (Live): No new segments found.")
                 }
 
-                // If merging succeeds but there was a download error, we still return the file.
-                // The download is considered a "partial success".
-                if (downloadException != null) {
-                    AppLogger.w("HLS (Live): Download was interrupted, but merge was successful. Returning partial file.")
-                    // The worker will still treat this as a success because a file is returned.
+                val isVideoFinished = currentVideoPlaylist?.isFinished ?: true
+                val isAudioFinished = currentAudioPlaylist?.isFinished ?: true
+                if (isVideoFinished && isAudioFinished) {
+                    AppLogger.d("HLS (Live): Stream finished naturally. Proceeding to merge.")
+                    break
                 }
+
+                val waitTime = (targetDuration / 2 * 1000).toLong().coerceAtLeast(250L)
+                AppLogger.d("HLS (Live): Waiting for up to ${waitTime / 1000.0} seconds...")
+                interruptibleDelay(waitTime, controller)
             }
 
-            // The successfully created file is the last expression, becoming the return value.
+            throwIfPauseOrCancelRequested(controller)
+            if (allVideoSegments.isEmpty() && allAudioSegments.isEmpty()) {
+                throw IOException("No complete segments were downloaded, nothing to merge.")
+            }
+
+            AppLogger.d("HLS (Live): Proceeding to merge ${allVideoSegments.size} video and ${allAudioSegments.size} audio segments.")
+            onMergeProgress(
+                Progress(totalBytesDownloaded, totalBytesDownloaded),
+                task.apply {
+                    taskState = VideoTaskState.PREPARE
+                    lineInfo = "Merging segments..."
+                    setIsLive(true)
+                }
+            )
+            val mergeSession = DownloaderUtils.mergeHlsSegments(
+                hlsTmpDir = downloadDir,
+                videoSegments = allVideoSegments,
+                audioSegments = allAudioSegments,
+                finalOutputPath = finalOutputFile.absolutePath,
+                videoCodec = videoCodec,
+                onMergeProgress = { percentage ->
+                    onMergeProgress(
+                        Progress(totalBytesDownloaded * percentage / 100, totalBytesDownloaded),
+                        task.apply {
+                            lineInfo = "Merging segments... $percentage%"
+                            taskState = VideoTaskState.PREPARE
+                            setIsLive(true)
+                        }
+                    )
+                },
+                shouldAbort = controller::isPauseOrCancelRequested
+            )
+            requireSuccessfulMerge(mergeSession, finalOutputFile)
             finalOutputFile
         }
     }
@@ -206,27 +220,100 @@ class HlsLiveDownloader(
         videoSegments: List<HlsPlaylistParser.MediaSegment>,
         audioSegments: List<HlsPlaylistParser.MediaSegment>,
         segmentDownloader: SegmentDownloader,
-        allVideoSegments: List<HlsPlaylistParser.MediaSegment>,
-        allAudioSegments: List<HlsPlaylistParser.MediaSegment>,
+        videoStartIndex: Int,
+        audioStartIndex: Int,
+        videoUsesFmp4: Boolean,
+        audioUsesFmp4: Boolean,
         downloadDir: File
     ) {
-        val isVideoFmp4 = allVideoSegments.firstOrNull()
-            ?.let { (it as? HlsPlaylistParser.UrlMediaSegment)?.initializationSegment != null } == true
-        val isAudioFmp4 = allAudioSegments.firstOrNull()
-            ?.let { (it as? HlsPlaylistParser.UrlMediaSegment)?.initializationSegment != null } == true
-        val videoExt = if (isVideoFmp4) "m4s" else "ts"
-        val audioExt = if (isAudioFmp4) "m4s" else "ts"
+        val videoExt = if (videoUsesFmp4) "m4s" else "ts"
+        val audioExt = if (audioUsesFmp4) "m4s" else "ts"
 
-        for (segment in videoSegments) {
-            val index = allVideoSegments.indexOf(segment)
+        videoSegments.forEachIndexed { offset, segment ->
+            val index = videoStartIndex + offset
             val outputFile = downloadDir.resolve("segment_${"%05d".format(index)}.$videoExt")
             segmentDownloader.download(segment.url, outputFile, "HLS-Live-Video", index)
         }
 
-        for (segment in audioSegments) {
-            val index = allAudioSegments.indexOf(segment)
+        audioSegments.forEachIndexed { offset, segment ->
+            val index = audioStartIndex + offset
             val outputFile = downloadDir.resolve("audio_segment_${"%05d".format(index)}.$audioExt")
             segmentDownloader.download(segment.url, outputFile, "HLS-Live-Audio", index)
+        }
+    }
+
+    private suspend fun ensureInitializationSegment(
+        segments: List<HlsPlaylistParser.MediaSegment>,
+        outputName: String,
+        logPrefix: String,
+        segmentDownloader: SegmentDownloader,
+        downloadDir: File
+    ) {
+        val urlSegments = requireUrlSegments(segments)
+        val expectedInitialization = urlSegments.firstOrNull()?.initializationSegment ?: return
+        if (urlSegments.any { it.initializationSegment != expectedInitialization }) {
+            throw IOException("HLS live initialization segment changed during capture.")
+        }
+        segmentDownloader.download(
+            expectedInitialization.url,
+            downloadDir.resolve(outputName),
+            logPrefix,
+            0
+        )
+    }
+
+    private fun persistCaptureSnapshot(
+        videoSegments: List<HlsPlaylistParser.MediaSegment>,
+        audioSegments: List<HlsPlaylistParser.MediaSegment>,
+        downloadDir: File,
+        controller: FileBasedDownloadController
+    ) {
+        DownloaderUtils.publishHlsCaptureSnapshot(
+            hlsTmpDir = downloadDir,
+            videoSegments = videoSegments,
+            audioSegments = audioSegments,
+            shouldAbort = controller::isPauseOrCancelRequested
+        )
+    }
+
+    private fun usesFmp4(segments: List<HlsPlaylistParser.MediaSegment>): Boolean {
+        val urlSegments = requireUrlSegments(segments)
+        val initialization = urlSegments.firstOrNull()?.initializationSegment
+        if (urlSegments.any { it.initializationSegment != initialization }) {
+            throw IOException("HLS live initialization segment changed during capture.")
+        }
+        return initialization != null
+    }
+
+    private fun requireUrlSegments(
+        segments: List<HlsPlaylistParser.MediaSegment>
+    ): List<HlsPlaylistParser.UrlMediaSegment> {
+        return segments.map { segment ->
+            segment as? HlsPlaylistParser.UrlMediaSegment
+                ?: throw IOException("HLS live playlist contains an unsupported media segment.")
+        }
+    }
+
+    private fun throwIfPauseOrCancelRequested(controller: FileBasedDownloadController) {
+        when (controller.interruptionReason()) {
+            FileBasedDownloadController.InterruptionReason.PAUSE ->
+                throw CancellationException("Download was paused.")
+            FileBasedDownloadController.InterruptionReason.CANCEL ->
+                throw CancellationException("Download was canceled.")
+            FileBasedDownloadController.InterruptionReason.NONE,
+            FileBasedDownloadController.InterruptionReason.STOP_AND_SAVE -> Unit
+        }
+    }
+
+    private fun requireSuccessfulMerge(
+        mergeSession: com.antonkarpenko.ffmpegkit.FFmpegSession,
+        outputFile: File
+    ) {
+        if (!ReturnCode.isSuccess(mergeSession.returnCode)) {
+            throw IOException("FFmpeg failed to merge live stream segments. Log: ${mergeSession.allLogsAsString}")
+        }
+        if (!outputFile.isFile || outputFile.length() <= 0L) {
+            throw IOException("FFmpeg reported success but produced no HLS live output.")
         }
     }
 

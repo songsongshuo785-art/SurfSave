@@ -4,6 +4,13 @@ import java.io.File
 import java.io.IOException
 
 class FileBasedDownloadController(private val downloadDir: File) {
+    enum class InterruptionReason {
+        NONE,
+        PAUSE,
+        CANCEL,
+        STOP_AND_SAVE
+    }
+
     companion object {
         const val PAUSE_FLAG_FILENAME = "pause"
         const val CANCEL_FLAG_FILENAME = "cancel"
@@ -17,13 +24,12 @@ class FileBasedDownloadController(private val downloadDir: File) {
     /**
      * Initializes the controller for a new download, ensuring no old flags exist.
      */
+    @Throws(IOException::class)
     fun start() {
-        if (!downloadDir.exists()) {
-            downloadDir.mkdirs()
-        }
-        pauseFlag.delete()
-        cancelFlag.delete()
-        stopAndSaveFlag.delete()
+        ensureDownloadDirectory()
+        deleteFlag(pauseFlag)
+        deleteFlag(cancelFlag)
+        deleteFlag(stopAndSaveFlag)
     }
 
     /**
@@ -32,10 +38,7 @@ class FileBasedDownloadController(private val downloadDir: File) {
      */
     @Throws(IOException::class)
     fun requestPause() {
-        if (!downloadDir.exists()) {
-            downloadDir.mkdirs()
-        }
-        pauseFlag.createNewFile()
+        createFlag(pauseFlag)
     }
 
     /**
@@ -44,10 +47,7 @@ class FileBasedDownloadController(private val downloadDir: File) {
      */
     @Throws(IOException::class)
     fun requestCancel() {
-        if (!downloadDir.exists()) {
-            downloadDir.mkdirs()
-        }
-        cancelFlag.createNewFile()
+        createFlag(cancelFlag)
     }
 
     /**
@@ -56,10 +56,7 @@ class FileBasedDownloadController(private val downloadDir: File) {
      */
     @Throws(IOException::class)
     fun requestStopAndSave() {
-        if (!downloadDir.exists()) {
-            downloadDir.mkdirs()
-        }
-        stopAndSaveFlag.createNewFile()
+        createFlag(stopAndSaveFlag)
     }
 
     fun isPauseRequested(): Boolean = pauseFlag.exists()
@@ -68,11 +65,49 @@ class FileBasedDownloadController(private val downloadDir: File) {
 
     fun isStopAndSaveRequested(): Boolean = stopAndSaveFlag.exists()
 
+    fun interruptionReason(): InterruptionReason {
+        return when {
+            isCancelRequested() -> InterruptionReason.CANCEL
+            isPauseRequested() -> InterruptionReason.PAUSE
+            isStopAndSaveRequested() -> InterruptionReason.STOP_AND_SAVE
+            else -> InterruptionReason.NONE
+        }
+    }
+
+    fun isPauseOrCancelRequested(): Boolean {
+        return when (interruptionReason()) {
+            InterruptionReason.PAUSE, InterruptionReason.CANCEL -> true
+            InterruptionReason.NONE, InterruptionReason.STOP_AND_SAVE -> false
+        }
+    }
+
     /**
      * Checks if any stop-like action has been requested.
      * This is useful for breaking loops.
      */
     fun isInterrupted(): Boolean {
-        return isPauseRequested() || isCancelRequested() || isStopAndSaveRequested()
+        return interruptionReason() != InterruptionReason.NONE
+    }
+
+    @Throws(IOException::class)
+    private fun ensureDownloadDirectory() {
+        if ((!downloadDir.exists() && !downloadDir.mkdirs()) || !downloadDir.isDirectory) {
+            throw IOException("Unable to create download control directory: ${downloadDir.absolutePath}")
+        }
+    }
+
+    @Throws(IOException::class)
+    private fun createFlag(flag: File) {
+        ensureDownloadDirectory()
+        if (!flag.exists() && !flag.createNewFile()) {
+            throw IOException("Unable to create download control flag: ${flag.absolutePath}")
+        }
+    }
+
+    @Throws(IOException::class)
+    private fun deleteFlag(flag: File) {
+        if (flag.exists() && !flag.delete()) {
+            throw IOException("Unable to clear download control flag: ${flag.absolutePath}")
+        }
     }
 }

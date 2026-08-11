@@ -10,6 +10,7 @@ import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.VideoFormatUi
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
+import com.myAllVideoBrowser.util.downloaders.youtubedl_downloader.YoutubeDlStopReason
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -40,10 +41,9 @@ class DownloadQueueManager @Inject constructor(
         filenameContext: DownloadFilenameTemplate.Context = DownloadFilenameTemplate.Context()
     ): EnqueueResult {
         val templatedInfo = applyFilenameTemplate(videoInfo, filenameContext)
-        val allTasks = progressRepository.getProgressInfosOnce()
         val fingerprint = DownloadFingerprint.fromVideoInfo(templatedInfo)
         if (!force) {
-            findDuplicate(allTasks, fingerprint)?.let { existing ->
+            progressRepository.findDuplicateByFingerprint(fingerprint)?.let { existing ->
                 taskLogger.info(existing.id, "Duplicate download rejected for ${templatedInfo.name}")
                 return EnqueueResult.Duplicate(
                     existing = existing,
@@ -52,10 +52,11 @@ class DownloadQueueManager @Inject constructor(
                 )
             }
         }
-        if (!force && hasDownloadedFile(templatedInfo)) {
+        if (!force && fileUtil.hasDownloadWithName(application, templatedInfo.name)) {
             return EnqueueResult.Rejected(R.string.download_duplicate_file)
         }
 
+        val allTasks = progressRepository.getProgressInfosOnce()
         val taskVideoInfo = if (force) {
             templatedInfo.copy(id = "${templatedInfo.id}-${UUID.randomUUID()}")
         } else {
@@ -86,6 +87,24 @@ class DownloadQueueManager @Inject constructor(
     @Synchronized
     fun pause(taskId: String) {
         val task = progressRepository.getProgressInfoById(taskId) ?: return
+        if (task.isYtDlpTask && task.isActive) {
+            val logPath = task.logPath.ifBlank { taskLogger.logPath(taskId) }
+            if (progressRepository.requestYtDlpPause(
+                    taskId,
+                    task.executionToken,
+                    YoutubeDlStopReason.PAUSE,
+                    false,
+                    "Pausing",
+                    logPath
+                ) == 1
+            ) {
+                taskLogger.info(task.id, "Pause requested for yt-dlp execution")
+                progressRepository.getProgressInfoById(taskId)?.let {
+                    engineRouter.pause(application, it)
+                }
+            }
+            return
+        }
         val paused = task.copy(
             downloadStatus = VideoTaskState.PAUSE,
             queuedForLater = false,
@@ -111,6 +130,18 @@ class DownloadQueueManager @Inject constructor(
         val task = progressRepository.getProgressInfoById(taskId) ?: return
         val allTasks = progressRepository.getProgressInfosOnce()
         val newPosition = task.queuePosition.takeIf { it > 0 } ?: nextQueuePosition(allTasks)
+        if (task.isYtDlpTask) {
+            if (progressRepository.resumeYtDlp(
+                    taskId,
+                    newPosition,
+                    task.logPath.ifBlank { taskLogger.logPath(taskId) }
+                ) == 1
+            ) {
+                taskLogger.info(task.id, "Resumed yt-dlp download into queue")
+                scheduleNextLocked()
+            }
+            return
+        }
         // 队列状态 + 位置按列更新，不覆盖进度列；logPath blank 时补
         progressRepository.updateQueueState(
             taskId,
@@ -128,6 +159,22 @@ class DownloadQueueManager @Inject constructor(
     fun cancel(taskId: String, removeFile: Boolean) {
         val task = progressRepository.getProgressInfoById(taskId) ?: return
         taskLogger.info(task.id, "Canceled download removeFile=$removeFile")
+        if (task.isYtDlpTask) {
+            val token = task.executionToken.ifBlank { UUID.randomUUID().toString() }
+            if (progressRepository.requestYtDlpCancel(
+                    task.id,
+                    task.executionToken,
+                    token,
+                    removeFile,
+                    task.logPath.ifBlank { taskLogger.logPath(task.id) }
+                ) == 1
+            ) {
+                progressRepository.getProgressInfoById(task.id)?.let {
+                    engineRouter.cancel(application, it, removeFile)
+                }
+            }
+            return
+        }
         if (task.isActive || task.downloadStatus == VideoTaskState.PAUSE) {
             engineRouter.cancel(application, task, removeFile)
         }
@@ -139,12 +186,47 @@ class DownloadQueueManager @Inject constructor(
     fun stopAndSave(taskId: String) {
         val task = progressRepository.getProgressInfoById(taskId) ?: return
         taskLogger.info(task.id, "Stop and save requested")
+        if (task.isYtDlpTask) {
+            val logPath = task.logPath.ifBlank { taskLogger.logPath(task.id) }
+            if (task.isActive && progressRepository.requestYtDlpPause(
+                    task.id,
+                    task.executionToken,
+                    YoutubeDlStopReason.STOP_AND_SAVE,
+                    false,
+                    "Stopping and saving",
+                    logPath
+                ) == 1
+            ) {
+                progressRepository.getProgressInfoById(task.id)?.let {
+                    engineRouter.stopAndSave(application, it)
+                }
+            }
+            return
+        }
         engineRouter.stopAndSave(application, task)
     }
 
     @Synchronized
     fun markLater(taskId: String) {
         val task = progressRepository.getProgressInfoById(taskId) ?: return
+        if (task.isYtDlpTask && task.isActive) {
+            val logPath = task.logPath.ifBlank { taskLogger.logPath(task.id) }
+            if (progressRepository.requestYtDlpPause(
+                    task.id,
+                    task.executionToken,
+                    YoutubeDlStopReason.PAUSE,
+                    true,
+                    "Saving for later",
+                    logPath
+                ) == 1
+            ) {
+                taskLogger.info(task.id, "Move to later requested for yt-dlp execution")
+                progressRepository.getProgressInfoById(task.id)?.let {
+                    engineRouter.pause(application, it)
+                }
+            }
+            return
+        }
         val later = task.copy(
             downloadStatus = VideoTaskState.PAUSE,
             queuedForLater = true,
@@ -193,6 +275,11 @@ class DownloadQueueManager @Inject constructor(
         }
     }
 
+    @Synchronized
+    fun onYtDlpTerminal() {
+        scheduleNextLocked()
+    }
+
     // 只更新终态并落库，不触发调度。供 scheduleNextLocked 在 forEach 内 catch 使用，
     // 避免 catch 内递归调度导致外层 forEach 旧快照里的后续任务被重复启动。
     private fun markTerminalLocked(taskId: String, taskState: Int, errorMessage: String?) {
@@ -222,7 +309,7 @@ class DownloadQueueManager @Inject constructor(
 
     private fun scheduleNextLocked(): List<ProgressInfo> {
         val allTasks = progressRepository.getProgressInfosOnce()
-        val activeCount = allTasks.count { it.isActive }
+        val activeCount = allTasks.count { it.occupiesQueueSlot }
         val openSlots = (sharedPrefHelper.getMaxConcurrentDownloads() - activeCount).coerceAtLeast(0)
         if (openSlots == 0) {
             return emptyList()
@@ -240,12 +327,20 @@ class DownloadQueueManager @Inject constructor(
             val shouldResume = task.startedAt > 0L ||
                 task.progressDownloaded > 0L ||
                 task.progressTotal > 0L
-            val started = task.copy(
-                downloadStatus = VideoTaskState.PREPARE,
-                startedAt = if (task.startedAt == 0L) now else task.startedAt,
-                logPath = task.logPath.ifBlank { taskLogger.logPath(task.id) }
-            )
-            progressRepository.saveProgressInfo(started)
+            val logPath = task.logPath.ifBlank { taskLogger.logPath(task.id) }
+            val started = if (task.isYtDlpTask) {
+                val token = UUID.randomUUID().toString()
+                if (progressRepository.claimYtDlpExecution(task.id, token, now, logPath) != 1) {
+                    return@forEach
+                }
+                progressRepository.getProgressInfoById(task.id) ?: return@forEach
+            } else {
+                task.copy(
+                    downloadStatus = VideoTaskState.PREPARE,
+                    startedAt = if (task.startedAt == 0L) now else task.startedAt,
+                    logPath = logPath
+                ).also(progressRepository::saveProgressInfo)
+            }
             taskLogger.info(started.id, if (shouldResume) "Resuming queued download" else "Starting queued download")
             try {
                 if (shouldResume) {
@@ -258,11 +353,17 @@ class DownloadQueueManager @Inject constructor(
                 // 引擎启动失败：仅标记终态（不在此处递归调度），避免外层 forEach 旧快照里的
                 // 后续任务在递归 scheduleNextLocked 中被启动后又被本循环重复启动
                 taskLogger.error(started.id, "Failed to start download, marking ERROR", e)
-                markTerminalLocked(
-                    started.id,
-                    VideoTaskState.ERROR,
-                    "Failed to start: ${e.message ?: "unknown"}"
-                )
+                val error = "Failed to start: ${e.message ?: "unknown"}"
+                if (started.isYtDlpTask) {
+                    progressRepository.commitYtDlpError(
+                        started.id,
+                        started.executionToken,
+                        System.currentTimeMillis(),
+                        error
+                    )
+                } else {
+                    markTerminalLocked(started.id, VideoTaskState.ERROR, error)
+                }
                 anyStartFailed = true
             }
         }
@@ -274,20 +375,6 @@ class DownloadQueueManager @Inject constructor(
         }
 
         return startedSuccessfully
-    }
-
-    private fun findDuplicate(tasks: List<ProgressInfo>, fingerprint: String): ProgressInfo? {
-        return tasks.firstOrNull { task ->
-            !task.downloadStatus.isDuplicateAllowedTerminal() &&
-                DownloadFingerprint.fromProgressInfo(task) == fingerprint
-        }
-    }
-
-    private fun hasDownloadedFile(videoInfo: VideoInfo): Boolean {
-        val expectedName = videoInfo.name
-        return fileUtil.listFiles.keys.any { fileName ->
-            fileName.equals(expectedName, ignoreCase = true)
-        }
     }
 
     private fun applyFilenameTemplate(
@@ -350,6 +437,9 @@ class DownloadQueueManager @Inject constructor(
         return if (logPath.isBlank()) copy(logPath = taskLogger.logPath(id)) else this
     }
 
+    private val ProgressInfo.isYtDlpTask: Boolean
+        get() = !videoInfo.isRegularDownload && !videoInfo.isDetectedBySuperX
+
     private fun List<ProgressInfo>.queueSorted(): List<ProgressInfo> {
         return sortedWith(
             compareBy<ProgressInfo> { if (it.queuePosition > 0) it.queuePosition else Long.MAX_VALUE }
@@ -366,6 +456,4 @@ class DownloadQueueManager @Inject constructor(
             this == VideoTaskState.ENOSPC ||
             this == VideoTaskState.CANCELED
 
-    private fun Int.isDuplicateAllowedTerminal(): Boolean =
-        this == VideoTaskState.ERROR || this == VideoTaskState.CANCELED
 }

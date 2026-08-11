@@ -20,6 +20,8 @@ import java.io.File
 import java.io.IOException
 import java.net.URL
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -239,7 +241,8 @@ class MpdDownloader(
                 videoRep,
                 audioRep,
                 finalOutputFile.absolutePath,
-                totalDurationSeconds
+                totalDurationSeconds,
+                controller::isInterrupted
 
             ) { percentage ->
                 if (isPreparing && percentage == 100) {
@@ -264,6 +267,11 @@ class MpdDownloader(
         if (!ReturnCode.isSuccess(mergeSession.returnCode)) {
             throw IOException("FFmpeg failed to merge MPD segments. Log: ${mergeSession.allLogsAsString}")
         }
+        if (!finalOutputFile.isFile || finalOutputFile.length() <= 0L) {
+            throw IOException("FFmpeg reported success but produced no MPD output.")
+        }
+        downloadDir.resolve("temp_video.mp4").delete()
+        downloadDir.resolve("temp_audio.mp4").delete()
         finalOutputFile
     }
 
@@ -367,10 +375,14 @@ class MpdDownloader(
                     }
                 )
             },
+            shouldAbort = controller::isInterrupted,
             audioCodec = audioRep?.codecs
         )
         if (!ReturnCode.isSuccess(mergeSession.returnCode)) {
             throw IOException("FFmpeg failed to merge BaseURL streams. Log: ${mergeSession.allLogsAsString}")
+        }
+        if (!finalFile.isFile || finalFile.length() <= 0L) {
+            throw IOException("FFmpeg reported success but produced no MPD BaseURL output.")
         }
         videoTempFile.delete()
         audioTempFile.delete()
@@ -442,6 +454,7 @@ class MpdDownloader(
         audioRep: MpdPlaylistParser.MpdRepresentation?,
         finalOutputPath: String,
         totalDurationSeconds: Double,
+        shouldAbort: () -> Boolean,
         onMergeProgress: ((percentage: Int) -> Unit)?
     ): FFmpegSession {
         val videoSegments = videoRep?.segments
@@ -456,8 +469,12 @@ class MpdDownloader(
 
         val videoFilesToConcat = mutableListOf<File>()
         if (hasVideo) {
-            if (mpdTmpDir.resolve("video_init.m4s").exists()) {
-                videoFilesToConcat.add(mpdTmpDir.resolve("video_init.m4s"))
+            if (videoRep?.initializationUrl != null) {
+                val videoInitFile = mpdTmpDir.resolve("video_init.m4s")
+                if (!videoInitFile.isFile || videoInitFile.length() <= 0L) {
+                    throw IOException("MPD video initialization segment is missing or empty: ${videoInitFile.absolutePath}")
+                }
+                videoFilesToConcat.add(videoInitFile)
             }
             videoSegments.indices.forEach { index ->
                 videoFilesToConcat.add(mpdTmpDir.resolve("segment_${"%05d".format(index)}.m4s"))
@@ -466,8 +483,12 @@ class MpdDownloader(
 
         val audioFilesToConcat = mutableListOf<File>()
         if (hasAudio) {
-            if (mpdTmpDir.resolve("audio_init.m4s").exists()) {
-                audioFilesToConcat.add(mpdTmpDir.resolve("audio_init.m4s"))
+            if (audioRep?.initializationUrl != null) {
+                val audioInitFile = mpdTmpDir.resolve("audio_init.m4s")
+                if (!audioInitFile.isFile || audioInitFile.length() <= 0L) {
+                    throw IOException("MPD audio initialization segment is missing or empty: ${audioInitFile.absolutePath}")
+                }
+                audioFilesToConcat.add(audioInitFile)
             }
             audioSegments.indices.forEach { index ->
                 audioFilesToConcat.add(mpdTmpDir.resolve("audio_segment_${"%05d".format(index)}.m4s"))
@@ -487,39 +508,36 @@ class MpdDownloader(
         }
 
         if (hasVideo) {
-            manualConcat(videoFilesToConcat, tempVideoFile, concatProgressCallback)
+            manualConcat(videoFilesToConcat, tempVideoFile, shouldAbort, concatProgressCallback)
         }
         if (hasAudio) {
-            manualConcat(audioFilesToConcat, tempAudioFile, concatProgressCallback)
+            manualConcat(audioFilesToConcat, tempAudioFile, shouldAbort, concatProgressCallback)
         }
 
         AppLogger.d("MPD: Concatenation finished. Starting FFmpeg merge.")
 
-        val mergeSession = mergeBaseUrlStreams(
-            tempVideoFile,
+        return mergeBaseUrlStreams(
+            tempVideoFile.takeIf { hasVideo && it.isFile && it.length() > 0L },
             tempAudioFile.takeIf { it.exists() && it.length() > 0 },
             finalOutputPath,
             totalDurationSeconds,
-            onMergeProgress
+            onMergeProgress,
+            shouldAbort
         )
-
-        tempVideoFile.delete()
-        tempAudioFile.delete()
-
-        return mergeSession
     }
 
     private fun mergeBaseUrlStreams(
-        videoFile: File,
+        videoFile: File?,
         audioFile: File?,
         finalOutputPath: String,
         totalDurationSeconds: Double,
         onMergeProgress: ((percentage: Int) -> Unit)?,
+        shouldAbort: () -> Boolean,
         audioCodec: String? = null
     ): FFmpegSession {
         val arguments = mutableListOf<String>()
 
-        if (videoFile.exists()) {
+        if (videoFile?.exists() == true) {
             arguments.addAll(listOf("-i", videoFile.absolutePath))
         }
 
@@ -532,7 +550,7 @@ class MpdDownloader(
         }
         arguments.add(0, "-y")
 
-        val hasVideo = videoFile.exists()
+        val hasVideo = videoFile?.exists() == true
         val hasAudio = audioFile?.exists() == true
 
         addCommonMergeArguments(arguments, hasVideo, hasAudio, finalOutputPath, audioCodec)
@@ -542,6 +560,8 @@ class MpdDownloader(
 
         val latch = CountDownLatch(1)
         lateinit var finalSession: FFmpegSession
+        val abortSignaled = AtomicBoolean(false)
+        val sessionId = AtomicLong(-1L)
 
         val session = FFmpegKit.executeAsync(commandString, { completedSession ->
             finalSession = completedSession
@@ -552,6 +572,11 @@ class MpdDownloader(
         }, { log ->
             AppLogger.d("FFmpeg: ${log.message}")
         }, { statistics ->
+            if (shouldAbort()) {
+                abortSignaled.set(true)
+                sessionId.get().takeIf { it >= 0L }?.let(FFmpegKit::cancel)
+                return@executeAsync
+            }
             if (onMergeProgress != null && totalDurationSeconds > 0) {
                 val totalDurationMillis = (totalDurationSeconds * 1000).toLong()
                 val currentTimeMillis = statistics.time
@@ -561,13 +586,22 @@ class MpdDownloader(
                 }
             }
         })
+        sessionId.set(session.sessionId)
 
         try {
-            latch.await()
+            while (!latch.await(250L, TimeUnit.MILLISECONDS)) {
+                if (shouldAbort()) {
+                    abortSignaled.set(true)
+                    FFmpegKit.cancel(session.sessionId)
+                }
+            }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             FFmpegKit.cancel(session.sessionId)
             throw IOException("FFmpeg merge was interrupted.", e)
+        }
+        if (abortSignaled.get() || shouldAbort()) {
+            throw CancellationException("MPD merge interrupted by user.")
         }
 
         return finalSession
@@ -620,26 +654,34 @@ class MpdDownloader(
     private fun manualConcat(
         filesToConcat: List<File>,
         outputFile: File,
+        shouldAbort: () -> Boolean,
         onProgress: ((bytesCopied: Long) -> Unit)? = null
     ) {
         if (filesToConcat.isEmpty()) {
-            AppLogger.w("ManualConcat: No files to concatenate for ${outputFile.name}")
-            return
+            throw IOException("No files to concatenate for ${outputFile.name}.")
+        }
+        filesToConcat.forEach { file ->
+            if (!file.isFile || file.length() <= 0L) {
+                throw IOException("MPD merge input is missing or empty: ${file.absolutePath}")
+            }
         }
         AppLogger.d("ManualConcat: Starting for ${outputFile.name}. Concatenating ${filesToConcat.size} files.")
 
-        outputFile.outputStream().use { output ->
-            val buffer = ByteArray(64 * 1024)
-            var bytesRead: Int
+        try {
+            outputFile.outputStream().use { output ->
+                val buffer = ByteArray(64 * 1024)
+                var lastUpdateTime = System.currentTimeMillis()
+                val updateInterval = 250L
+                var bytesSinceLastUpdate = 0L
 
-            var lastUpdateTime = System.currentTimeMillis()
-            val updateInterval = 250L
-            var bytesSinceLastUpdate = 0L
-
-            filesToConcat.forEach { file ->
-                if (file.exists()) {
+                filesToConcat.forEach { file ->
                     file.inputStream().use { input ->
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                        while (true) {
+                            if (shouldAbort()) {
+                                throw CancellationException("MPD concatenation interrupted by user.")
+                            }
+                            val bytesRead = input.read(buffer)
+                            if (bytesRead < 0) break
                             output.write(buffer, 0, bytesRead)
                             bytesSinceLastUpdate += bytesRead
 
@@ -652,14 +694,16 @@ class MpdDownloader(
                             }
                         }
                     }
-                } else {
-                    AppLogger.w("ManualConcat: File not found, skipping: ${file.name}")
+                }
+                if (bytesSinceLastUpdate > 0) {
+                    onProgress?.invoke(bytesSinceLastUpdate)
                 }
             }
-
-            if (bytesSinceLastUpdate > 0) {
-                onProgress?.invoke(bytesSinceLastUpdate)
+        } catch (error: Exception) {
+            if (outputFile.exists() && !outputFile.delete()) {
+                error.addSuppressed(IOException("Unable to remove incomplete MPD concatenation."))
             }
+            throw error
         }
         AppLogger.d("ManualConcat: Finished. Output size: ${outputFile.length()} bytes.")
     }

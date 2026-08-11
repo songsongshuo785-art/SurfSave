@@ -25,6 +25,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import okhttp3.Headers.Companion.toHeaders
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
@@ -90,12 +91,29 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
                         controller.requestStopAndSave()
                         getContinuation().resume(Result.success()) // Acknowledge the request
                     } else {
-                        AppLogger.d("HLS (Live): No active worker found. Starting a new merge-only job.")
-                        startLiveHlsDownloadLoop(
-                            task,
-                            headers,
-                            mergeOnly = true
-                        )
+                        AppLogger.d("SuperX (Live): No active worker found. Starting a merge-only job.")
+                        when {
+                            !inputData.getBoolean(GenericDownloader.Constants.IS_LIVE, false) -> {
+                                finishWork(task.also {
+                                    it.taskState = VideoTaskState.ERROR
+                                    it.errorMessage = "Stop and save is only supported for live downloads."
+                                })
+                            }
+                            isHlsPlaylist() -> startLiveHlsDownloadLoop(
+                                task,
+                                headers,
+                                mergeOnly = true
+                            )
+                            isMpdPlaylist() -> startMpdLiveDownload(
+                                task,
+                                headers,
+                                mergeOnly = true
+                            )
+                            else -> finishWork(task.also {
+                                it.taskState = VideoTaskState.ERROR
+                                it.errorMessage = "Unsupported live manifest type."
+                            })
+                        }
                     }
                 }
             }
@@ -152,10 +170,13 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
 
         workerScope.launch {
             try {
+                val httpClient = proxyOkHttpClient.getProxyOkHttpClient()
                 // 1. Instantiate the HlsLiveDownloader strategy
                 val liveDownloader = HlsLiveDownloader(
-                    httpClient = proxyOkHttpClient.getProxyOkHttpClient(),
-                    getMediaPlaylists = ::getMediaPlaylists,
+                    httpClient = httpClient,
+                    getMediaPlaylists = { url, requestHeaders ->
+                        getMediaPlaylists(httpClient, url, requestHeaders)
+                    },
                     onMergeProgress = { progress, progressTask ->
                         onProgress(
                             progress,
@@ -195,14 +216,21 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
 
             } catch (e: Exception) {
                 // 4. Handle failures (Pause, Cancel, Error)
-                when {
-                    controller.isCancelRequested() -> {
+                val interruptionReason = controller.interruptionReason()
+                if (e is CancellationException &&
+                    interruptionReason != FileBasedDownloadController.InterruptionReason.PAUSE &&
+                    interruptionReason != FileBasedDownloadController.InterruptionReason.CANCEL
+                ) {
+                    throw e
+                }
+                when (interruptionReason) {
+                    FileBasedDownloadController.InterruptionReason.CANCEL -> {
                         AppLogger.d("HLS (Live): Task $taskId was canceled.")
                         finishWork(task.apply { taskState = VideoTaskState.CANCELED })
                         return@launch
                     }
 
-                    controller.isPauseRequested() || e is CancellationException -> {
+                    FileBasedDownloadController.InterruptionReason.PAUSE -> {
                         AppLogger.d("HLS (Live): Task $taskId is pausing gracefully.")
                         finishWork(task.also {
                             it.taskState = VideoTaskState.PAUSE
@@ -210,7 +238,8 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
                         })
                     }
 
-                    else -> {
+                    FileBasedDownloadController.InterruptionReason.NONE,
+                    FileBasedDownloadController.InterruptionReason.STOP_AND_SAVE -> {
                         AppLogger.e("HLS (Live): Download failed for task $taskId: ${e.message}", e)
                         finishWork(task.also {
                             it.taskState = VideoTaskState.ERROR
@@ -224,17 +253,18 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
 
     @Throws(IOException::class)
     private fun getMediaPlaylists(
+        client: OkHttpClient,
         playlistUrl: String, headers: Map<String, String>
     ): Pair<HlsPlaylistParser.MediaPlaylist?, HlsPlaylistParser.MediaPlaylist?> {
-        val client = proxyOkHttpClient.getProxyOkHttpClient()
         fun fetchAndParse(url: String): HlsPlaylistParser.HlsPlaylist {
             val request = Request.Builder().url(url).headers(headers.toHeaders()).build()
-            val response = client.newCall(request).execute()
-            val content = response.body.string()
-            if (!response.isSuccessful || content.isEmpty()) {
-                throw IOException("Failed to download playlist at $url. HTTP ${response.code}")
+            return client.newCall(request).execute().use { response ->
+                val content = response.body.string()
+                if (!response.isSuccessful || content.isEmpty()) {
+                    throw IOException("Failed to download playlist at $url. HTTP ${response.code}")
+                }
+                HlsPlaylistParser.parse(content, response.request.url.toString())
             }
-            return HlsPlaylistParser.parse(content, url)
         }
 
         val selectedFormatId = inputData.getString(GenericDownloader.Constants.SELECTED_FORMAT_ID)
@@ -298,10 +328,13 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
 
         workerScope.launch {
             try {
+                val httpClient = proxyOkHttpClient.getProxyOkHttpClient()
                 // 1. Instantiate the MpdDownloader strategy
                 val mpdDownloader = MpdDownloader(
-                    httpClient = proxyOkHttpClient.getProxyOkHttpClient(),
-                    getMpdRepresentations = ::getMpdRepresentations,
+                    httpClient = httpClient,
+                    getMpdRepresentations = { url, requestHeaders ->
+                        getMpdRepresentations(httpClient, url, requestHeaders)
+                    },
                     onMergeProgress = { progress, progressTask ->
                         onProgress(
                             progress,
@@ -365,7 +398,11 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
         }
     }
 
-    private fun startMpdLiveDownload(task: VideoTaskItem, headers: Map<String, String>) {
+    private fun startMpdLiveDownload(
+        task: VideoTaskItem,
+        headers: Map<String, String>,
+        mergeOnly: Boolean = false
+    ) {
         AppLogger.d("MPD (Live): Delegating download for task $taskId to MpdLiveDownloader strategy.")
         val mpdTmpDir = fileUtil.tmpDir.resolve(taskId)
         val controller = FileBasedDownloadController(mpdTmpDir)
@@ -374,10 +411,13 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
 
         workerScope.launch {
             try {
+                val httpClient = proxyOkHttpClient.getProxyOkHttpClient()
                 // 1. Instantiate the MpdLiveDownloader strategy
                 val liveDownloader = MpdLiveDownloader(
-                    httpClient = proxyOkHttpClient.getProxyOkHttpClient(),
-                    getMpdRepresentations = ::getMpdRepresentations,
+                    httpClient = httpClient,
+                    getMpdRepresentations = { url, requestHeaders ->
+                        getMpdRepresentations(httpClient, url, requestHeaders)
+                    },
                     onMergeProgress = { progress, progressTask ->
                         onProgress(
                             progress,
@@ -387,7 +427,8 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
                             isOnMerge = true
                         )
                     },
-                    videoCodec = inputData.getString(GenericDownloader.Constants.VIDEO_CODEC)
+                    videoCodec = inputData.getString(GenericDownloader.Constants.VIDEO_CODEC),
+                    mergeOnly = mergeOnly
                 )
 
                 // 2. Execute the download. This handles the entire live recording loop.
@@ -413,34 +454,29 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
                 finishWork(completedTask)
 
             } catch (e: Exception) {
-                // 4. Handle failures (Cancel, Pause/Error)
-                when {
-                    e is CancellationException -> {
-                        AppLogger.d("MPD (Live): Task $taskId was stopped by user. Checking for merged file.")
-                        // The downloader is designed to proceed to merge on cancellation.
-                        // We check if the merged file was successfully created.
-                        val finalFile = mpdTmpDir.resolve("merged_output.mp4")
-                        if (finalFile.exists() && finalFile.length() > 500) { // Check for a reasonable file size
-                            AppLogger.d("MPD (Live): Merge after stop was successful.")
-                            // This is now a SUCCESS state.
-                            val completedTask = task.also {
-                                it.taskState = VideoTaskState.SUCCESS
-                                it.filePath =
-                                    finalFile.absolutePath
-                                it.totalSize = finalFile.length()
-                                it.downloadSize = it.totalSize
-                                it.errorMessage = "Recording stopped by user."
-                            }
-
-                            finishWork(completedTask)
-                        } else {
-                            AppLogger.d("MPD (Live): Task $taskId was canceled before any segments could be merged.")
-                            finishWork(task.apply { taskState = VideoTaskState.CANCELED })
-                        }
+                // 4. Handle failures without promoting an interrupted partial file to success.
+                val interruptionReason = controller.interruptionReason()
+                if (e is CancellationException &&
+                    interruptionReason != FileBasedDownloadController.InterruptionReason.PAUSE &&
+                    interruptionReason != FileBasedDownloadController.InterruptionReason.CANCEL
+                ) {
+                    throw e
+                }
+                when (interruptionReason) {
+                    FileBasedDownloadController.InterruptionReason.CANCEL -> {
+                        AppLogger.d("MPD (Live): Task $taskId was canceled by user.")
+                        finishWork(task.apply { taskState = VideoTaskState.CANCELED })
                         return@launch
                     }
-
-                    else -> {
+                    FileBasedDownloadController.InterruptionReason.PAUSE -> {
+                        AppLogger.d("MPD (Live): Task $taskId was paused by user.")
+                        finishWork(task.also {
+                            it.taskState = VideoTaskState.PAUSE
+                            it.errorMessage = "Paused"
+                        })
+                    }
+                    FileBasedDownloadController.InterruptionReason.NONE,
+                    FileBasedDownloadController.InterruptionReason.STOP_AND_SAVE -> {
                         AppLogger.e("MPD (Live): Download failed for task $taskId: ${e.message}", e)
                         finishWork(task.also {
                             it.taskState = VideoTaskState.ERROR
@@ -454,16 +490,17 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
 
     @Throws(IOException::class)
     private fun getMpdRepresentations(
+        client: OkHttpClient,
         manifestUrl: String, headers: Map<String, String>
     ): Pair<MpdPlaylistParser.MpdRepresentation?, MpdPlaylistParser.MpdRepresentation?> {
-        val client = proxyOkHttpClient.getProxyOkHttpClient()
         val request = Request.Builder().url(manifestUrl).headers(headers.toHeaders()).build()
-        val response = client.newCall(request).execute()
-        val content = response.body.string()
-        if (!response.isSuccessful || content.isEmpty()) {
-            throw IOException("Failed to download MPD manifest at $manifestUrl. HTTP ${response.code}")
+        val manifest = client.newCall(request).execute().use { response ->
+            val content = response.body.string()
+            if (!response.isSuccessful || content.isEmpty()) {
+                throw IOException("Failed to download MPD manifest at $manifestUrl. HTTP ${response.code}")
+            }
+            MpdPlaylistParser.parse(content, response.request.url.toString())
         }
-        val manifest = MpdPlaylistParser.parse(content, manifestUrl)
 
         val videoRepresentations =
             manifest.periods.first().adaptationSets.filter { it.mimeType?.startsWith("video/") == true }
@@ -537,10 +574,13 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
         // The worker's main coroutine scope will manage the lifecycle of the download.
         workerScope.launch {
             try {
+                val httpClient = proxyOkHttpClient.getProxyOkHttpClient()
                 // 1. Instantiate the HlsDownloader strategy with its dependencies.
                 val hlsDownloader = HlsDownloader(
-                    httpClient = proxyOkHttpClient.getProxyOkHttpClient(),
-                    getMediaSegments = ::getMediaSegments,
+                    httpClient = httpClient,
+                    getMediaSegments = { url, requestHeaders ->
+                        getMediaSegments(httpClient, url, requestHeaders)
+                    },
                     onMergeProgress = { progress, progressTask ->
                         onProgress(
                             progress,
@@ -606,17 +646,18 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
 
     @Throws(IOException::class)
     private fun getMediaSegments(
+        client: OkHttpClient,
         playlistUrl: String, headers: Map<String, String>
     ): Pair<List<HlsPlaylistParser.MediaSegment>?, List<HlsPlaylistParser.MediaSegment>?> {
-        val client = proxyOkHttpClient.getProxyOkHttpClient()
         fun fetchAndParse(url: String): HlsPlaylistParser.HlsPlaylist {
             val request = Request.Builder().url(url).headers(headers.toHeaders()).build()
-            val response = client.newCall(request).execute()
-            val content = response.body.string()
-            if (!response.isSuccessful || content.isEmpty()) {
-                throw IOException("Failed to download playlist at $url. HTTP ${response.code}")
+            return client.newCall(request).execute().use { response ->
+                val content = response.body.string()
+                if (!response.isSuccessful || content.isEmpty()) {
+                    throw IOException("Failed to download playlist at $url. HTTP ${response.code}")
+                }
+                HlsPlaylistParser.parse(content, response.request.url.toString())
             }
-            return HlsPlaylistParser.parse(content, url)
         }
 
         // 1. Get the selected format ID from the worker's input data.
@@ -743,7 +784,6 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
     }
 
     private fun handleTaskCompletion(item: VideoTaskItem) {
-        val sourcePath = File(item.filePath ?: return)
         val finalProgress = Progress(item.downloadSize, item.totalSize)
 
         when (item.taskState) {
@@ -756,47 +796,108 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
             }
 
             VideoTaskState.SUCCESS -> {
-                val targetPath = fixFileName(File(fileUtil.folderDir, item.fileName).path)
+                val sourcePath = item.filePath?.let(::File)
+                if (sourcePath == null || !sourcePath.isFile) {
+                    markPublicationError(
+                        item,
+                        finalProgress,
+                        "Downloaded source is not available for publication"
+                    )
+                    return
+                }
+                val requestedName = File(item.fileName.orEmpty()).name.ifBlank { "download.mp4" }
+                val targetFile = fileUtil.uniqueMediaTarget(
+                    applicationContext,
+                    File(fileUtil.folderDir, requestedName)
+                )
+                val targetPath = targetFile.path
                 val from = sourcePath.toUri()
-                val to = File(targetPath).toUri()
+                val to = targetFile.toUri()
                 AppLogger.d("MOVING FILE $from to -> $to")
                 saveProgress(
                     item.mId,
                     finalProgress,
                     VideoTaskState.PREPARE,
-                    "Downloaded, moving..."
+                    "Downloaded, moving...",
+                    isLive = item.isLive
                 )
-                val fileMoved = fileUtil.moveMedia(applicationContext, from, to)
+                val fileMoved = try {
+                    fileUtil.moveMedia(applicationContext, from, to)
+                } catch (error: Throwable) {
+                    markPublicationError(item, finalProgress, "Error moving file", error)
+                    return
+                }
+                if (!fileMoved) {
+                    markPublicationError(item, finalProgress, "Error moving file")
+                    return
+                }
+
+                val finalUri = try {
+                    fileUtil.resolveMediaUri(applicationContext, targetFile)
+                } catch (error: Throwable) {
+                    markPublicationError(
+                        item,
+                        finalProgress,
+                        "Published media URI is unavailable",
+                        error
+                    )
+                    return
+                }
+                if (finalUri == null) {
+                    markPublicationError(item, finalProgress, "Published media URI is missing")
+                    return
+                }
+
+                val validationError = try {
+                    DownloadedMediaValidator.validate(
+                        applicationContext,
+                        finalUri,
+                        item.isLive
+                    )
+                } catch (error: Throwable) {
+                    markPublicationError(
+                        item,
+                        finalProgress,
+                        "Downloaded media validation failed",
+                        error
+                    )
+                    return
+                }
+                if (validationError != null) {
+                    markPublicationError(item, finalProgress, validationError)
+                    return
+                }
+
+                val finalSize = try {
+                    fileUtil.getContentLength(applicationContext, finalUri)
+                } catch (error: Throwable) {
+                    markPublicationError(
+                        item,
+                        finalProgress,
+                        "Published media size is unavailable",
+                        error
+                    )
+                    return
+                }
+                if (finalSize <= 0L) {
+                    markPublicationError(item, finalProgress, "Published media size is invalid")
+                    return
+                }
+
+                AppLogger.d("SuperX: File moved and validated successfully at $finalUri")
+                sourcePath.parentFile?.deleteRecursively()
+                item.filePath = targetPath
+                item.totalSize = finalSize
+                item.downloadSize = finalSize
+                item.errorMessage = null
+                val successProgress = Progress(finalSize, finalSize)
                 saveProgress(
                     item.mId,
-                    finalProgress,
-                    if (fileMoved) VideoTaskState.SUCCESS else VideoTaskState.ERROR,
-                    "Downloaded, moving ${if (fileMoved) "success" else "failed"}"
+                    successProgress,
+                    VideoTaskState.SUCCESS,
+                    "Success",
+                    isLive = item.isLive
                 )
-                if (fileMoved) {
-                    val targetFile = File(targetPath)
-                    val validationError = DownloadedMediaValidator.validate(targetFile, item.isLive)
-                    if (validationError != null) {
-                        AppLogger.e("SuperX: Validation failed: $validationError")
-                        downloadTaskLogger.error(item.mId, "SuperX validation failed: $validationError")
-                        item.taskState = VideoTaskState.ERROR
-                        item.errorMessage = validationError
-                        saveProgress(item.mId, finalProgress, item.taskState, validationError)
-                        return
-                    }
-
-                    AppLogger.d("SuperX: File moved successfully to $targetPath")
-                    sourcePath.parentFile?.deleteRecursively()
-                    val successProgress = Progress(item.totalSize, item.totalSize)
-                    saveProgress(item.mId, successProgress, VideoTaskState.SUCCESS, "Success")
-                } else {
-                    AppLogger.e("FFmpeg: Failed to move file to $targetPath")
-                    downloadTaskLogger.error(item.mId, "SuperX failed to move file to $targetPath")
-                    item.taskState = VideoTaskState.ERROR
-                    item.errorMessage = "Error moving file"
-                    sourcePath.parentFile?.deleteRecursively()
-                    saveProgress(item.mId, finalProgress, item.taskState, "Error moving file")
-                }
             }
 
             else -> { // ERROR state
@@ -810,6 +911,30 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
                 )
             }
         }
+    }
+
+    private fun markPublicationError(
+        item: VideoTaskItem,
+        progress: Progress,
+        message: String,
+        cause: Throwable? = null
+    ) {
+        if (cause == null) {
+            AppLogger.e("SuperX publication failed: $message")
+            downloadTaskLogger.error(item.mId, "SuperX publication failed: $message")
+        } else {
+            AppLogger.e("SuperX publication failed: $message", cause)
+            downloadTaskLogger.error(item.mId, "SuperX publication failed: $message", cause)
+        }
+        item.taskState = VideoTaskState.ERROR
+        item.errorMessage = message
+        saveProgress(
+            item.mId,
+            progress,
+            VideoTaskState.ERROR,
+            message,
+            isLive = item.isLive
+        )
     }
 
     private fun showProgress(taskItem: VideoTaskItem, progress: Progress) {

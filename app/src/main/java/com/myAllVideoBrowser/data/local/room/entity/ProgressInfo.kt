@@ -67,7 +67,22 @@ data class ProgressInfo(
     var logPath: String = "",
 
     @ColumnInfo(defaultValue = "0")
-    var queuedForLater: Boolean = false
+    var queuedForLater: Boolean = false,
+
+    @ColumnInfo(defaultValue = "0")
+    var stopReason: Int = 0,
+
+    @ColumnInfo(defaultValue = "")
+    var executionToken: String = "",
+
+    @ColumnInfo(defaultValue = "0")
+    var removePartialOnCancel: Boolean = false,
+
+    @ColumnInfo(defaultValue = "")
+    var finalizationSource: String = "",
+
+    @ColumnInfo(defaultValue = "")
+    var finalizationTarget: String = ""
 ) {
     // НЕ ТРОГАТЬ VAR!!!! иначе пиздец с миграцией
     var progress: Int = 0
@@ -93,6 +108,9 @@ data class ProgressInfo(
             VideoTaskState.PAUSE -> "pause"
             VideoTaskState.PENDING -> "pending"
             VideoTaskState.PREPARE -> "prepare"
+            VideoTaskState.PAUSING -> "pausing"
+            VideoTaskState.CANCELING -> "canceling"
+            VideoTaskState.FINALIZING -> "finalizing"
             VideoTaskState.ENOSPC -> "failed"
             VideoTaskState.ERROR -> "failed"
             else -> "undefined"
@@ -116,4 +134,10 @@ data class ProgressInfo(
     val canOpenDetails: Boolean
         get() = lastError.isNotBlank() || logPath.isNotBlank() || downloadStatus == VideoTaskState.ERROR ||
             downloadStatus == VideoTaskState.ENOSPC
+
+    val occupiesQueueSlot: Boolean
+        get() = isActive ||
+            downloadStatus == VideoTaskState.PAUSING ||
+            downloadStatus == VideoTaskState.CANCELING ||
+            downloadStatus == VideoTaskState.FINALIZING
 }

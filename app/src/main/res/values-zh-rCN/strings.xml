@@ -18,6 +18,8 @@
     <string name="video_rename_title">重命名视频</string>
     <string name="video_rename_invalid">名称无效。请重试！</string>
     <string name="video_rename_exist">视频名称已存在！</string>
+    <string name="video_rename_success">视频已重命名</string>
+    <string name="video_rename_auth_cancelled">已取消授权，未重命名</string>
     <string name="progress_empty_message">您没有正在下载的视频。</string>
     <string name="history_empty_title">还没有历史记录</string>
     <string name="history_empty_subtitle">访问过的页面会显示在这里。</string>

@@ -42,7 +42,15 @@ data class MigrationManifest(
     val browserSessionCount: Int,
     val thumbnailCount: Int,
     val cookieProfileCount: Int = 0,
-    val cookieContentIncluded: Boolean = false
+    val cookieContentIncluded: Boolean = false,
+    val encryption: String? = null,
+    val payloads: Map<String, MigrationPayloadDescriptor> = emptyMap(),
+    val sensitiveCategories: List<String> = emptyList()
+)
+
+data class MigrationPayloadDescriptor(
+    val sizeBytes: Long,
+    val sha256: String
 )
 
 data class MigrationArchive(
@@ -55,6 +63,11 @@ data class MigrationArchive(
     val progress: List<ProgressInfo> = emptyList(),
     val browserSession: BrowserSessionSnapshot = BrowserSessionSnapshot(),
     val cookieProfiles: List<CookieProfileStore.CookieProfileBackup> = emptyList()
+)
+
+data class ValidatedMigrationPackage(
+    val archive: MigrationArchive,
+    val thumbnailsByTabId: Map<String, ByteArray>
 )
 
 data class PrivateVideoSummary(

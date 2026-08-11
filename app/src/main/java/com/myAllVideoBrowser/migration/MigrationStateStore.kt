@@ -1,7 +1,6 @@
 package com.myAllVideoBrowser.migration
 
 import android.content.Context
-import androidx.core.content.edit
 import com.google.gson.Gson
 import com.myAllVideoBrowser.di.qualifier.ApplicationContext
 import javax.inject.Inject
@@ -47,7 +46,8 @@ class MigrationStateStore @Inject constructor(
     }
 
     fun reset(report: MigrationReport? = null) {
-        prefs.edit {
+        val editor = prefs.edit()
+        editor.apply {
             putString(KEY_STAGE, MigrationStage.NOT_STARTED.name)
             if (report == null) {
                 remove(KEY_LAST_REPORT)
@@ -55,12 +55,14 @@ class MigrationStateStore @Inject constructor(
                 putString(KEY_LAST_REPORT, gson.toJson(report))
             }
         }
+        check(editor.commit()) { "Unable to persist migration reset state." }
     }
 
     private fun save(stage: MigrationStage, report: MigrationReport) {
-        prefs.edit {
-            putString(KEY_STAGE, stage.name)
-            putString(KEY_LAST_REPORT, gson.toJson(report))
-        }
+        val committed = prefs.edit()
+            .putString(KEY_STAGE, stage.name)
+            .putString(KEY_LAST_REPORT, gson.toJson(report))
+            .commit()
+        check(committed) { "Unable to persist migration state." }
     }
 }

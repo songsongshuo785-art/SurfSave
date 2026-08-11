@@ -6,11 +6,13 @@ import android.os.Build
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.myAllVideoBrowser.di.component.DaggerAppComponent
+import com.myAllVideoBrowser.migration.MigrationManager
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ContextUtils
 import com.myAllVideoBrowser.util.CrashLogWriter
 import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.SharedPrefHelper
+import com.myAllVideoBrowser.util.downloaders.youtubedl_downloader.YoutubeDlRecoveryCoordinator
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.DaggerWorkerFactory
 import com.myAllVideoBrowser.util.proxy_utils.ProxyService
 import com.yausername.ffmpeg.FFmpeg
@@ -22,7 +24,6 @@ import io.reactivex.rxjava3.plugins.RxJavaPlugins
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.io.File
 import javax.inject.Inject
 
 open class DLApplication : DaggerApplication() {
@@ -42,6 +43,12 @@ open class DLApplication : DaggerApplication() {
     @Inject
     lateinit var fileUtil: FileUtil
 
+    @Inject
+    lateinit var migrationManager: MigrationManager
+
+    @Inject
+    lateinit var youtubeDlRecoveryCoordinator: YoutubeDlRecoveryCoordinator
+
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
 
@@ -57,9 +64,15 @@ open class DLApplication : DaggerApplication() {
         ContextUtils.initApplicationContext(applicationContext)
         CrashLogWriter.install(applicationContext)
 
+        try {
+            migrationManager.recoverInterruptedImport()
+        } catch (error: Throwable) {
+            AppLogger.e("Failed to recover an interrupted migration import.", error)
+            throw error
+        }
+
         initializeFileUtils()
 
-        val file: File = fileUtil.folderDir
         val ctx = applicationContext
 
         WorkManager.initialize(
@@ -71,11 +84,12 @@ open class DLApplication : DaggerApplication() {
         }
 
         CoroutineScope(Dispatchers.Default).launch {
-            if (!file.exists()) {
-                file.mkdirs()
+            if (!fileUtil.ensureDownloadDestination()) {
+                AppLogger.e("Download destination is not currently writable")
             }
 
             initializeYoutubeDl()
+            youtubeDlRecoveryCoordinator.recover()
         }
     }
 

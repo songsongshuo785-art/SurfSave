@@ -143,12 +143,41 @@ class VideoPlayerFragment : BaseFragment() {
         return if (::player.isInitialized && view != null) player else null
     }
 
+    // PiP 播放状态监听：onIsPlayingChanged 时刷新小窗 RemoteAction 图标。
+    // 仅在 PiP 期间注册，退出小窗即移除，避免长驻监听和重复回调。
+    private var pipStateListener: Player.Listener? = null
+
     /** PiP 模式切换：进入时隐藏顶部控制栏（PiP 只显示视频画面），退出时恢复。 */
     fun setPipMode(inPip: Boolean) {
         isPipMode = inPip
         if (!::dataBinding.isInitialized) return
         dataBinding.topBar.visibility = if (inPip) View.GONE else View.VISIBLE
         dataBinding.videoView.useController = !inPip
+        if (inPip) {
+            registerPipStateListener()
+        } else {
+            unregisterPipStateListener()
+        }
+    }
+
+    private fun registerPipStateListener() {
+        if (pipStateListener != null || !::player.isInitialized) return
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                // 播放状态真正变化（含缓冲结束自动续播）后，刷新 PiP 按钮图标
+                (activity as? VideoPlayerActivity)?.refreshPipActions()
+            }
+        }
+        pipStateListener = listener
+        player.addListener(listener)
+    }
+
+    private fun unregisterPipStateListener() {
+        val listener = pipStateListener ?: return
+        pipStateListener = null
+        if (::player.isInitialized) {
+            player.removeListener(listener)
+        }
     }
 
     /** 滑动 seek 时显示预览气泡：目标时间始终刷新，缩略图按节流加载（仅本地视频，远程只显示时间）。 */
@@ -362,6 +391,7 @@ class VideoPlayerFragment : BaseFragment() {
     }
 
     override fun onDestroyView() {
+        unregisterPipStateListener()
         getActivity(context)?.let { appUtil.showSystemUI(it.window, dataBinding.root) }
         videoPlayerViewModel.stop()
         player.release()

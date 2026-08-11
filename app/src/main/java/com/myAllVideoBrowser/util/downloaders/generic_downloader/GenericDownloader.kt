@@ -61,6 +61,8 @@ abstract class GenericDownloader {
             const val TITLE_KEY = "TITLE_KEY"
             const val ORIGIN_KEY = "ORIGIN_KEY"
             const val TASK_ID_KEY = "TASK_ID"
+            const val EXECUTION_TOKEN_KEY = "EXECUTION_TOKEN"
+            const val EXECUTION_KEY = "EXECUTION_KEY"
             const val DURATION = "DURATION"
             const val IS_M3U8 = "IS_M3U8"
             const val IS_MPD = "IS_MPD"
@@ -77,6 +79,7 @@ abstract class GenericDownloader {
             const val CANCEL = "CANCEL"
             const val RESUME = "RESUME"
             const val STOP_SAVE_ACTION = "STOP_SAVE_ACTION"
+            const val RECOVER_FINALIZATION = "RECOVER_FINALIZATION"
         }
     }
 

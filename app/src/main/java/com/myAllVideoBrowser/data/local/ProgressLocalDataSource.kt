@@ -24,6 +24,10 @@ class ProgressLocalDataSource @Inject constructor(
         return progressDao.getProgressInfoById(id)
     }
 
+    override fun findDuplicateByFingerprint(fingerprint: String): ProgressInfo? {
+        return progressDao.findDuplicateByFingerprint(fingerprint)
+    }
+
     override fun saveProgressInfo(progressInfo: ProgressInfo) {
         progressDao.insertProgressInfo(progressInfo)
     }
@@ -73,4 +77,78 @@ class ProgressLocalDataSource @Inject constructor(
     override fun updateQueueState(id: String, status: Int, queuedForLater: Boolean, infoLine: String, logPath: String) {
         progressDao.updateQueueState(id, status, queuedForLater, infoLine, logPath)
     }
+
+    override fun claimYtDlpExecution(id: String, token: String, startedAt: Long, logPath: String): Int =
+        progressDao.claimYtDlpExecution(id, token, startedAt, logPath)
+
+    override fun requestYtDlpPause(
+        id: String,
+        token: String,
+        reason: Int,
+        queuedForLater: Boolean,
+        infoLine: String,
+        logPath: String
+    ): Int = progressDao.requestYtDlpPause(id, token, reason, queuedForLater, infoLine, logPath)
+
+    override fun requestYtDlpCancel(
+        id: String,
+        expectedToken: String,
+        assignedToken: String,
+        removePartial: Boolean,
+        logPath: String
+    ): Int = progressDao.requestYtDlpCancel(
+        id, expectedToken, assignedToken, removePartial, logPath
+    )
+
+    override fun resumeYtDlp(id: String, queuePosition: Long, logPath: String): Int =
+        progressDao.resumeYtDlp(id, queuePosition, logPath)
+
+    override fun updateYtDlpProgress(
+        id: String,
+        token: String,
+        downloaded: Long,
+        total: Long,
+        fragDownloaded: Int,
+        fragTotal: Int,
+        infoLine: String,
+        startedAt: Long,
+        logPath: String,
+        isLive: Boolean
+    ): Int = progressDao.updateYtDlpProgress(
+        id, token, downloaded, total, fragDownloaded, fragTotal, infoLine,
+        startedAt, logPath, isLive
+    )
+
+    override fun claimYtDlpFinalization(
+        id: String,
+        token: String,
+        source: String,
+        target: String
+    ): Int = progressDao.claimYtDlpFinalization(id, token, source, target)
+
+    override fun commitYtDlpFinalization(
+        id: String,
+        token: String,
+        status: Int,
+        completedAt: Long,
+        lastError: String,
+        infoLine: String
+    ): Int = progressDao.commitYtDlpFinalization(
+        id, token, status, completedAt, lastError, infoLine
+    )
+
+    override fun commitYtDlpError(id: String, token: String, completedAt: Long, error: String): Int =
+        progressDao.commitYtDlpError(id, token, completedAt, error)
+
+    override fun commitYtDlpPause(id: String, token: String, infoLine: String): Int =
+        progressDao.commitYtDlpPause(id, token, infoLine)
+
+    override fun commitYtDlpCanceled(id: String, token: String, completedAt: Long): Int =
+        progressDao.commitYtDlpCanceled(id, token, completedAt)
+
+    override fun deleteCommittedYtDlpCanceled(id: String, token: String): Int =
+        progressDao.deleteCommittedYtDlpCanceled(id, token)
+
+    override fun adoptLegacyYtDlpExecution(id: String, token: String): Int =
+        progressDao.adoptLegacyYtDlpExecution(id, token)
 }

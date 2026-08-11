@@ -5,7 +5,6 @@ import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
-import android.os.Environment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -79,8 +78,12 @@ class VideoFragment : BaseFragment() {
     /** 删除公共目录视频时，由系统弹 createDeleteRequest 授权确认（Android 11+）；授权后列表由轮询自动刷新。 */
     private val deleteAuthLauncher: ActivityResultLauncher<IntentSenderRequest> =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-            // 不在此 Toast：成功/失败/取消全由 ViewModel 事件驱动（Q retry 必须等真 Success 才算删掉）
             videoViewModel.onDeleteAuthResult(requireContext(), result.resultCode == Activity.RESULT_OK)
+        }
+
+    private val renameAuthLauncher: ActivityResultLauncher<IntentSenderRequest> =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            videoViewModel.onRenameAuthResult(requireContext(), result.resultCode == Activity.RESULT_OK)
         }
 
     override fun onCreateView(
@@ -115,6 +118,9 @@ class VideoFragment : BaseFragment() {
         videoViewModel.deleteAuthEvent.observe(viewLifecycleOwner) { intentSender ->
             deleteAuthLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
         }
+        videoViewModel.renameAuthEvent.observe(viewLifecycleOwner) { intentSender ->
+            renameAuthLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+        }
         videoViewModel.deleteSuccessEvent.observe(viewLifecycleOwner) {
             Toast.makeText(requireContext(), R.string.video_delete_success, Toast.LENGTH_SHORT).show()
         }
@@ -123,6 +129,16 @@ class VideoFragment : BaseFragment() {
         }
         videoViewModel.deleteAuthCancelledEvent.observe(viewLifecycleOwner) {
             Toast.makeText(requireContext(), R.string.video_delete_auth_cancelled, Toast.LENGTH_SHORT).show()
+        }
+        videoViewModel.renameSuccessEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(requireContext(), R.string.video_rename_success, Toast.LENGTH_SHORT).show()
+        }
+        videoViewModel.renameAuthCancelledEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(
+                requireContext(),
+                R.string.video_rename_auth_cancelled,
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         return dataBinding.root
@@ -211,9 +227,7 @@ class VideoFragment : BaseFragment() {
                     ) { v ->
                         with(v as EditText) {
                             val newName = v.text.toString().trim()
-                            videoViewModel.renameVideo(
-                                v.context, video.uri, File(newName).nameWithoutExtension + ".mp4"
-                            )
+                            videoViewModel.renameVideo(v.context, video.uri, newName)
                         }
                     }
                     true
@@ -241,10 +255,10 @@ class VideoFragment : BaseFragment() {
 
                 R.id.item_move_to_downloads -> {
                     try {
-                        val targetDir = Environment.getExternalStoragePublicDirectory(
-                            Environment.DIRECTORY_DOWNLOADS
+                        val target = fileUtil.uniqueMediaTarget(
+                            requireContext(),
+                            File(fileUtil.publicDownloadsDir, video.name)
                         )
-                        val target = File(targetDir, video.name)
                         val isSuccess =
                             fileUtil.moveMedia(requireContext(), video.uri, target.toUri())
                         if (isSuccess) {
@@ -290,10 +304,7 @@ class VideoFragment : BaseFragment() {
     }
 
     private fun isVideoInHiddenFolderFolder(video: LocalVideo): Boolean {
-        val downloadsDir =
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val videoParentDir = video.uri.toFile().parentFile
-        return videoParentDir != null && videoParentDir.absolutePath != downloadsDir.absolutePath
+        return !fileUtil.isSharedPublicMedia(requireContext(), video.uri)
     }
 
 

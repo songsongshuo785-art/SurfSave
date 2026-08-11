@@ -1,11 +1,12 @@
 package com.myAllVideoBrowser.util.proxy_utils
 
 import com.myAllVideoBrowser.data.local.model.Proxy
+import com.myAllVideoBrowser.data.local.model.ProxyType
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.fail
 import org.junit.Test
 import java.net.InetSocketAddress
 import java.net.Proxy as JavaProxy
@@ -24,7 +25,7 @@ class OkHttpProxyClientTest {
     fun getProxyOkHttpClient_withoutProxyBuildsDirectClient() {
         val client = proxyClient.getProxyOkHttpClient()
 
-        assertNull(client.proxy)
+        assertSame(JavaProxy.NO_PROXY, client.proxy)
     }
 
     @Test
@@ -72,17 +73,68 @@ class OkHttpProxyClientTest {
         assertNotSame(firstClient, secondClient)
     }
 
+    @Test
+    fun getProxyOkHttpClient_rebuildsClientWhenOnlyPasswordChanges() {
+        currentProxy = proxy(user = "user", password = "pass-a")
+        val firstClient = proxyClient.getProxyOkHttpClient()
+
+        currentProxy = proxy(user = "user", password = "pass-b")
+        val secondClient = proxyClient.getProxyOkHttpClient()
+
+        assertNotSame(firstClient, secondClient)
+    }
+
+    @Test
+    fun getProxyOkHttpClient_mapsSocks5ToJavaSocksProxy() {
+        currentProxy = proxy(user = "", password = "", type = ProxyType.HTTP)
+        val httpClient = proxyClient.getProxyOkHttpClient()
+
+        currentProxy = proxy(user = "", password = "", type = ProxyType.SOCKS5)
+        val socksClient = proxyClient.getProxyOkHttpClient()
+
+        assertNotSame(httpClient, socksClient)
+        assertEquals(JavaProxy.Type.SOCKS, requireNotNull(socksClient.proxy).type())
+    }
+
+    @Test
+    fun getProxyOkHttpClient_rejectsAuthenticatedSocks5Explicitly() {
+        currentProxy = proxy(type = ProxyType.SOCKS5)
+
+        try {
+            proxyClient.getProxyOkHttpClient()
+            fail("Expected authenticated SOCKS5 to be rejected.")
+        } catch (error: IllegalArgumentException) {
+            assertEquals(
+                "Authenticated SOCKS5 is not supported by the OkHttp proxy authenticator.",
+                error.message
+            )
+        }
+    }
+
+    @Test
+    fun proxyConfigurationIsInheritedByChildClientsUsedForRedirectsAndSubrequests() {
+        currentProxy = proxy()
+
+        val selectedClient = proxyClient.getProxyOkHttpClient()
+        val childClient = selectedClient.newBuilder().build()
+
+        assertEquals(selectedClient.proxy, childClient.proxy)
+        assertSame(selectedClient.proxyAuthenticator, childClient.proxyAuthenticator)
+    }
+
     private fun proxy(
         host: String = "127.0.0.1",
         port: String = "8888",
         user: String = "user",
-        password: String = "password"
+        password: String = "password",
+        type: ProxyType = ProxyType.HTTP
     ): Proxy {
         return Proxy(
             host = host,
             port = port,
             user = user,
-            password = password
+            password = password,
+            type = type
         )
     }
 

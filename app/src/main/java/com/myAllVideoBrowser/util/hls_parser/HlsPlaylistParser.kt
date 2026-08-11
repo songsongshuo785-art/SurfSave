@@ -11,7 +11,9 @@ import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory
 import com.myAllVideoBrowser.util.AppLogger
 import java.io.IOException
+import java.net.URI
 import java.util.LinkedList
+import java.util.Locale
 
 /**
  * A hybrid parser for HLS (m3u8) playlists.
@@ -38,6 +40,7 @@ object HlsPlaylistParser {
     data class MediaPlaylist(
         override val baseUri: String,
         val segments: List<MediaSegment>,
+        val mediaSequence: Long,
         val targetDuration: Int,
         val playlistType: PlaylistType?,
         val hasEndList: Boolean,
@@ -104,7 +107,8 @@ object HlsPlaylistParser {
         override val initializationSegment: InitializationSegment?,
         val byteRange: ByteRange?,
         val parts: List<PartialSegment>,
-        val encryptionKey: HlsEncryptionKey? = null
+        val encryptionKey: HlsEncryptionKey? = null,
+        val mediaSequence: Long
     ) : MediaSegment()
 
     data class InitializationSegment(
@@ -174,7 +178,7 @@ object HlsPlaylistParser {
     // --- Advanced Legacy Parser (for non-standard playlists) ---
 
     @Throws(IOException::class)
-    private fun parseLegacy(playlistContent: String, baseUri: String): HlsPlaylist {
+    internal fun parseLegacy(playlistContent: String, baseUri: String): HlsPlaylist {
         val lines = LinkedList(playlistContent.lines().map { it.trim() }.filter { it.isNotEmpty() })
         if (lines.isEmpty() || !lines[0].startsWith("#EXTM3U")) {
             throw IOException("Legacy Parse: Invalid HLS playlist, must start with #EXTM3U.")
@@ -275,6 +279,7 @@ object HlsPlaylistParser {
         var currentSegmentDuration: Double? = null
         var currentSegmentTitle: String? = null
         var defaultAudioGroupId: String? = null
+        var mediaSequence = 0L
 
         var currentKey: HlsEncryptionKey? = null
 
@@ -283,6 +288,15 @@ object HlsPlaylistParser {
             when {
                 line.startsWith("#EXT-X-TARGETDURATION") -> targetDuration =
                     line.substringAfter(':').toIntOrNull() ?: -1
+
+                line.startsWith("#EXT-X-MEDIA-SEQUENCE") -> {
+                    if (segments.isNotEmpty()) {
+                        throw IOException("Legacy Parse: EXT-X-MEDIA-SEQUENCE must precede media segments.")
+                    }
+                    mediaSequence = line.substringAfter(':').trim().toLongOrNull()
+                        ?.takeIf { it >= 0L }
+                        ?: throw IOException("Legacy Parse: Invalid EXT-X-MEDIA-SEQUENCE.")
+                }
 
                 line.startsWith("#EXT-X-PLAYLIST-TYPE") -> playlistType = try {
                     PlaylistType.valueOf(line.substringAfter(':'))
@@ -347,12 +361,16 @@ object HlsPlaylistParser {
 
                 line.startsWith("#EXT-X-KEY") -> {
                     val attributes = parseAttributeList(line.substringAfter(':'))
-                    val method = attributes["METHOD"]
-                    val uri = attributes["URI"]
-                    if (method != null && uri != null) {
+                    val method = attributes["METHOD"]?.uppercase(Locale.US)
+                        ?: throw IOException("Legacy Parse: EXT-X-KEY is missing METHOD.")
+                    if (method == "NONE") {
+                        currentKey = null
+                    } else {
+                        val uri = attributes["URI"]?.takeIf { it.isNotBlank() }
+                            ?: throw IOException("Legacy Parse: EXT-X-KEY is missing URI.")
                         currentKey = HlsEncryptionKey(
                             method = method,
-                            uri = resolveUrl(baseUri, uri), // Resolve the key's URL
+                            uri = resolveUrl(baseUri, uri),
                             iv = attributes["IV"]
                         )
                     }
@@ -369,7 +387,8 @@ object HlsPlaylistParser {
                                 initializationSegment = currentInitSegment,
                                 byteRange = currentByteRange,
                                 parts = currentParts,
-                                encryptionKey = currentKey
+                                encryptionKey = currentKey,
+                                mediaSequence = segmentSequence(mediaSequence, segments.size)
                             )
                         )
                         // Reset for next segment
@@ -386,14 +405,15 @@ object HlsPlaylistParser {
             }
         }
         return MediaPlaylist(
-            baseUri,
-            segments,
-            targetDuration,
-            playlistType,
-            hasEndList,
-            defaultAudioGroupId,
-            renditions,
-            otherTags
+            baseUri = baseUri,
+            segments = segments,
+            mediaSequence = mediaSequence,
+            targetDuration = targetDuration,
+            playlistType = playlistType,
+            hasEndList = hasEndList,
+            audioGroupId = defaultAudioGroupId,
+            alternateRenditions = renditions,
+            tags = otherTags
         )
     }
 
@@ -484,12 +504,13 @@ object HlsPlaylistParser {
                 val method = attributes["METHOD"]
                 val uri = attributes["URI"]
                 if (method != null && uri != null) {
-                    schemeToMethodMap[resolveUrl(exoMedia.baseUri, uri)] = method
+                    schemeToMethodMap[resolveUrl(exoMedia.baseUri, uri)] =
+                        method.uppercase(Locale.US)
                 }
             }
         }
 
-        val segments = exoMedia.segments.map { exoSegment ->
+        val segments = exoMedia.segments.mapIndexed { index, exoSegment ->
             val encryptionKey =
                 if (exoSegment.fullSegmentEncryptionKeyUri != null) {
                     val method = schemeToMethodMap[resolveUrl(
@@ -531,7 +552,8 @@ object HlsPlaylistParser {
                             ByteRange(it, exoPart.byteRangeOffset)
                         })
                 },
-                encryptionKey = encryptionKey
+                encryptionKey = encryptionKey,
+                mediaSequence = segmentSequence(exoMedia.mediaSequence, index)
             )
         }
 
@@ -543,6 +565,7 @@ object HlsPlaylistParser {
         return MediaPlaylist(
             baseUri = exoMedia.baseUri,
             segments = segments,
+            mediaSequence = exoMedia.mediaSequence,
             targetDuration = (exoMedia.targetDurationUs / 1_000_000).toInt(),
             playlistType = playlistType,
             hasEndList = exoMedia.hasEndTag,
@@ -552,17 +575,23 @@ object HlsPlaylistParser {
         )
     }
 
-    private fun resolveUrl(baseUri: String, url: String): String {
-        return when {
-            url.startsWith("http://") || url.startsWith("https://") -> url
-            else -> {
-                val base = if (baseUri.endsWith("/") || !baseUri.contains(".")) {
-                    baseUri
-                } else {
-                    baseUri.substringBeforeLast('/') + '/'
-                }
-                base.removeSuffix("/") + "/" + url.removePrefix("/")
-            }
+    internal fun resolveUrl(baseUri: String, url: String): String {
+        try {
+            val base = URI(baseUri)
+            require(base.isAbsolute) { "Base URI must be absolute." }
+            val resolved = base.resolve(URI(url)).normalize()
+            require(resolved.isAbsolute) { "Resolved URI must be absolute." }
+            return resolved.toASCIIString()
+        } catch (error: Exception) {
+            throw IOException("Unable to resolve HLS URI '$url' against '$baseUri'.", error)
+        }
+    }
+
+    private fun segmentSequence(firstSequence: Long, index: Int): Long {
+        return try {
+            Math.addExact(firstSequence, index.toLong())
+        } catch (error: ArithmeticException) {
+            throw IOException("HLS media sequence overflow.", error)
         }
     }
 }

@@ -12,14 +12,10 @@ import javax.inject.Singleton
 @Singleton
 class DownloadEngineRouter @Inject constructor() {
     fun start(context: Context, task: ProgressInfo) {
-        start(context, task.videoInfo)
-    }
-
-    fun start(context: Context, videoInfo: VideoInfo) {
         when {
-            videoInfo.isRegularDownload -> CustomRegularDownloader.startDownload(context, videoInfo)
-            videoInfo.isDetectedBySuperX -> SuperXDownloader.startDownload(context, videoInfo)
-            else -> YoutubeDlDownloader.startDownload(context, videoInfo)
+            task.videoInfo.isRegularDownload -> CustomRegularDownloader.startDownload(context, task.videoInfo)
+            task.videoInfo.isDetectedBySuperX -> SuperXDownloader.startDownload(context, task.videoInfo)
+            else -> YoutubeDlDownloader.startDownload(context, task)
         }
     }
 

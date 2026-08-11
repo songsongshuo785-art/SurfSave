@@ -10,6 +10,8 @@ import com.myAllVideoBrowser.data.local.room.dao.HistoryDao
 import com.myAllVideoBrowser.data.local.room.dao.PageDao
 import com.myAllVideoBrowser.data.local.room.dao.ProgressDao
 import com.myAllVideoBrowser.data.local.room.dao.VideoDao
+import com.myAllVideoBrowser.util.RoomConverter
+import com.myAllVideoBrowser.util.downloaders.DownloadFingerprint
 import dagger.Module
 import dagger.Provides
 import javax.inject.Singleton
@@ -72,6 +74,63 @@ val MIGRATION_8_9 = object : Migration(8, 9) {
     }
 }
 
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE ProgressInfo ADD COLUMN stopReason INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE ProgressInfo ADD COLUMN executionToken TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE ProgressInfo ADD COLUMN removePartialOnCancel INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE ProgressInfo ADD COLUMN finalizationSource TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE ProgressInfo ADD COLUMN finalizationTarget TEXT NOT NULL DEFAULT ''")
+        backfillMissingDownloadFingerprints(db)
+    }
+}
+
+private fun backfillMissingDownloadFingerprints(db: SupportSQLiteDatabase) {
+    val converter = RoomConverter()
+    val fingerprints = mutableListOf<Pair<String, String>>()
+    db.query(
+        "SELECT id, videoInfo FROM ProgressInfo WHERE downloadFingerprint = ''"
+    ).use { cursor ->
+        val idColumn = cursor.getColumnIndexOrThrow("id")
+        val videoInfoColumn = cursor.getColumnIndexOrThrow("videoInfo")
+        while (cursor.moveToNext()) {
+            val id = cursor.getString(idColumn)
+            val videoJson = cursor.getString(videoInfoColumn)
+            val videoInfo = try {
+                converter.convertJsonToVideo(videoJson)
+            } catch (error: RuntimeException) {
+                throw IllegalStateException(
+                    "Cannot backfill download fingerprint for ProgressInfo '$id'",
+                    error
+                )
+            }
+            val fingerprint = DownloadFingerprint.fromVideoInfo(videoInfo)
+            if (fingerprint.isBlank()) {
+                throw IllegalStateException(
+                    "Generated blank download fingerprint for ProgressInfo '$id'"
+                )
+            }
+            fingerprints += id to fingerprint
+        }
+    }
+
+    val update = db.compileStatement(
+        "UPDATE ProgressInfo SET downloadFingerprint = ? " +
+            "WHERE id = ? AND downloadFingerprint = ''"
+    )
+    fingerprints.forEach { (id, fingerprint) ->
+        update.clearBindings()
+        update.bindString(1, fingerprint)
+        update.bindString(2, id)
+        val updatedRows = update.executeUpdateDelete()
+        if (updatedRows != 1) {
+            throw IllegalStateException(
+                "Expected to backfill one ProgressInfo row for '$id', updated $updatedRows"
+            )
+        }
+    }
+}
+
 
 @Module
 class DatabaseModule {
@@ -87,7 +146,8 @@ class DatabaseModule {
             MIGRATION_5_6,
             MIGRATION_6_7,
             MIGRATION_7_8,
-            MIGRATION_8_9
+            MIGRATION_8_9,
+            MIGRATION_9_10
         ).build()
     }
 
