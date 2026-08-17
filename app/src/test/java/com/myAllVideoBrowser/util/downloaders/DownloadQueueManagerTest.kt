@@ -12,7 +12,10 @@ import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTas
 import io.reactivex.rxjava3.core.Flowable
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito
@@ -29,6 +32,9 @@ import org.mockito.Mockito.verify
  * 循环结束后统一推进一次。
  */
 class DownloadQueueManagerTest {
+
+    @get:Rule
+    val temporaryFolder = TemporaryFolder()
 
     private val contextPlaceholder: Context = Mockito.mock(Context::class.java)
 
@@ -260,6 +266,61 @@ class DownloadQueueManagerTest {
         assertEquals(VideoTaskState.PENDING, repo.getProgressInfoById("B")?.downloadStatus)
     }
 
+    @Test
+    fun resume_failedYtDlpWithSource_retriesPublicationWithoutRequeueingDownload() {
+        val source = temporaryFolder.newFile("downloaded.mp4")
+        val repo = FakeProgressRepository().apply {
+            save(failedYtDlpTask("publication-retry", source.absolutePath))
+        }
+        val app = Mockito.mock(DLApplication::class.java)
+        val fileUtil = Mockito.mock(FileUtil::class.java)
+        val engineRouter = Mockito.mock(DownloadEngineRouter::class.java)
+        val manager = DownloadQueueManager(
+            app,
+            repo,
+            Mockito.mock(SharedPrefHelper::class.java),
+            fileUtil,
+            engineRouter,
+            Mockito.mock(DownloadTaskLogger::class.java)
+        )
+
+        manager.resume("publication-retry")
+
+        val updated = requireNotNull(repo.getProgressInfoById("publication-retry"))
+        assertEquals(VideoTaskState.FINALIZING, updated.downloadStatus)
+        assertEquals(source.absolutePath, updated.finalizationSource)
+        verify(engineRouter).recoverFinalization(app, updated)
+        Mockito.verifyNoMoreInteractions(engineRouter)
+    }
+
+    @Test
+    fun resume_failedYtDlpWithoutRecoverableArtifact_requeuesDownload() {
+        val missingSource = temporaryFolder.root.resolve("missing.mp4")
+        val repo = FakeProgressRepository().apply {
+            save(failedYtDlpTask("download-retry", missingSource.absolutePath))
+        }
+        val app = Mockito.mock(DLApplication::class.java)
+        val engineRouter = Mockito.mock(DownloadEngineRouter::class.java)
+        val manager = DownloadQueueManager(
+            app,
+            repo,
+            Mockito.mock(SharedPrefHelper::class.java),
+            Mockito.mock(FileUtil::class.java),
+            engineRouter,
+            Mockito.mock(DownloadTaskLogger::class.java)
+        )
+
+        manager.resume("download-retry")
+
+        val updated = requireNotNull(repo.getProgressInfoById("download-retry"))
+        assertEquals(VideoTaskState.PENDING, updated.downloadStatus)
+        assertEquals("", updated.executionToken)
+        assertEquals("", updated.finalizationSource)
+        assertEquals("", updated.finalizationTarget)
+        assertTrue(updated.queuePosition > 0L)
+        Mockito.verifyNoInteractions(engineRouter)
+    }
+
     // Mockito 的 any(Class)/capture() 对对象类型返回 null，直接传给 Kotlin 非空参数会触发
     // Intrinsics 的 NPE（"any(...) must not be null"）。这里先注册 matcher（Mockito 只认 matcher
     // 注册，不看返回值），再返回非 null 占位值，绕过 Kotlin 非空检查。
@@ -292,6 +353,17 @@ class DownloadQueueManagerTest {
             executionToken = executionToken
         )
     }
+
+    private fun failedYtDlpTask(id: String, sourcePath: String): ProgressInfo = ProgressInfo(
+        id = id,
+        videoInfo = VideoInfo(id = id, title = id, ext = "mp4"),
+        downloadStatus = VideoTaskState.ERROR,
+        executionToken = "token-$id",
+        finalizationSource = sourcePath,
+        finalizationTarget = temporaryFolder.root.resolve("$id.mp4").absolutePath,
+        lastError = "Media publication failed",
+        logPath = temporaryFolder.root.resolve("$id.log").absolutePath
+    )
 
     /** 内存版 ProgressRepository，状态真实演进，供队列调度测试使用。 */
     private class FakeProgressRepository : ProgressRepository {
@@ -453,7 +525,11 @@ class DownloadQueueManagerTest {
         }
 
         override fun resumeYtDlp(id: String, queuePosition: Long, logPath: String): Int =
-            mutateIf(id, { it.downloadStatus == VideoTaskState.PAUSE }) {
+            mutateIf(id, {
+                it.downloadStatus == VideoTaskState.PAUSE ||
+                    it.downloadStatus == VideoTaskState.ERROR ||
+                    it.downloadStatus == VideoTaskState.ENOSPC
+            }) {
                 it.copy(
                     downloadStatus = VideoTaskState.PENDING,
                     stopReason = 0,
@@ -464,6 +540,23 @@ class DownloadQueueManagerTest {
                     queuedForLater = false,
                     infoLine = "Queued",
                     queuePosition = queuePosition,
+                    logPath = logPath
+                )
+            }
+
+        override fun retryYtDlpFinalization(id: String, token: String, logPath: String): Int =
+            mutateIf(id, {
+                it.executionToken == token &&
+                    (it.downloadStatus == VideoTaskState.ERROR ||
+                        it.downloadStatus == VideoTaskState.ENOSPC) &&
+                    it.finalizationSource.isNotBlank() &&
+                    it.finalizationTarget.isNotBlank()
+            }) {
+                it.copy(
+                    downloadStatus = VideoTaskState.FINALIZING,
+                    completedAt = 0,
+                    lastError = "",
+                    infoLine = "Retrying media publication",
                     logPath = logPath
                 )
             }

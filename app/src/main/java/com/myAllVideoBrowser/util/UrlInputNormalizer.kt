@@ -57,15 +57,16 @@ object UrlInputNormalizer {
     }
 
     fun defaultSearchUrlPattern(locale: Locale = Locale.getDefault()): String {
-        return BING_SEARCH_URL
+        return BAIDU_SEARCH_URL
     }
 
     fun searchUrlPatternForEngine(engine: String?): String {
         return when (engine?.trim()?.lowercase(Locale.US)) {
             "baidu" -> BAIDU_SEARCH_URL
+            "bing" -> BING_SEARCH_URL
             "duckduckgo" -> DUCKDUCKGO_SEARCH_URL
             "google" -> GOOGLE_SEARCH_URL
-            else -> BING_SEARCH_URL
+            else -> BAIDU_SEARCH_URL
         }
     }
 

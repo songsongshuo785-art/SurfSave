@@ -2,7 +2,9 @@
 <resources>
   <string name="app_icon">app icon</string>
   <string name="app_name">SurfSave</string>
-  <string name="browser_search_hint">Search or type web address</string>
+    <string name="browser_search_hint">Search or type web address</string>
+    <string name="home_search_action">Search</string>
+    <string name="progress_menu_retry">Retry</string>
   <string name="press_back_again_to_exit">Press back again to exit</string>
   <string name="browser_primary_action">Paste a link or keep browsing.</string>
   <string name="home_social_downloads_title">Common sites</string>
@@ -32,7 +34,9 @@
   <string name="detection_failed_network">Network or proxy problem. Check the connection, then retry.</string>
   <string name="detection_failed_auth">Login may be required. Sign in on this page, then retry.</string>
   <string name="detection_failed_playlist">Playlist parsing failed. Open the list page directly, then retry.</string>
-  <string name="dialog_preview_video">Play in SurfSave</string>
+    <string name="dialog_preview_video">Play in SurfSave</string>
+    <string name="detected_play_online">Play online</string>
+    <string name="detected_download">Download</string>
   <string name="dialog_download_video">Download Video</string>
   <string name="dialog_download_cancel">Cancel</string>
   <string name="download_candidate_section">Available formats</string>
@@ -122,6 +126,8 @@
   <string name="tabs">Tabs</string>
   <string name="tabs_with_count_title">Tabs (%1$d)</string>
   <string name="tab_limit_reached">Open tab limit: %1$d.</string>
+  <string name="browser_tab_closed">Tab closed</string>
+  <string name="undo">Undo</string>
   <string name="cookies_cleared">Cookies cleared</string>
   <string name="download_started">Download started.</string>
   <string name="download_queued">Download added to queue.</string>
@@ -132,6 +138,9 @@
   <string name="download_detail_error">Error</string>
   <string name="download_detail_log_tail">Recent log</string>
   <string name="download_log_empty">No log entries yet.</string>
+  <string name="latest_error_log_view">Latest error log</string>
+  <string name="latest_error_log_title">Latest download error log</string>
+  <string name="latest_error_log_empty">No detailed error log has been captured yet. Trigger a failed download first.</string>
   <string name="error_compact_format">%1$s · %2$s</string>
   <string name="error_explanation_with_detail">%1$s\nDetail: %2$s</string>
   <string name="error_network_title">Network problem</string>

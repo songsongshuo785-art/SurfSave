@@ -114,9 +114,17 @@ interface ProgressDao {
             executionToken = '', removePartialOnCancel = 0, finalizationSource = '',
             finalizationTarget = '', queuedForLater = 0, infoLine = 'Queued',
             queuePosition = :queuePosition, logPath = :logPath
-            WHERE id = :id AND downloadStatus = 7"""
+            WHERE id = :id AND downloadStatus IN (6, 7, 8)"""
     )
     fun resumeYtDlp(id: String, queuePosition: Long, logPath: String): Int
+
+    @Query(
+        """UPDATE ProgressInfo SET downloadStatus = 12, completedAt = 0,
+            lastError = '', infoLine = 'Retrying media publication', logPath = :logPath
+            WHERE id = :id AND executionToken = :token AND downloadStatus IN (6, 8)
+            AND finalizationSource != '' AND finalizationTarget != ''"""
+    )
+    fun retryYtDlpFinalization(id: String, token: String, logPath: String): Int
 
     @Query(
         """UPDATE ProgressInfo SET progressDownloaded = :downloaded,

@@ -165,13 +165,13 @@
                 android:id="@+id/trustTextView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/padding_normal"
+                android:layout_marginTop="@dimen/padding_small"
                 android:background="@drawable/sx_section_background"
                 android:lineSpacingExtra="2dp"
                 android:padding="@dimen/padding_small"
                 android:textColor="@color/sxTextSecondary"
                 android:textSize="@dimen/text_small"
-                android:maxLines="3"
+                android:maxLines="2"
                 tools:text="Source: example.com&#10;Cover verified" />
 
             <com.google.android.material.textview.MaterialTextView
@@ -184,42 +184,82 @@
                 android:textSize="@dimen/text_tiny"
                 android:visibility="gone" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/tv_preview"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/min_touch_target"
-                android:layout_marginTop="@dimen/padding_normal"
-                android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
-                android:text="@string/dialog_preview_video"
-                android:textColor="@color/sxTextPrimary"
-                android:textSize="@dimen/text_medium"
-                app:cornerRadius="@dimen/corner_md"
-                app:icon="@drawable/play_circle_24px"
-                app:iconTint="@color/sxTextPrimary"
-                app:strokeColor="@color/sxOutline" />
+                android:layout_marginTop="@dimen/padding_small"
+                android:baselineAligned="false"
+                android:orientation="horizontal">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/tv_download"
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tv_preview"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="@dimen/padding_small"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
+                    android:text="@string/detected_play_online"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textSize="@dimen/text_small"
+                    app:cornerRadius="@dimen/corner_md"
+                    app:icon="@drawable/play_circle_24px"
+                    app:iconTint="@color/sxTextPrimary"
+                    app:strokeColor="@color/sxOutline" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tv_download"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:onClick="@{() -> dialogListener.onDownloadVideo(videoInfo, viewModel.selectedFormats.get(videoInfo.id), viewModel.formatsTitles.get(videoInfo.id))}"
+                    android:text="@string/detected_download"
+                    android:textColor="@color/white"
+                    android:textSize="@dimen/text_small"
+                    app:cornerRadius="@dimen/corner_md"
+                    app:icon="@drawable/ic_download_24dp"
+                    app:iconTint="@color/white" />
+            </LinearLayout>
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/min_touch_target"
-                android:layout_marginTop="@dimen/padding_normal"
-                android:onClick="@{() -> dialogListener.onDownloadVideo(videoInfo, viewModel.selectedFormats.get(videoInfo.id), viewModel.formatsTitles.get(videoInfo.id))}"
-                android:text="@string/dialog_download_video"
-                android:textColor="@color/white"
-                android:textSize="@dimen/text_medium"
-                app:cornerRadius="@dimen/corner_md"
-                app:icon="@drawable/ic_download_24dp"
-                app:iconTint="@color/white" />
+                android:layout_marginTop="@dimen/padding_small"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <com.google.android.material.textview.MaterialTextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/padding_normal"
-                android:text="@string/download_candidate_section"
-                android:textColor="@color/sxTextPrimary"
-                android:textSize="@dimen/text_small"
-                android:textStyle="bold" />
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/download_candidate_section"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textSize="@dimen/text_small"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tv_share"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="@dimen/min_touch_target"
+                    android:layout_height="@dimen/min_touch_target"
+                    android:contentDescription="@string/share_link"
+                    android:insetLeft="0dp"
+                    android:insetTop="0dp"
+                    android:insetRight="0dp"
+                    android:insetBottom="0dp"
+                    android:minWidth="0dp"
+                    android:onClick="@{() -> dialogListener.onFormatUrlShare(videoInfo, viewModel.selectedFormats.get(videoInfo.id))}"
+                    android:padding="0dp"
+                    android:text=""
+                    app:icon="@drawable/share_24px"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconTint="@color/sxTextSecondary" />
+            </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/candidatesList"
@@ -229,19 +269,6 @@
                 android:paddingTop="@dimen/padding_small"
                 android:paddingBottom="@dimen/padding_small" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/tv_share"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/min_touch_target"
-                android:onClick="@{() -> dialogListener.onFormatUrlShare(videoInfo, viewModel.selectedFormats.get(videoInfo.id))}"
-                android:text="@string/share_link"
-                android:textColor="@color/sxTextSecondary"
-                android:textSize="@dimen/text_small"
-                app:cornerRadius="@dimen/corner_md"
-                app:icon="@drawable/share_24px"
-                app:iconTint="@color/sxTextSecondary"
-                app:strokeColor="@color/sxOutline" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 </layout>

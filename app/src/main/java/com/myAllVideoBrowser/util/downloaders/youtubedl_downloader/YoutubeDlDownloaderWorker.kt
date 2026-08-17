@@ -80,9 +80,14 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
             try {
                 bindExecutionInput()
                 executionResources = YoutubeDlExecutionResources(fileUtil)
+                val publisher = YoutubeDlMediaPublisher(
+                    applicationContext,
+                    fileUtil,
+                    downloadTaskLogger
+                ).apply { bindTask(taskId) }
                 finalizationCoordinator = YoutubeDlFinalizationCoordinator(
                     progressRepository,
-                    YoutubeDlMediaPublisher(applicationContext, fileUtil)
+                    publisher
                 )
                 terminalEffects = YoutubeDlTerminalEffects(
                     applicationContext as DLApplication,
@@ -367,7 +372,7 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
             }
         }
 
-        request.addOption("-o", "${tmpFile.absolutePath}/${fileName}.%(ext)s")
+        request.addOption("-o", youtubeDlOutputTemplate(tmpFile, fileName))
 
         vFormat.httpHeaders?.forEach {
             if (it.key != "Cookie") {
@@ -812,4 +817,9 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
         notificationsHelper.hideNotification(taskId.hashCode())
         notificationsHelper.hideNotification(taskId.hashCode() + 1)
     }
+}
+
+internal fun youtubeDlOutputTemplate(directory: File, requestedName: String): String {
+    val baseName = File(requestedName).nameWithoutExtension.ifBlank { "download" }
+    return "${directory.absolutePath}/$baseName.%(ext)s"
 }

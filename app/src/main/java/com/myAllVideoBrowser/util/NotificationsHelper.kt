@@ -72,7 +72,7 @@ class NotificationsHelper(private val context: Context) {
                 builder.setSubText("pause")
                 builder.setProgress(100, taskPercent.toInt(), false)
                 builder.setOngoing(false).setSmallIcon(android.R.drawable.stat_sys_download)
-                builder.addAction(createResumeBroadcastMessage(task.mId))
+                builder.addAction(createResumeBroadcastMessage(task.mId, R.string.progress_menu_resume))
                 builder.addAction(createCancelBroadcastMessage(task.mId))
             }
 
@@ -98,7 +98,7 @@ class NotificationsHelper(private val context: Context) {
                 builder.setOngoing(false).setSmallIcon(android.R.drawable.stat_sys_download_done)
                 builder.setContentIntent(notificationIntentOpen(taskId, isFinished = true, isError = true))
                 builder.addAction(action)
-                builder.addAction(createResumeBroadcastMessage(task.mId))
+                builder.addAction(createResumeBroadcastMessage(task.mId, R.string.progress_menu_retry))
             }
 
             VideoTaskState.CANCELED -> {
@@ -201,14 +201,17 @@ class NotificationsHelper(private val context: Context) {
         )
     }
 
-    private fun createResumeBroadcastMessage(taskId: String): NotificationCompat.Action {
+    private fun createResumeBroadcastMessage(
+        taskId: String,
+        titleRes: Int
+    ): NotificationCompat.Action {
         val intent = Intent(context, NotificationReceiver::class.java)
         intent.putExtra(NotificationReceiver.TASK_ID, taskId)
         intent.action = NotificationReceiver.ACTION_RESUME
 
         return NotificationCompat.Action(
             android.R.drawable.stat_sys_download_done,
-            context.resources.getString(R.string.progress_menu_resume),
+            context.resources.getString(titleRes),
             createActionIntent(intent, requestCode(taskId, ACTION_RESUME_SUFFIX))!!
         )
     }

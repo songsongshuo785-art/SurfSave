@@ -50,4 +50,11 @@ class DownloadEngineRouter @Inject constructor() {
             else -> YoutubeDlDownloader.stopAndSaveDownload(context, task)
         }
     }
+
+    fun recoverFinalization(context: Context, task: ProgressInfo) {
+        require(!task.videoInfo.isRegularDownload && !task.videoInfo.isDetectedBySuperX) {
+            "Only yt-dlp tasks support finalization recovery."
+        }
+        YoutubeDlDownloader.recoverFinalization(context, task)
+    }
 }

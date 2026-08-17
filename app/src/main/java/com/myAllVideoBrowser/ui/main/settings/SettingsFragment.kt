@@ -127,7 +127,7 @@ class SettingsFragment : BaseFragment() {
                 return
             }
             dataBinding.tvSearchEngineSummary.text = getSearchEngineLabel(
-                settingsViewModel.searchEngine.get() ?: SharedPrefHelper.SearchEngine.BING
+            settingsViewModel.searchEngine.get() ?: SharedPrefHelper.DEFAULT_SEARCH_ENGINE
             )
         }
     }
@@ -630,7 +630,7 @@ class SettingsFragment : BaseFragment() {
     private fun showSearchEngineDialog() {
         val engines = SharedPrefHelper.SearchEngine.entries.toTypedArray()
         val labels = engines.map { getSearchEngineLabel(it) }.toTypedArray()
-        val current = settingsViewModel.searchEngine.get() ?: SharedPrefHelper.SearchEngine.BING
+        val current = settingsViewModel.searchEngine.get() ?: SharedPrefHelper.DEFAULT_SEARCH_ENGINE
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(R.string.search_engine)
             .setSingleChoiceItems(labels, engines.indexOf(current).coerceAtLeast(0)) { dialog, which ->

@@ -56,7 +56,7 @@ class SettingsViewModel @Inject constructor(
     val isRemuxOnlyLiveRegularDownloads = ObservableBoolean(false)
     val isInterruptIntreceptedResources = ObservableBoolean(false)
     val isUseLegacyM3u8Detection = ObservableBoolean(false)
-    val searchEngine = ObservableField(SharedPrefHelper.SearchEngine.BING)
+    val searchEngine = ObservableField(SharedPrefHelper.DEFAULT_SEARCH_ENGINE)
     val filenameTemplate = ObservableField(DownloadFilenameTemplate.DEFAULT_TEMPLATE)
     val cookieProfileSummary = ObservableField("")
     val ytdlpVersion = ObservableField("")

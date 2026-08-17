@@ -8,7 +8,9 @@ import androidx.core.net.toUri
 import androidx.work.WorkerParameters
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.DownloadedMediaValidator
+import com.myAllVideoBrowser.util.ErrorLogRecorder
 import com.myAllVideoBrowser.util.FfmpegProcessor
+import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.GenericDownloader
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskItem
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
@@ -221,21 +223,48 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
                 throw Error("Downloaded source is not available for publication")
             }
             AppLogger.d("START MOVING... $finalSource -> $target")
-            fileMovedSuccess =
-                fileUtil.moveMedia(applicationContext, finalSource, targetFile.toUri())
-            AppLogger.d("END MOVING... fileMovedSuccess: $fileMovedSuccess")
-
+            val moveResult = try {
+                fileUtil.moveMediaWithReason(
+                    applicationContext, finalSource, targetFile.toUri()
+                )
+            } catch (error: Throwable) {
+                FileUtil.MoveResult(false, error.message ?: "File Move error", error.stackTraceToString())
+            }
+            fileMovedSuccess = moveResult.ok
             if (!fileMovedSuccess) {
-                throw Error("File Move error")
+                val detail = moveResult.detail?.takeIf { it.isNotBlank() }
+                    ?: moveResult.reason ?: "File Move error"
+                ErrorLogRecorder.recordPublicationFailure(
+                    engine = "Regular",
+                    taskId = item.mId,
+                    message = moveResult.reason ?: "File Move error",
+                    detail = detail,
+                    taskLogger = downloadTaskLogger
+                )
+                throw Error(moveResult.reason ?: "File Move error")
             }
             val finalUri = fileUtil.resolveMediaUri(applicationContext, targetFile)
-                ?: throw Error("Published media URI is missing")
+                ?: run {
+                    val message = "Published media URI is missing"
+                    ErrorLogRecorder.recordPublicationFailure(
+                        "Regular", item.mId, message,
+                        "target=${targetFile.absolutePath}", downloadTaskLogger
+                    )
+                    throw Error(message)
+                }
             val validationError = DownloadedMediaValidator.validate(
                 applicationContext,
                 finalUri,
                 item.isLive
             )
             if (validationError != null) {
+                ErrorLogRecorder.recordPublicationFailure(
+                    "Regular",
+                    item.mId,
+                    validationError,
+                    "uri=$finalUri",
+                    downloadTaskLogger
+                )
                 finishWork(item.also {
                     it.taskState = VideoTaskState.ERROR
                     it.errorMessage = validationError
@@ -245,7 +274,17 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
             }
 
             val finalSize = fileUtil.getContentLength(applicationContext, finalUri)
-            if (finalSize <= 0L) throw Error("Published media size is invalid")
+            if (finalSize <= 0L) {
+                val message = "Published media size is invalid"
+                ErrorLogRecorder.recordPublicationFailure(
+                    "Regular",
+                    item.mId,
+                    message,
+                    "uri=$finalUri size=$finalSize",
+                    downloadTaskLogger
+                )
+                throw Error(message)
+            }
             if (finalSource.scheme == "file") {
                 finalSource.path?.let(::File)?.parentFile?.deleteRecursively()
             }

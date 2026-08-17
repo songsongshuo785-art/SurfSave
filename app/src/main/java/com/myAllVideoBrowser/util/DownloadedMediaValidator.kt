@@ -3,7 +3,6 @@ package com.myAllVideoBrowser.util
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
-import android.provider.OpenableColumns
 import java.io.File
 import java.io.InputStream
 import java.util.Locale
@@ -36,7 +35,7 @@ object DownloadedMediaValidator {
         }
 
         val resolver = context.contentResolver
-        val length = queryLength(resolver, uri)
+        val length = ContentLengthResolver.resolve(context, uri).length
             ?: return "Downloaded media size is unavailable"
         return validateSource(length) { resolver.openInputStream(uri) }
     }
@@ -84,28 +83,6 @@ object DownloadedMediaValidator {
         }
 
         return "Downloaded media container is unsupported or could not be identified"
-    }
-
-    private fun queryLength(resolver: ContentResolver, uri: Uri): Long? {
-        val cursorLength = runCatching {
-            resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
-                val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
-                if (sizeColumn >= 0 && cursor.moveToFirst() && !cursor.isNull(sizeColumn)) {
-                    cursor.getLong(sizeColumn).takeIf { it >= 0L }
-                } else {
-                    null
-                }
-            }
-        }.getOrNull()
-        if (cursorLength != null) {
-            return cursorLength
-        }
-
-        return runCatching {
-            resolver.openAssetFileDescriptor(uri, "r")?.use { descriptor ->
-                descriptor.length.takeIf { it >= 0L }
-            }
-        }.getOrNull()
     }
 
     private fun readProbe(input: InputStream): ByteArray {

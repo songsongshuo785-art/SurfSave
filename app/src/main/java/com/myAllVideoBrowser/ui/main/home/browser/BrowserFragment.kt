@@ -34,6 +34,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.snackbar.Snackbar
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.FragmentBrowserBinding
 import com.myAllVideoBrowser.ui.component.adapter.dispatchListDiff
@@ -56,6 +57,7 @@ import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import io.reactivex.rxjava3.disposables.CompositeDisposable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 
@@ -191,6 +193,15 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
     private var backPressedOnce = false
 
+    private data class ClosedTabSnapshot(
+        val tab: WebTab,
+        val originalIndex: Int,
+        val wasSelected: Boolean
+    )
+
+    private var pendingClosedTab: ClosedTabSnapshot? = null
+    private var tabUndoSnackbar: Snackbar? = null
+
     private lateinit var requestInspector: BrowserRequestInspector
 
     private val buttonStateCallback = object :
@@ -205,6 +216,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
     private val currentTabCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            syncWebViewPlaybackState()
             markCurrentTabActive()
             scheduleBrowserTabsUiSync()
             browserViewModel.persistSession()
@@ -444,6 +456,9 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     }
 
     override fun onDestroyView() {
+        finalizePendingClosedTab()
+        tabUndoSnackbar?.dismiss()
+        tabUndoSnackbar = null
         mainHandler.removeCallbacks(tabsUiSyncRunnable)
         tabsUiSyncScheduled = false
         clearServiceWorkerInterception()
@@ -589,38 +604,128 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
     private fun handleCloseWebTabEventEvent() {
         browserViewModel.closePageEvent.observe(viewLifecycleOwner) { webTab ->
-            val tabs =
-                browserViewModel.tabs.get()?.toMutableList() ?: mutableListOf(WebTab.HOME_TAB)
-            val tabToClose = tabs.find { it.id == webTab.id }
-            val index = tabs.indexOf(tabToClose)
-            if (index !in tabs.indices || index == HOME_TAB_INDEX) {
-                return@observe
-            }
-
-            BrowserThumbnailStore.delete(tabToClose?.getPageThumbnailPath())
-            destroyTabWebView(tabToClose)
-            tabs.removeAt(index)
-
-            val currentIndex = browserViewModel.currentTab.get()
-            when {
-                currentIndex == index -> {
-                    val newIndex = (index - 1).coerceAtLeast(HOME_TAB_INDEX)
-                    browserViewModel.currentTab.set(newIndex)
-                }
-
-                currentIndex > index -> {
-                    browserViewModel.currentTab.set((currentIndex - 1).coerceAtLeast(HOME_TAB_INDEX))
-                }
-
-                currentIndex >= tabs.size -> {
-                    browserViewModel.currentTab.set(tabs.lastIndex.coerceAtLeast(HOME_TAB_INDEX))
-                }
-            }
-
-            browserViewModel.tabs.set(tabs)
-            syncBrowserTabsUi()
-            browserViewModel.persistSession()
+            closeWebTab(webTab)
         }
+    }
+
+    private fun closeWebTab(webTab: WebTab) {
+        val tabs =
+            browserViewModel.tabs.get()?.toMutableList() ?: mutableListOf(WebTab.HOME_TAB)
+        val tabToClose = tabs.find { it.id == webTab.id }
+        val index = tabs.indexOf(tabToClose)
+        if (index !in tabs.indices || index == HOME_TAB_INDEX) {
+            return
+        }
+
+        finalizePendingClosedTab()
+        tabUndoSnackbar?.dismiss()
+
+        val currentIndex = browserViewModel.currentTab.get()
+        val wasSelected = currentIndex == index
+        tabToClose?.saveWebViewState()
+        val snapshotTab = tabToClose?.copyWith(webview = null) ?: return
+        detachAndDestroyWebView(tabToClose.getWebView())
+        tabToClose.setWebView(null)
+        tabs.removeAt(index)
+
+        val nextIndex = BrowserTabIndexPolicy.selectedIndexAfterClose(
+            currentIndex = currentIndex,
+            closedIndex = index,
+            remainingTabCount = tabs.size
+        )
+
+        browserViewModel.tabs.set(tabs)
+        if (browserViewModel.currentTab.get() != nextIndex) {
+            browserViewModel.currentTab.set(nextIndex)
+        } else {
+            syncWebViewPlaybackState(tabs, nextIndex)
+        }
+        syncBrowserTabsUi()
+        browserViewModel.persistSession()
+
+        val snapshot = ClosedTabSnapshot(snapshotTab, index, wasSelected)
+        pendingClosedTab = snapshot
+        showClosedTabUndo(snapshot)
+    }
+
+    private fun showClosedTabUndo(snapshot: ClosedTabSnapshot) {
+        if (!::dataBinding.isInitialized) {
+            finalizePendingClosedTab(snapshot)
+            return
+        }
+
+        val snackbar = Snackbar.make(
+            dataBinding.drawerLayout,
+            R.string.browser_tab_closed,
+            BrowserTabUndoPolicy.DURATION_MS
+        ).setAction(R.string.undo) {
+            restoreClosedTab(snapshot)
+        }
+        snackbar.addCallback(object : Snackbar.Callback() {
+            override fun onDismissed(transientBottomBar: Snackbar?, event: Int) {
+                if (event != DISMISS_EVENT_ACTION) {
+                    finalizePendingClosedTab(snapshot)
+                }
+                if (tabUndoSnackbar === transientBottomBar) {
+                    tabUndoSnackbar = null
+                }
+            }
+        })
+        tabUndoSnackbar = snackbar
+        snackbar.show()
+    }
+
+    private fun restoreClosedTab(snapshot: ClosedTabSnapshot) {
+        if (pendingClosedTab !== snapshot) {
+            return
+        }
+
+        pendingClosedTab = null
+        val tabs = browserViewModel.tabs.get().orEmpty().ifEmpty { listOf(WebTab.HOME_TAB) }
+            .toMutableList()
+        val selectedTabId = tabs.getOrNull(browserViewModel.currentTab.get())?.id
+        val restoredId = UUID.randomUUID().toString()
+        val restoredThumbnail = snapshot.tab.getPageThumbnail()
+            ?.takeIf(BrowserThumbnailQuality::isUsable)
+            ?: BrowserThumbnailStore.load(snapshot.tab.getPageThumbnailPath())
+        val restoredThumbnailPath = BrowserThumbnailStore.save(restoredId, restoredThumbnail)
+            ?: snapshot.tab.getPageThumbnailPath()
+        if (restoredThumbnailPath != snapshot.tab.getPageThumbnailPath()) {
+            BrowserThumbnailStore.delete(snapshot.tab.getPageThumbnailPath())
+        }
+        val restoredTab = snapshot.tab.copyWith(
+            pageThumbnail = restoredThumbnail,
+            pageThumbnailPath = restoredThumbnailPath,
+            webview = null,
+            id = restoredId
+        )
+        val restoredIndex = BrowserTabIndexPolicy.restoredInsertionIndex(
+            originalIndex = snapshot.originalIndex,
+            currentTabCount = tabs.size
+        )
+        tabs.add(restoredIndex, restoredTab)
+        browserViewModel.tabs.set(tabs)
+
+        val targetIndex = if (snapshot.wasSelected) {
+            restoredIndex
+        } else {
+            tabs.indexOfFirst { it.id == selectedTabId }
+                .takeIf { it >= HOME_TAB_INDEX }
+                ?: browserViewModel.currentTab.get().coerceIn(HOME_TAB_INDEX, tabs.lastIndex)
+        }
+        browserViewModel.currentTab.set(targetIndex)
+        syncBrowserTabsUi()
+        browserViewModel.persistSession()
+    }
+
+    private fun finalizePendingClosedTab(snapshot: ClosedTabSnapshot? = pendingClosedTab) {
+        if (snapshot == null || pendingClosedTab !== snapshot) {
+            return
+        }
+
+        BrowserThumbnailStore.delete(snapshot.tab.getPageThumbnailPath())
+        snapshot.tab.clearSavedState()
+        pendingClosedTab = null
     }
 
     private fun openNewTabPage() {
@@ -685,7 +790,8 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     }
 
     private fun resolveThumbnailBitmap(tab: WebTab): android.graphics.Bitmap? {
-        return tab.getPageThumbnail() ?: BrowserThumbnailStore.load(tab.getPageThumbnailPath())
+        return tab.getPageThumbnail()?.takeIf(BrowserThumbnailQuality::isUsable)
+            ?: BrowserThumbnailStore.load(tab.getPageThumbnailPath())
     }
 
     private fun syncBrowserTabsUi() {
@@ -755,6 +861,20 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
             ?.saveWebViewState()
     }
 
+    private fun syncWebViewPlaybackState(
+        tabs: List<WebTab> = browserViewModel.tabs.get().orEmpty(),
+        currentIndex: Int = browserViewModel.currentTab.get()
+    ) {
+        tabs.forEachIndexed { index, tab ->
+            val webView = tab.getWebView() ?: return@forEachIndexed
+            if (!tab.isHome() && index == currentIndex) {
+                WebViewMediaController.resume(webView)
+            } else {
+                WebViewMediaController.pause(webView)
+            }
+        }
+    }
+
     private fun enforceLiveWebViewBudget(tabs: List<WebTab>) {
         if (tabs.count { !it.isHome() && it.getWebView() != null } <= MAX_LIVE_WEB_TABS) {
             return
@@ -782,23 +902,13 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
             }
     }
 
-    private fun destroyTabWebView(tab: WebTab?) {
-        if (tab == null || tab.isHome()) {
-            return
-        }
-
-        tab.saveWebViewState()
-        detachAndDestroyWebView(tab.getWebView())
-        tab.setWebView(null)
-        tab.clearSavedState()
-    }
-
     private fun detachAndDestroyWebView(webView: WebView?) {
         if (webView == null) {
             return
         }
 
         runCatching {
+            WebViewMediaController.pause(webView)
             (webView.parent as? ViewGroup)?.removeView(webView)
             webView.stopLoading()
             webView.webChromeClient = null
@@ -894,20 +1004,38 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         val rootPagerIndex = mainActivity.mainViewModel.currentItem.get() ?: 0
         if (rootPagerIndex > 0) {
             mainActivity.mainViewModel.currentItem.set(HOME_TAB_INDEX)
+            return
         }
-        if (rootPagerIndex == HOME_TAB_INDEX) {
-            if (backPressedOnce) {
-                requireActivity().finish()
-                return
+
+        val tabs = browserViewModel.tabs.get().orEmpty()
+        val currentIndex = browserViewModel.currentTab.get()
+        val currentTab = tabs.getOrNull(currentIndex)
+        if (currentIndex > HOME_TAB_INDEX && currentTab != null) {
+            val webView = currentTab.getWebView()
+            if (webView?.canGoBack() == true) {
+                val history = runCatching { webView.copyBackForwardList() }.getOrNull()
+                AppLogger.d(
+                    "BROWSER_BACK_FALLBACK: tab=${currentTab.id} entries=${history?.size ?: 0} " +
+                        "index=${history?.currentIndex ?: -1}"
+                )
+                webView.goBack()
+            } else {
+                closeWebTab(currentTab)
             }
-
-            backPressedOnce = true
-            Toast.makeText(requireContext(), R.string.press_back_again_to_exit, Toast.LENGTH_SHORT).show()
-
-            Handler(Looper.getMainLooper()).postDelayed({
-                backPressedOnce = false
-            }, 2000)
+            return
         }
+
+        if (backPressedOnce) {
+            requireActivity().finish()
+            return
+        }
+
+        backPressedOnce = true
+        Toast.makeText(requireContext(), R.string.press_back_again_to_exit, Toast.LENGTH_SHORT).show()
+
+        Handler(Looper.getMainLooper()).postDelayed({
+            backPressedOnce = false
+        }, 2000)
     }
 
     private val onGoThroughListener = object : OnGoThroughListener {

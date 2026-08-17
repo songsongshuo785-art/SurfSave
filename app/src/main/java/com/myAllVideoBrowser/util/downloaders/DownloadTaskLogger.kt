@@ -20,7 +20,7 @@ class DownloadTaskLogger @Inject constructor(
         private const val LOG_DIR = "download_logs"
 
         private val sensitiveLineRegex = Regex(
-            "(?i)\\b(cookie|authorization|x-auth-token|set-cookie)\\b\\s*[:=]\\s*[^\\r\\n;]+"
+            "(?i)\\b(cookie|authorization|x-auth-token|set-cookie)\\b\\s*[:=]\\s*[^\\r\\n]+"
         )
         private val sensitiveQueryRegex = Regex(
             "(?i)([?&](token|access_token|refresh_token|auth|authorization|signature|sig|key|password|pass|session|cookie)=)[^&\\s]+"

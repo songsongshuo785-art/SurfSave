@@ -9,7 +9,7 @@ class DownloadTaskLoggerTest {
     @Test
     fun redact_hidesSensitiveHeadersAndQueryParams() {
         val raw = """
-            Cookie: session=secret
+            Cookie: session=secret; secondary=also-secret
             Authorization: Bearer abc
             https://example.com/video.mp4?token=secret&quality=720&signature=abc
         """.trimIndent()
@@ -17,6 +17,7 @@ class DownloadTaskLoggerTest {
         val redacted = DownloadTaskLogger.redact(raw)
 
         assertFalse(redacted.contains("session=secret"))
+        assertFalse(redacted.contains("also-secret"))
         assertFalse(redacted.contains("Bearer abc"))
         assertFalse(redacted.contains("token=secret"))
         assertFalse(redacted.contains("signature=abc"))

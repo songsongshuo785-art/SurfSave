@@ -10,7 +10,7 @@ object BrowserThumbnailStore {
     private const val MAX_THUMBNAIL_COUNT = 80
 
     fun save(tabId: String, bitmap: Bitmap?): String? {
-        if (bitmap == null || tabId.isBlank()) {
+        if (tabId.isBlank() || !BrowserThumbnailQuality.isUsable(bitmap)) {
             return null
         }
 
@@ -22,8 +22,9 @@ object BrowserThumbnailStore {
 
             val file = File(dir, safeFileName(tabId))
             FileOutputStream(file).use { stream ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream)
+                check(bitmap!!.compress(Bitmap.CompressFormat.JPEG, 88, stream))
             }
+            check(file.length() > 0L)
             trimCache(dir, file.name)
             file.absolutePath
         }.getOrNull()
@@ -39,7 +40,13 @@ object BrowserThumbnailStore {
             if (!file.exists()) {
                 null
             } else {
-                BitmapFactory.decodeFile(file.absolutePath)
+                val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                if (BrowserThumbnailQuality.isUsable(bitmap)) {
+                    bitmap
+                } else {
+                    file.delete()
+                    null
+                }
             }
         }.getOrNull()
     }

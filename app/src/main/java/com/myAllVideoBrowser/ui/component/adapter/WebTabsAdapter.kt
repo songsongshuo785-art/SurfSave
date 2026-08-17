@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.ItemWebTabButtonBinding
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTab
+import com.myAllVideoBrowser.util.BrowserThumbnailQuality
 import com.myAllVideoBrowser.util.BrowserThumbnailStore
 import com.myAllVideoBrowser.util.UrlInputNormalizer
 
@@ -139,7 +140,7 @@ class WebTabsAdapter(
         }
 
         private fun resolvePreview(webTab: WebTab): Bitmap? {
-            return webTab.getPageThumbnail()
+            return webTab.getPageThumbnail()?.takeIf(BrowserThumbnailQuality::isUsable)
                 ?: BrowserThumbnailStore.load(webTab.getPageThumbnailPath())
         }
 

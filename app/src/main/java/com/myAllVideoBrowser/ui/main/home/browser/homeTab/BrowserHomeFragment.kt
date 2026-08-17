@@ -9,14 +9,12 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.widget.EditText
+import android.view.KeyEvent
 import android.widget.PopupMenu
 import android.widget.Toast
-import androidx.activity.addCallback
 import androidx.databinding.Observable
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewModelScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.room.entity.PageInfo
@@ -37,7 +35,6 @@ import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabFactory
 import com.myAllVideoBrowser.util.AppUtil
 import com.myAllVideoBrowser.util.UrlInputNormalizer
 import java.util.Locale
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 interface BrowserHomeListener : BrowserListener {
@@ -130,17 +127,19 @@ class BrowserHomeFragment : BaseWebTabFragment() {
             this.homeCommonSitesGrid.adapter = homeSitesAdapter
             this.homeCommonSitesGrid.isNestedScrollingEnabled = false
             this.homeEtSearch.addTextChangedListener(onInputHomeSearchChangeListener)
-            this.homeEtSearch.imeOptions = EditorInfo.IME_ACTION_DONE
-            this.homeEtSearch.setOnEditorActionListener { _, actionId, _ ->
-                if (actionId == EditorInfo.IME_ACTION_DONE) {
-                    this.homeEtSearch.clearFocus()
-                    viewModel?.viewModelScope?.launch {
-                        val inputText = (this@apply.homeEtSearch as EditText).text.toString()
-                        this@apply.homeEtSearch.text.clear()
-                        openNewTab(inputText)
-                    }
-                    false
-                } else false
+            this.homeEtSearch.imeOptions = EditorInfo.IME_ACTION_SEARCH
+            this.homeEtSearch.setOnEditorActionListener { _, actionId, event ->
+                val shouldSubmit = actionId == EditorInfo.IME_ACTION_SEARCH ||
+                    actionId == EditorInfo.IME_ACTION_DONE ||
+                    (event?.keyCode == KeyEvent.KEYCODE_ENTER &&
+                        event.action == KeyEvent.ACTION_UP)
+                if (shouldSubmit) {
+                    submitHomeSearch()
+                }
+                shouldSubmit
+            }
+            this.homeSearchButton.setOnClickListener {
+                submitHomeSearch()
             }
             this.homeTabsCard.setOnClickListener {
                 openTabsOverview()
@@ -162,14 +161,6 @@ class BrowserHomeFragment : BaseWebTabFragment() {
                 if (sharedPrefHelper.isHomeSocialGuideDismissed()) View.GONE else View.VISIBLE
             updateHomeTabsButtonContentDescription()
             updateHomeSites()
-        }
-
-        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner) {
-            if (parentFragmentManager.backStackEntryCount > 0) {
-                parentFragmentManager.popBackStack()
-            } else {
-                requireActivity().finish()
-            }
         }
 
         return binding.root
@@ -225,6 +216,20 @@ class BrowserHomeFragment : BaseWebTabFragment() {
                     searchUrlPattern = sharedPrefHelper.getSearchUrlPattern()
                 )
         }
+    }
+
+    private fun submitHomeSearch() {
+        val input = binding.homeEtSearch.text?.toString()?.trim().orEmpty()
+        if (input.isBlank()) {
+            binding.homeEtSearch.requestFocus()
+            appUtil.showSoftKeyboard(binding.homeEtSearch)
+            return
+        }
+
+        binding.homeEtSearch.clearFocus()
+        appUtil.hideSoftKeyboard(binding.homeEtSearch)
+        binding.homeEtSearch.text?.clear()
+        openNewTab(input)
     }
 
     private fun openClipboardLink() {

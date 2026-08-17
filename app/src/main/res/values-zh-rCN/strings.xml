@@ -6,7 +6,11 @@
     <string name="forward">前进</string>
     <string name="title_settings">设置</string>
     <string name="browser_search_hint">搜索或输入网址</string>
+    <string name="home_search_action">搜索</string>
+    <string name="progress_menu_retry">重试</string>
     <string name="dialog_preview_video">用 SurfSave 播放</string>
+    <string name="detected_play_online">在线播放</string>
+    <string name="detected_download">下载</string>
     <string name="dialog_download_video">下载视频</string>
     <string name="dialog_download_cancel">取消</string>
     <string name="video_menu_rename">重命名</string>
@@ -58,6 +62,8 @@
     <string name="tabs">标签页</string>
     <string name="tabs_with_count_title">标签页（%1$d）</string>
     <string name="tab_limit_reached">最多可打开 %1$d 个标签页。</string>
+    <string name="browser_tab_closed">已关闭标签页</string>
+    <string name="undo">撤回</string>
     <string name="press_back_again_to_exit">再按一次返回键退出</string>
     <string name="cookies_cleared">Cookies 已清除</string>
     <string name="download_started">已开始下载。</string>
@@ -69,6 +75,9 @@
     <string name="download_detail_error">错误详情</string>
     <string name="download_detail_log_tail">最近日志</string>
     <string name="download_log_empty">暂无日志。</string>
+    <string name="latest_error_log_view">最近错误日志</string>
+    <string name="latest_error_log_title">最近下载错误日志</string>
+    <string name="latest_error_log_empty">尚未捕获到详细错误日志，请先触发一次失败的下载。</string>
     <string name="error_compact_format">%1$s · %2$s</string>
     <string name="error_explanation_with_detail">%1$s\n详情：%2$s</string>
     <string name="error_network_title">网络连接异常</string>

@@ -61,6 +61,7 @@ import com.myAllVideoBrowser.ui.component.adapter.SuggestionTabListener
 import com.myAllVideoBrowser.ui.component.adapter.TabSuggestionAdapter
 import com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener
 import com.myAllVideoBrowser.ui.main.home.browser.BaseWebTabFragment
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserBackPolicy
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserFragment
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserListener
 import com.myAllVideoBrowser.ui.main.home.browser.CurrentTabIndexProvider
@@ -77,12 +78,15 @@ import com.myAllVideoBrowser.ui.main.home.browser.PageTabProvider
 import com.myAllVideoBrowser.ui.main.home.browser.TAB_INDEX_KEY
 import com.myAllVideoBrowser.ui.main.home.browser.TabManagerProvider
 import com.myAllVideoBrowser.ui.main.home.browser.WorkerEventProvider
+import com.myAllVideoBrowser.ui.main.home.browser.WebTabBackAction
+import com.myAllVideoBrowser.ui.main.home.browser.WebViewMediaController
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.DetectedVideosTabFragment
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerActivity
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerFragment
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.AppUtil
+import com.myAllVideoBrowser.util.BrowserThumbnailStore
 import com.myAllVideoBrowser.util.FileNameCleaner
 import com.myAllVideoBrowser.util.VideoFormatUi
 import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
@@ -117,6 +121,8 @@ class WebTabFragment : BaseWebTabFragment() {
 
         private val MEDIA_PROBE_SCRIPT = """
             (function() {
+                ${WebViewMediaController.installPauseListenerScript}
+
                 if (window.__superxMediaProbeInstalled) {
                     return;
                 }
@@ -697,6 +703,8 @@ class WebTabFragment : BaseWebTabFragment() {
 
     private lateinit var webTab: WebTab
 
+    private var customWebChromeClient: CustomWebChromeClient? = null
+
     private var videoToast: Toast? = null
 
     private var canGoCounter = 0
@@ -704,6 +712,8 @@ class WebTabFragment : BaseWebTabFragment() {
     private var translateJob: Job? = null
     private var thumbnailJob: Job? = null
     private var playerRecoveryJob: Job? = null
+    private var thumbnailTransitionInProgress = false
+    private var tabCloseCaptureInProgress = false
     private var mediaProbeScriptHandler: ScriptHandler? = null
     private val mediaProbeBridge = MediaProbeBridge()
     private val recentMediaProbeEvents = mutableMapOf<String, Long>()
@@ -725,7 +735,7 @@ class WebTabFragment : BaseWebTabFragment() {
         val text: String
     )
 
-    private val backPressedCallback = object : OnBackPressedCallback(true) {
+    private val backPressedCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
             handleOnBackPress()
         }
@@ -1032,6 +1042,7 @@ class WebTabFragment : BaseWebTabFragment() {
 
     override fun buildBrowserDiagnosticsReport(): String {
         val webView = webTab.getWebView()
+        val backForwardList = runCatching { webView?.copyBackForwardList() }.getOrNull()
         val tabs = tabManagerProvider.getTabsListChangeEvent().get().orEmpty()
         val webTabsCount = tabs.count { !it.isHome() }
         val currentUrl = webView?.url ?: webTab.getUrl()
@@ -1051,6 +1062,8 @@ class WebTabFragment : BaseWebTabFragment() {
             appendLine("Address text: ${tabViewModel.tabDisplayText.get().orEmpty()}")
             appendLine("Can go back: ${webView?.canGoBack() == true}")
             appendLine("Can go forward: ${webView?.canGoForward() == true}")
+            appendLine("History entries: ${backForwardList?.size ?: 0}")
+            appendLine("History index: ${backForwardList?.currentIndex ?: -1}")
             appendLine("Loading: ${tabViewModel.isShowProgress.get()} (${tabViewModel.progress.get()}%)")
             appendLine("Detected videos: ${videoDetectionTabViewModel.detectedVideosCount.get()}")
             appendLine("User agent: $userAgent")
@@ -1058,12 +1071,18 @@ class WebTabFragment : BaseWebTabFragment() {
     }
 
     override fun openTabsOverview() {
-        captureVisibleTabThumbnail()
-        super.openTabsOverview()
+        runAfterThumbnailCapture { openTabsOverviewAfterCapture() }
     }
 
     override fun openNewTabPage() {
-        captureVisibleTabThumbnail()
+        runAfterThumbnailCapture { openNewTabPageAfterCapture() }
+    }
+
+    private fun openTabsOverviewAfterCapture() {
+        super.openTabsOverview()
+    }
+
+    private fun openNewTabPageAfterCapture() {
         super.openNewTabPage()
     }
 
@@ -1119,6 +1138,7 @@ class WebTabFragment : BaseWebTabFragment() {
         dataBinding.fab.animate().cancel()
         webTab.saveWebViewState()
         webTab.getWebView()?.let { detachWebView(it) }
+        customWebChromeClient = null
         super.onDestroyView()
     }
 
@@ -1126,19 +1146,17 @@ class WebTabFragment : BaseWebTabFragment() {
         AppLogger.d("onPause Webview::::::::: ${webTab.getUrl()}")
         captureVisibleTabThumbnail()
         webTab.saveWebViewState()
-        super.onPause()
+        customWebChromeClient?.hideCustomViewIfShown()
         onWebViewPause()
-        backPressedCallback.remove()
+        backPressedCallback.isEnabled = false
+        super.onPause()
     }
 
     override fun onResume() {
         AppLogger.d("onResume Webview::::::::: ${webTab.getUrl()}")
         super.onResume()
         onWebViewResume()
-
-        activity?.onBackPressedDispatcher?.addCallback(
-            viewLifecycleOwner, backPressedCallback
-        )
+        updateBackPressedCallbackState()
         updateNavigationButtons()
     }
 
@@ -1151,6 +1169,7 @@ class WebTabFragment : BaseWebTabFragment() {
         removeMediaProbeScriptHandler()
         tabViewModel.stop()
         videoDetectionTabViewModel.stop()
+        mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRouteCallBack)
         tabManagerProvider.getTabsListChangeEvent()
             .removeOnPropertyChangedCallback(tabsListChangeListener)
     }
@@ -1199,9 +1218,7 @@ class WebTabFragment : BaseWebTabFragment() {
         val selectedFormat = VideoFormatUi.findFormat(videoInfo, format)
 
         // 开播前暂停网页内所有 <video>/<audio>，避免和 SurfSave 播放器双声道；try/catch 防页面脚本异常
-        webTab.getWebView()?.evaluateJavascript(
-            "try{document.querySelectorAll('video,audio').forEach(function(v){v.pause()})}catch(e){}", null
-        )
+        WebViewMediaController.pause(webTab.getWebView())
 
         val intent = Intent(requireContext(), VideoPlayerActivity::class.java).apply {
             putExtra(VideoPlayerFragment.VIDEO_NAME, videoInfo.title)
@@ -1299,6 +1316,7 @@ class WebTabFragment : BaseWebTabFragment() {
             appUtil,
             mainActivity
         )
+        customWebChromeClient = chromeClient
 
         currentWebView?.webChromeClient = chromeClient
         currentWebView?.webViewClient = webViewClient
@@ -1636,25 +1654,57 @@ class WebTabFragment : BaseWebTabFragment() {
         }
     }
 
-    private fun captureVisibleTabThumbnail(webView: WebView? = webTab.getWebView()) {
+    private fun captureVisibleTabThumbnail(
+        webView: WebView? = webTab.getWebView(),
+        onComplete: () -> Unit = {}
+    ) {
         if (!isAdded || webView == null) {
+            onComplete()
             return
         }
 
-        val bitmap = WebTabThumbnailCapture.capture(webView) ?: return
+        val expectedTabId = webTab.id
+        val expectedUrl = webView.url.orEmpty()
+        WebTabThumbnailCapture.capture(activity?.window, webView) { bitmap ->
+            try {
+                val pageTab = runCatching {
+                    pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+                }.getOrNull()
+                val captureStillMatchesPage = bitmap != null &&
+                    isAdded &&
+                    webTab.id == expectedTabId &&
+                    webTab.getWebView() === webView &&
+                    webView.url.orEmpty() == expectedUrl
+                if (captureStillMatchesPage) {
+                    pageTab?.takeIf { it.id == expectedTabId }?.let { currentPageTab ->
+                        val thumbnailPath = BrowserThumbnailStore.save(expectedTabId, bitmap)
+                        tabManagerProvider.getUpdateTabEvent().value = currentPageTab.copyWith(
+                            url = webView.url ?: currentPageTab.getUrl(),
+                            title = webView.title ?: currentPageTab.getTitle(),
+                            iconBytes = webView.favicon ?: currentPageTab.getFavicon(),
+                            pageThumbnail = bitmap,
+                            pageThumbnailPath = thumbnailPath ?: currentPageTab.getPageThumbnailPath(),
+                            webview = webView
+                        )
+                    }
+                }
+            } finally {
+                onComplete()
+            }
+        }
+    }
 
-        val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
-        val headers = pageTab.getHeaders() ?: emptyMap()
-        tabManagerProvider.getUpdateTabEvent().value = WebTab(
-            webView.url ?: pageTab.getUrl(),
-            webView.title ?: pageTab.getTitle(),
-            webView.favicon ?: pageTab.getFavicon(),
-            bitmap,
-            pageTab.getPageThumbnailPath(),
-            headers,
-            webView,
-            id = pageTab.id
-        )
+    private fun runAfterThumbnailCapture(action: () -> Unit) {
+        if (thumbnailTransitionInProgress) {
+            return
+        }
+        thumbnailTransitionInProgress = true
+        captureVisibleTabThumbnail {
+            thumbnailTransitionInProgress = false
+            if (isAdded) {
+                action()
+            }
+        }
     }
 
     private fun maybeAutoTranslatePage(webView: WebView?) {
@@ -2251,6 +2301,7 @@ class WebTabFragment : BaseWebTabFragment() {
                 tabViewModel.thisTabIndex.set(index)
             }
             syncTabsOverviewBadge(tabs)
+            updateBackPressedCallbackState()
         }
     }
 
@@ -2262,11 +2313,11 @@ class WebTabFragment : BaseWebTabFragment() {
     }
 
     private fun onWebViewPause() {
-        webTab.getWebView()?.onPause()
+        WebViewMediaController.pause(webTab.getWebView())
     }
 
     private fun onWebViewResume() {
-        webTab.getWebView()?.onResume()
+        WebViewMediaController.resume(webTab.getWebView())
     }
 
     private val tabListener = object : BrowserListener {
@@ -2342,16 +2393,7 @@ class WebTabFragment : BaseWebTabFragment() {
         }
 
         override fun onBrowserBackClicked() {
-            val webView = webTab.getWebView()
-            val canGoBack = webView?.canGoBack()
-            if (canGoBack == true) {
-                tabViewModel.onGoBack(webView)
-                videoDetectionTabViewModel.cancelAllCheckJobs()
-                webView.post { updateNavigationButtons() }
-            } else {
-                closeAddressEditMode()
-                openNewTabPage()
-            }
+            handleCurrentTabBack()
         }
 
         override fun onBrowserForwardClicked() {
@@ -2404,19 +2446,84 @@ class WebTabFragment : BaseWebTabFragment() {
     }
 
     private fun handleOnBackPress() {
-        if (tabViewModel.isTabInputFocused.get()) {
-            closeAddressEditMode()
+        if (!shouldHandleBackPress()) {
+            backPressedCallback.isEnabled = false
+            activity?.onBackPressedDispatcher?.onBackPressed()
+            updateBackPressedCallbackState()
             return
         }
 
-        val isBrowserRoute = mainActivity.mainViewModel.currentItem.get() == 0
-        val isCurrentTabSelected =
-            currentTabIndexProvider.getCurrentTabIndex().get() == tabViewModel.thisTabIndex.get()
-        val isStateResumed = viewLifecycleOwner.lifecycle.currentState == Lifecycle.State.RESUMED
+        handleCurrentTabBack()
+    }
 
-        if (isStateResumed && isBrowserRoute && isCurrentTabSelected && isVisible) {
-            tabListener.onBrowserBackClicked()
+    private fun handleCurrentTabBack() {
+        if (customWebChromeClient?.hideCustomViewIfShown() == true) {
+            return
         }
+
+        val webView = webTab.getWebView()
+        when (
+            BrowserBackPolicy.resolveWebTabAction(
+                isDetectedVideosVisible = isDetectedVideosTabFragmentVisible(),
+                isAddressEditorOpen = tabViewModel.isTabInputFocused.get(),
+                canGoBack = webView?.canGoBack() == true
+            )
+        ) {
+            WebTabBackAction.CLOSE_DETECTED_VIDEOS -> {
+                mainActivity.supportFragmentManager.popBackStack()
+            }
+
+            WebTabBackAction.CLOSE_ADDRESS_EDITOR -> closeAddressEditMode()
+
+            WebTabBackAction.GO_BACK -> {
+                if (webView == null) {
+                    return
+                }
+                val history = runCatching { webView.copyBackForwardList() }.getOrNull()
+                AppLogger.d(
+                    "BROWSER_BACK: tab=${webTab.id} entries=${history?.size ?: 0} " +
+                        "index=${history?.currentIndex ?: -1}"
+                )
+                tabViewModel.onGoBack(webView)
+                videoDetectionTabViewModel.cancelAllCheckJobs()
+                webView.post { updateNavigationButtons() }
+            }
+
+            WebTabBackAction.CLOSE_TAB -> {
+                closeCurrentTabAfterThumbnailCapture()
+            }
+        }
+    }
+
+    private fun closeCurrentTabAfterThumbnailCapture() {
+        if (tabCloseCaptureInProgress) {
+            return
+        }
+        tabCloseCaptureInProgress = true
+        captureVisibleTabThumbnail {
+            tabCloseCaptureInProgress = false
+            if (!isAdded || !shouldHandleBackPress()) {
+                return@captureVisibleTabThumbnail
+            }
+            closeAddressEditMode()
+            videoDetectionTabViewModel.cancelAllCheckJobs()
+            tabViewModel.closeTab(webTab)
+        }
+    }
+
+    private fun shouldHandleBackPress(): Boolean {
+        if (!::tabViewModel.isInitialized || !::currentTabIndexProvider.isInitialized) {
+            return false
+        }
+
+        val viewState = viewLifecycleOwnerLiveData.value?.lifecycle?.currentState ?: return false
+        return mainActivity.mainViewModel.currentItem.get() == HOME_TAB_INDEX &&
+            currentTabIndexProvider.getCurrentTabIndex().get() == tabViewModel.thisTabIndex.get() &&
+            viewState == Lifecycle.State.RESUMED
+    }
+
+    private fun updateBackPressedCallbackState() {
+        backPressedCallback.isEnabled = isAdded && shouldHandleBackPress()
     }
 
     private fun setUserAgentIsDesktop(isDesktop: Boolean) {
@@ -2435,20 +2542,7 @@ class WebTabFragment : BaseWebTabFragment() {
 
     private val changeRouteCallBack = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
-            val indexRoute = mainActivity.mainViewModel.currentItem.get()
-            val currentTabIndexSelected = currentTabIndexProvider.getCurrentTabIndex().get()
-            val isCurrentTabSelected =
-                currentTabIndexSelected == tabViewModel.thisTabIndex.get()
-            val isBrowserRoute = indexRoute == 0
-            val isNotHomeTabSelected = currentTabIndexSelected != HOME_TAB_INDEX
-            val isVisible = this@WebTabFragment.isVisible
-            if (isBrowserRoute && isNotHomeTabSelected && isCurrentTabSelected && isVisible) {
-                activity?.onBackPressedDispatcher?.addCallback(
-                    viewLifecycleOwner, backPressedCallback
-                )
-            } else {
-                backPressedCallback.remove()
-            }
+            updateBackPressedCallbackState()
         }
     }
 

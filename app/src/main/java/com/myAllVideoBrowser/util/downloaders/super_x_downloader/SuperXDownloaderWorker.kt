@@ -7,6 +7,8 @@ import androidx.core.net.toUri
 import androidx.work.WorkerParameters
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.DownloadedMediaValidator
+import com.myAllVideoBrowser.util.ErrorLogRecorder
+import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.GenericDownloader
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskItem
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
@@ -821,14 +823,23 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
                     "Downloaded, moving...",
                     isLive = item.isLive
                 )
-                val fileMoved = try {
-                    fileUtil.moveMedia(applicationContext, from, to)
+                val fileMovedResult = try {
+                    fileUtil.moveMediaWithReason(applicationContext, from, to)
                 } catch (error: Throwable) {
-                    markPublicationError(item, finalProgress, "Error moving file", error)
+                    markPublicationError(
+                        item, finalProgress, "Error moving file", error
+                    )
                     return
                 }
-                if (!fileMoved) {
-                    markPublicationError(item, finalProgress, "Error moving file")
+                if (!fileMovedResult.ok) {
+                    val detail = fileMovedResult.detail?.takeIf { it.isNotBlank() }
+                        ?: fileMovedResult.reason ?: "Error moving file"
+                    markPublicationError(
+                        item,
+                        finalProgress,
+                        fileMovedResult.reason ?: "Error moving file",
+                        detail = detail
+                    )
                     return
                 }
 
@@ -917,15 +928,18 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
         item: VideoTaskItem,
         progress: Progress,
         message: String,
-        cause: Throwable? = null
+        cause: Throwable? = null,
+        detail: String? = null
     ) {
-        if (cause == null) {
-            AppLogger.e("SuperX publication failed: $message")
-            downloadTaskLogger.error(item.mId, "SuperX publication failed: $message")
-        } else {
-            AppLogger.e("SuperX publication failed: $message", cause)
-            downloadTaskLogger.error(item.mId, "SuperX publication failed: $message", cause)
-        }
+        AppLogger.e("SuperX publication failed: $message", cause)
+        ErrorLogRecorder.recordPublicationFailure(
+            engine = "SuperX",
+            taskId = item.mId,
+            message = message,
+            detail = detail,
+            taskLogger = downloadTaskLogger,
+            throwable = cause
+        )
         item.taskState = VideoTaskState.ERROR
         item.errorMessage = message
         saveProgress(

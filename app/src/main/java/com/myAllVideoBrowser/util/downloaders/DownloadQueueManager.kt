@@ -10,7 +10,10 @@ import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.VideoFormatUi
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
+import com.myAllVideoBrowser.util.downloaders.youtubedl_downloader.YoutubeDlRetryAction
 import com.myAllVideoBrowser.util.downloaders.youtubedl_downloader.YoutubeDlStopReason
+import com.myAllVideoBrowser.util.downloaders.youtubedl_downloader.youtubeDlRetryAction
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -131,10 +134,38 @@ class DownloadQueueManager @Inject constructor(
         val allTasks = progressRepository.getProgressInfosOnce()
         val newPosition = task.queuePosition.takeIf { it > 0 } ?: nextQueuePosition(allTasks)
         if (task.isYtDlpTask) {
+            val logPath = task.logPath.ifBlank { taskLogger.logPath(taskId) }
+            val publishedTargetExists = task.finalizationTarget.isNotBlank() && runCatching {
+                fileUtil.resolveMediaUri(application, File(task.finalizationTarget)) != null
+            }.onFailure { error ->
+                taskLogger.warn(
+                    task.id,
+                    "Unable to inspect the previous yt-dlp publication target; " +
+                        "retry will use the remaining source or requeue the download",
+                    error
+                )
+            }.getOrDefault(false)
+            if (youtubeDlRetryAction(task, publishedTargetExists) ==
+                YoutubeDlRetryAction.RETRY_PUBLICATION
+            ) {
+                val claimed = progressRepository.retryYtDlpFinalization(
+                    taskId,
+                    task.executionToken,
+                    logPath
+                )
+                check(claimed in 0..1) { "yt-dlp publication retry updated $claimed rows" }
+                if (claimed == 1) {
+                    taskLogger.info(task.id, "Retrying publication from existing downloaded media")
+                    progressRepository.getProgressInfoById(task.id)?.let {
+                        engineRouter.recoverFinalization(application, it)
+                    }
+                }
+                return
+            }
             if (progressRepository.resumeYtDlp(
                     taskId,
                     newPosition,
-                    task.logPath.ifBlank { taskLogger.logPath(taskId) }
+                    logPath
                 ) == 1
             ) {
                 taskLogger.info(task.id, "Resumed yt-dlp download into queue")

@@ -8,6 +8,9 @@ import android.graphics.Color
 import android.os.Bundle
 import android.util.AttributeSet
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuInflater
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.widget.PopupMenu
@@ -28,6 +31,7 @@ import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.ui.main.home.MainActivity
 import com.myAllVideoBrowser.ui.main.home.MainViewModel
 import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.ErrorLogRecorder
 import com.myAllVideoBrowser.util.UserFacingError
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
 import javax.inject.Inject
@@ -57,6 +61,7 @@ class ProgressFragment : BaseFragment() {
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
+        setHasOptionsMenu(true)
         mainViewModel = mainActivity.mainViewModel
         progressViewModel = mainActivity.progressViewModel
         progressAdapter = ProgressAdapter(emptyList(), progressListener)
@@ -114,9 +119,14 @@ class ProgressFragment : BaseFragment() {
 
         val isActive = menuCandidate?.isActive == true
         val isPaused = menuCandidate?.downloadStatus == VideoTaskState.PAUSE
+        val canRetry = menuCandidate?.downloadStatus == VideoTaskState.ERROR ||
+            menuCandidate?.downloadStatus == VideoTaskState.ENOSPC
         val canMove = menuCandidate?.canMoveInQueue == true
         popupMenu.menu.findItem(R.id.item_pause).isVisible = isActive
-        popupMenu.menu.findItem(R.id.item_resume).isVisible = isPaused
+        popupMenu.menu.findItem(R.id.item_resume).isVisible = isPaused || canRetry
+        popupMenu.menu.findItem(R.id.item_resume).setTitle(
+            if (canRetry) R.string.progress_menu_retry else R.string.progress_menu_resume
+        )
         popupMenu.menu.findItem(R.id.item_stop_save).isVisible = menuCandidate?.isLive == true && isActive
         popupMenu.menu.findItem(R.id.item_move_top).isVisible = canMove
         popupMenu.menu.findItem(R.id.item_move_up).isVisible = canMove
@@ -211,6 +221,43 @@ class ProgressFragment : BaseFragment() {
             }
             .setNegativeButton(R.string.browser_diagnostics_share) { _, _ ->
                 shareTaskLog(details, message)
+            }
+            .show()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
+        super.onCreateOptionsMenu(menu, inflater)
+        inflater.inflate(R.menu.menu_progress_toolbar, menu)
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.item_latest_error_log -> {
+                showLatestErrorLog()
+                true
+            }
+
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    /** 展示最近一次下载发布/移动失败的系统级诊断日志（覆盖普通任务日志，定位 MediaStore 发布类问题）。 */
+    private fun showLatestErrorLog() {
+        val log = ErrorLogRecorder.readLatest()
+        val text = log?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.latest_error_log_empty)
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.latest_error_log_title)
+            .setMessage(text)
+            .setPositiveButton(R.string.browser_diagnostics_copy) { _, _ ->
+                copyDetailsToClipboard(text)
+            }
+            .setNegativeButton(R.string.browser_diagnostics_share) { _, _ ->
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+                startActivity(Intent.createChooser(intent, getString(R.string.browser_diagnostics_share)))
             }
             .show()
     }

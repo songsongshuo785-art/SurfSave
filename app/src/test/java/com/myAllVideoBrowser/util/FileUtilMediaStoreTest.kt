@@ -16,6 +16,7 @@ import java.io.FileNotFoundException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -146,6 +147,255 @@ class FileUtilMediaStoreTest {
         assertEquals(1, targetProvider.deleteCalls)
     }
 
+    // ---- MediaStore 发布诊断矩阵：验证失败时 MoveResult.detail 包含实际元数据 ----
+
+    @Test
+    fun insertNull_reportsExactStageSourceAndDisplayName() {
+        val insertNullProvider = mediaProvider(
+            displayName = "insert-null.mp4", rowExists = false
+        ).apply {
+            insertResultNull = true
+        }
+        register(MediaStore.AUTHORITY, insertNullProvider)
+        val source = File(context.filesDir, "insert-null-source.mp4").apply { writeMedia(this) }
+        val target = File(FileUtil().publicDownloadsDir, "insert-null.mp4")
+
+        try {
+            val result = FileUtil().moveMediaWithReason(
+                context, Uri.fromFile(source), Uri.fromFile(target)
+            )
+
+            assertFalse(result.ok)
+            assertTrue("reason=${result.reason}", result.reason.orEmpty().contains("insert 返回 null"))
+            assertTrue(
+                "detail 应包含 displayName 与相对路径",
+                result.detail.orEmpty().contains("insert-null.mp4") &&
+                    result.detail.orEmpty().contains(FileUtil.PUBLIC_RELATIVE_PATH) &&
+                    result.detail.orEmpty().contains("insert-null-source.mp4")
+            )
+            assertEquals(0, insertNullProvider.deleteCalls)
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun publishUpdateZero_reportsReturnedRowCountAndCleansPendingRow() {
+        val provider = mediaProvider(displayName = "pending-zero.mp4", rowExists = false).apply {
+            updateResult = 0
+        }
+        register(MediaStore.AUTHORITY, provider)
+        val source = File(context.filesDir, "pending-zero-source.mp4").apply { writeMedia(this) }
+        val target = File(FileUtil().publicDownloadsDir, "pending-zero.mp4")
+
+        try {
+            val result = FileUtil().moveMediaWithReason(
+                context, Uri.fromFile(source), Uri.fromFile(target)
+            )
+
+            assertFalse(result.ok)
+            assertTrue("reason=${result.reason}", result.reason.orEmpty().contains("got 0"))
+            assertTrue(result.detail.orEmpty().contains("sourceLength="))
+            assertFalse(provider.rowExists)
+            assertEquals(1, provider.deleteCalls)
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun relativePathNormalized_failureDetailIncludesActualPath() {
+        // 模拟 RELATIVE_PATH 被系统归一化（末尾斜杠差异）：provider 返回不同相对路径
+        val provider = mediaProvider(displayName = "path-norm.mp4", rowExists = false).apply {
+            normalizeRelativePath = true // 模拟系统归一化：存缺末尾斜杠的相对路径
+            updateResult = 1
+        }
+        register(MediaStore.AUTHORITY, provider)
+        val source = File(context.filesDir, "path-norm-source.mp4").apply { writeMedia(this) }
+        val target = File(FileUtil().publicDownloadsDir, "path-norm.mp4")
+
+        try {
+            val result = FileUtil().moveMediaWithReason(
+                context, Uri.fromFile(source), Uri.fromFile(target)
+            )
+
+            assertFalse(result.ok)
+            // 失败消息应包含实际路径与预期路径（区分归一化差异）
+            assertTrue(
+                "reason=${result.reason}",
+                result.reason.orEmpty().contains("failed verification")
+            )
+            assertTrue(result.reason.orEmpty().contains("Download/SurfSave"))
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun outputStreamUnavailable_reportsStageAndCleansPendingRow() {
+        val provider = mediaProvider(displayName = "no-output.mp4", rowExists = false).apply {
+            outputUnavailable = true
+        }
+        register(MediaStore.AUTHORITY, provider)
+        val source = File(context.filesDir, "no-output-source.mp4").apply { writeMedia(this) }
+        val target = File(FileUtil().publicDownloadsDir, "no-output.mp4")
+
+        try {
+            val result = FileUtil().moveMediaWithReason(
+                context, Uri.fromFile(source), Uri.fromFile(target)
+            )
+
+            assertFalse(result.ok)
+            assertTrue(result.reason.orEmpty().contains("no output stream"))
+            assertTrue(result.detail.orEmpty().contains("insertedUri="))
+            assertTrue(source.isFile)
+            assertFalse(provider.rowExists)
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun delayedSizeMetadata_usesDescriptorLengthAndPublishesSuccessfully() {
+        val provider = mediaProvider(displayName = "size-delay.mp4", rowExists = false).apply {
+            reportedSizeOverride = 0L
+        }
+        register(MediaStore.AUTHORITY, provider)
+        val source = File(context.filesDir, "size-delay-source.mp4").apply { writeMedia(this) }
+        val target = File(FileUtil().publicDownloadsDir, "size-delay.mp4")
+
+        try {
+            val result = FileUtil().moveMediaWithReason(
+                context, Uri.fromFile(source), Uri.fromFile(target)
+            )
+
+            assertTrue("reason=${result.reason} detail=${result.detail}", result.ok)
+            assertFalse(source.exists())
+            assertTrue(provider.rowExists)
+            assertEquals(0L, provider.reportedSizeOverride)
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun delayedSizeMetadata_withEmptyBackingFile_failsAndPreservesSource() {
+        val provider = mediaProvider(displayName = "empty-target.mp4", rowExists = false).apply {
+            reportedSizeOverride = 0L
+            truncateOnPublish = true
+        }
+        register(MediaStore.AUTHORITY, provider)
+        val source = File(context.filesDir, "empty-target-source.mp4").apply { writeMedia(this) }
+        val target = File(FileUtil().publicDownloadsDir, "empty-target.mp4")
+
+        try {
+            val result = FileUtil().moveMediaWithReason(
+                context, Uri.fromFile(source), Uri.fromFile(target)
+            )
+
+            assertFalse(result.ok)
+            assertTrue(result.reason.orEmpty().contains("length failed verification"))
+            assertTrue(result.detail.orEmpty().contains("copiedBytes=12"))
+            assertTrue(result.detail.orEmpty().contains("mediaStoreReportedSize=0"))
+            assertTrue(source.isFile)
+            assertFalse(provider.rowExists)
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun validator_sizeMetadataZeroWithRealMedia_usesDescriptorLength() {
+        val provider = mediaProvider(displayName = "validator.mp4", rowExists = true).apply {
+            reportedSizeOverride = 0L
+        }
+        register(MediaStore.AUTHORITY, provider)
+        context.contentResolver.openOutputStream(provider.itemUri, "w")!!.use { output ->
+            output.write(mediaBytes())
+        }
+
+        assertNull(DownloadedMediaValidator.validate(context, provider.itemUri))
+    }
+
+    @Test
+    fun validator_sizeMetadataZeroWithEmptyContent_reportsEmptyFile() {
+        val provider = mediaProvider(displayName = "validator-empty.mp4", rowExists = true).apply {
+            reportedSizeOverride = 0L
+        }
+        register(MediaStore.AUTHORITY, provider)
+
+        assertEquals(
+            "Downloaded file is empty",
+            DownloadedMediaValidator.validate(context, provider.itemUri)
+        )
+    }
+
+    @Test
+    fun providerAutoRename_reportsExpectedAndActualDisplayName() {
+        val provider = mediaProvider(displayName = "rename.mp4", rowExists = false).apply {
+            autoRenameOnInsert = true
+        }
+        register(MediaStore.AUTHORITY, provider)
+        val source = File(context.filesDir, "rename-source.mp4").apply { writeMedia(this) }
+        val target = File(FileUtil().publicDownloadsDir, "rename.mp4")
+
+        try {
+            val result = FileUtil().moveMediaWithReason(
+                context, Uri.fromFile(source), Uri.fromFile(target)
+            )
+
+            assertFalse(result.ok)
+            assertTrue(result.reason.orEmpty().contains("expect name=rename.mp4"))
+            assertTrue(result.reason.orEmpty().contains("actual name=rename (1).mp4"))
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun pendingCleanupFailure_isIncludedInDiagnosticDetail() {
+        val provider = mediaProvider(displayName = "cleanup.mp4", rowExists = false).apply {
+            reportedSizeOverride = 0L
+            truncateOnPublish = true
+            deleteResultOverride = 0
+        }
+        register(MediaStore.AUTHORITY, provider)
+        val source = File(context.filesDir, "cleanup-source.mp4").apply { writeMedia(this) }
+        val target = File(FileUtil().publicDownloadsDir, "cleanup.mp4")
+
+        try {
+            val result = FileUtil().moveMediaWithReason(
+                context, Uri.fromFile(source), Uri.fromFile(target)
+            )
+
+            assertFalse(result.ok)
+            assertTrue(result.detail.orEmpty().contains("[清理]"))
+            assertTrue(result.detail.orEmpty().contains("rows=0"))
+            assertTrue(provider.rowExists)
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun chineseDisplayName_publishesWithoutDiagnosticFailure() {
+        val displayName = "中文视频-测试.mp4"
+        val provider = mediaProvider(displayName = displayName, rowExists = false)
+        register(MediaStore.AUTHORITY, provider)
+        val source = File(context.filesDir, "chinese-source.mp4").apply { writeMedia(this) }
+        val target = File(FileUtil().publicDownloadsDir, displayName)
+
+        val result = FileUtil().moveMediaWithReason(
+            context, Uri.fromFile(source), Uri.fromFile(target)
+        )
+
+        assertTrue("reason=${result.reason} detail=${result.detail}", result.ok)
+        assertEquals(displayName, provider.displayName)
+        assertFalse(source.exists())
+        assertTrue(provider.rowExists)
+    }
+
+
     private fun mediaProvider(displayName: String, rowExists: Boolean): RecordingMediaProvider {
         return RecordingMediaProvider(
             backingFile = temporaryFolder.newFile("media-provider-${System.nanoTime()}.bin"),
@@ -163,14 +413,14 @@ class FileUtilMediaStoreTest {
     }
 
     private fun writeMedia(file: File) {
-        file.writeBytes(
-            byteArrayOf(
-                0x00, 0x00, 0x00, 0x18,
-                'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
-                'i'.code.toByte(), 's'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte()
-            )
-        )
+        file.writeBytes(mediaBytes())
     }
+
+    private fun mediaBytes() = byteArrayOf(
+        0x00, 0x00, 0x00, 0x18,
+        'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
+        'i'.code.toByte(), 's'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte()
+    )
 
     private class RecordingMediaProvider(
         private val backingFile: File,
@@ -185,6 +435,13 @@ class FileUtilMediaStoreTest {
         var pending: Int = 0
         var updateResult: Int = 1
         var applyDisplayNameOnUpdate: Boolean = true
+        var insertResultNull: Boolean = false
+        var normalizeRelativePath: Boolean = false
+        var outputUnavailable: Boolean = false
+        var reportedSizeOverride: Long? = null
+        var autoRenameOnInsert: Boolean = false
+        var truncateOnPublish: Boolean = false
+        var deleteResultOverride: Int? = null
         var throwSecurityOnQuery: Boolean = false
         var lastSelection: String? = null
         var lastSelectionArgs: Array<out String>? = null
@@ -224,9 +481,23 @@ class FileUtilMediaStoreTest {
 
         override fun getType(uri: Uri): String = "video/mp4"
 
-        override fun insert(uri: Uri, values: ContentValues?): Uri {
+        override fun insert(uri: Uri, values: ContentValues?): Uri? {
+            if (insertResultNull) {
+                displayName = values?.getAsString(MediaStore.MediaColumns.DISPLAY_NAME).orEmpty()
+                return null
+            }
             displayName = values?.getAsString(MediaStore.MediaColumns.DISPLAY_NAME).orEmpty()
-            relativePath = values?.getAsString(MediaStore.MediaColumns.RELATIVE_PATH).orEmpty()
+            if (autoRenameOnInsert) {
+                displayName =
+                    "${displayName.substringBeforeLast('.', displayName)} (1)." +
+                        displayName.substringAfterLast('.', "mp4")
+            }
+            relativePath = if (normalizeRelativePath) {
+                values?.getAsString(MediaStore.MediaColumns.RELATIVE_PATH)
+                    ?.removeSuffix("/").orEmpty()
+            } else {
+                values?.getAsString(MediaStore.MediaColumns.RELATIVE_PATH).orEmpty()
+            }
             pending = values?.getAsInteger(MediaStore.MediaColumns.IS_PENDING) ?: 0
             rowExists = true
             backingFile.delete()
@@ -239,6 +510,7 @@ class FileUtilMediaStoreTest {
             selectionArgs: Array<out String>?
         ): Int {
             deleteCalls += 1
+            deleteResultOverride?.let { return it }
             if (!rowExists) return 0
             rowExists = false
             backingFile.delete()
@@ -257,11 +529,15 @@ class FileUtilMediaStoreTest {
                 if (applyDisplayNameOnUpdate) displayName = newName
             }
             values?.getAsInteger(MediaStore.MediaColumns.IS_PENDING)?.let { pending = it }
+            if (truncateOnPublish && pending == 0) {
+                backingFile.writeBytes(byteArrayOf())
+            }
             return updateResult
         }
 
-        override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
+        override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
             if (!rowExists) throw FileNotFoundException("media row is absent")
+            if (outputUnavailable && mode.contains('w')) return null
             val flags = if (mode.contains('w')) {
                 ParcelFileDescriptor.MODE_CREATE or
                     ParcelFileDescriptor.MODE_TRUNCATE or
@@ -277,7 +553,7 @@ class FileUtilMediaStoreTest {
             MediaStore.MediaColumns.DISPLAY_NAME -> displayName
             MediaStore.MediaColumns.RELATIVE_PATH -> relativePath
             MediaStore.MediaColumns.IS_PENDING -> pending
-            MediaStore.MediaColumns.SIZE -> backingFile.length()
+            MediaStore.MediaColumns.SIZE -> reportedSizeOverride ?: backingFile.length()
             else -> null
         }
     }

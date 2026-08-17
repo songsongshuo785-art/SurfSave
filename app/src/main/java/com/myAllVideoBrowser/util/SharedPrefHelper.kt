@@ -71,6 +71,7 @@ class SharedPrefHelper @Inject constructor(
         private const val DOWNLOAD_FILENAME_TEMPLATE = "DOWNLOAD_FILENAME_TEMPLATE"
         private const val HOME_DEFAULT_SITES_MIGRATED = "HOME_DEFAULT_SITES_MIGRATED"
         private const val HOME_SOCIAL_GUIDE_DISMISSED = "HOME_SOCIAL_GUIDE_DISMISSED"
+        val DEFAULT_SEARCH_ENGINE = SearchEngine.BAIDU
     }
 
     enum class SearchEngine(val prefValue: String) {
@@ -560,8 +561,8 @@ class SharedPrefHelper @Inject constructor(
     }
 
     fun getSearchEngine(): SearchEngine {
-        val stored = sharedPreferences.getString(SEARCH_ENGINE, SearchEngine.BING.prefValue)
-        return SearchEngine.entries.firstOrNull { it.prefValue == stored } ?: SearchEngine.BING
+        val stored = sharedPreferences.getString(SEARCH_ENGINE, DEFAULT_SEARCH_ENGINE.prefValue)
+        return SearchEngine.entries.firstOrNull { it.prefValue == stored } ?: DEFAULT_SEARCH_ENGINE
     }
 
     fun getSearchUrlPattern(): String {

@@ -103,6 +103,9 @@ class ProgressLocalDataSource @Inject constructor(
     override fun resumeYtDlp(id: String, queuePosition: Long, logPath: String): Int =
         progressDao.resumeYtDlp(id, queuePosition, logPath)
 
+    override fun retryYtDlpFinalization(id: String, token: String, logPath: String): Int =
+        progressDao.retryYtDlpFinalization(id, token, logPath)
+
     override fun updateYtDlpProgress(
         id: String,
         token: String,

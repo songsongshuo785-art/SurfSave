@@ -81,16 +81,6 @@ class CustomWebChromeClient(
             return false
         }
 
-        val hitTestUrl = view.hitTestResult?.extra
-        if (!hitTestUrl.isNullOrBlank() && hitTestUrl.startsWith("http")) {
-            AppLogger.d("ON_CREATE_WINDOW: Opening hit-test URL in current tab: $hitTestUrl")
-            view.post {
-                view.stopLoading()
-                view.loadUrl(hitTestUrl)
-            }
-            return true
-        }
-
         val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
         val popupWebView = WebView(view.context)
         configurePopupRedirectWebView(view, popupWebView)
@@ -103,6 +93,18 @@ class CustomWebChromeClient(
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun configurePopupRedirectWebView(parentWebView: WebView, popupWebView: WebView) {
+        var navigationConsumed = false
+        val redirectOnce: (String) -> Boolean = { url ->
+            when {
+                url.isBlank() || url == "about:blank" -> false
+                navigationConsumed -> true
+                else -> {
+                    navigationConsumed = true
+                    redirectPopupUrl(parentWebView, popupWebView, url)
+                }
+            }
+        }
+
         popupWebView.settings.apply {
             // This hidden WebView only accepts script-opened popups and redirects navigation
             // into the parent browser tab, so it must mirror the parent tab's JS policy.
@@ -119,12 +121,17 @@ class CustomWebChromeClient(
                 popupView: WebView,
                 request: WebResourceRequest
             ): Boolean {
-                return redirectPopupUrl(parentWebView, popupView, request.url.toString())
+                return redirectOnce(request.url.toString())
             }
 
             @Deprecated("Deprecated in Android API")
             override fun shouldOverrideUrlLoading(popupView: WebView, url: String): Boolean {
-                return redirectPopupUrl(parentWebView, popupView, url)
+                return redirectOnce(url)
+            }
+
+            override fun onPageStarted(popupView: WebView, url: String, favicon: Bitmap?) {
+                super.onPageStarted(popupView, url, favicon)
+                redirectOnce(url)
             }
         }
 
@@ -251,5 +258,14 @@ class CustomWebChromeClient(
         mainActivity.requestedOrientation = previousOrientation
         appUtil.showSystemUI(mainActivity.window, dataBinding.customView)
         callback?.onCustomViewHidden()
+    }
+
+    fun hideCustomViewIfShown(): Boolean {
+        if (fullscreenView == null && fullscreenCallback == null) {
+            return false
+        }
+
+        onHideCustomView()
+        return true
     }
 }

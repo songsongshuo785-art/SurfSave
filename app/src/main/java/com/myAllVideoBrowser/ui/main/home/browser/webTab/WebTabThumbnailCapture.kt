@@ -3,17 +3,25 @@ package com.myAllVideoBrowser.ui.main.home.browser.webTab
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Rect
+import android.annotation.TargetApi
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
+import android.view.View
+import android.view.Window
 import android.webkit.WebView
 import androidx.core.graphics.createBitmap
-import androidx.core.graphics.get
-import kotlin.math.abs
+import com.myAllVideoBrowser.util.BrowserThumbnailQuality
 import kotlin.math.min
+import java.util.concurrent.atomic.AtomicBoolean
 
 object WebTabThumbnailCapture {
     private const val MAX_WIDTH = 720
     private const val MAX_HEIGHT = 1280
-    private const val MIN_NON_EMPTY_WIDTH = 120
-    private const val MIN_NON_EMPTY_HEIGHT = 180
+    private const val PIXEL_COPY_TIMEOUT_MS = 400L
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun capture(webView: WebView): Bitmap? {
         if (webView.width <= 0 || webView.height <= 0) {
@@ -38,56 +46,109 @@ object WebTabThumbnailCapture {
             null
         } ?: return null
 
-        return if (isUsable(bitmap)) bitmap else null
+        return bitmap.takeIf(BrowserThumbnailQuality::isUsable)
     }
 
-    private fun isUsable(bitmap: Bitmap): Boolean {
-        if (bitmap.width < MIN_NON_EMPTY_WIDTH || bitmap.height < MIN_NON_EMPTY_HEIGHT) {
-            return false
+    fun capture(window: Window?, webView: WebView, onComplete: (Bitmap?) -> Unit) {
+        if (
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            window == null ||
+            !webView.isAttachedToWindow ||
+            webView.visibility != View.VISIBLE
+        ) {
+            onComplete(capture(webView))
+            return
         }
 
-        val stepX = (bitmap.width / 24).coerceAtLeast(1)
-        val stepY = (bitmap.height / 32).coerceAtLeast(1)
-        var count = 0
-        var dark = 0
-        var light = 0
-        var sum = 0.0
-        var sumSquares = 0.0
-        var colorSpread = 0.0
+        val sourceRect = visibleRectInWindow(window, webView)
+        if (sourceRect == null) {
+            onComplete(capture(webView))
+            return
+        }
 
-        var y = 0
-        while (y < bitmap.height) {
-            var x = 0
-            while (x < bitmap.width) {
-                val color = bitmap[x, y]
-                val red = Color.red(color)
-                val green = Color.green(color)
-                val blue = Color.blue(color)
-                val luminance = 0.299 * red + 0.587 * green + 0.114 * blue
+        val (targetWidth, targetHeight) = targetDimensions(
+            sourceRect.width(),
+            sourceRect.height()
+        )
+        val bitmap = runCatching {
+            createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        }.getOrNull()
+        if (bitmap == null) {
+            onComplete(capture(webView))
+            return
+        }
 
-                if (luminance < 24) dark++
-                if (luminance > 246) light++
-
-                sum += luminance
-                sumSquares += luminance * luminance
-                colorSpread += abs(red - green) + abs(green - blue) + abs(red - blue)
-                count++
-                x += stepX
+        val completed = AtomicBoolean(false)
+        lateinit var timeout: Runnable
+        fun finish(result: Bitmap?) {
+            if (completed.compareAndSet(false, true)) {
+                mainHandler.removeCallbacks(timeout)
+                onComplete(result)
             }
-            y += stepY
+        }
+        fun fallbackToCanvas() {
+            finish(capture(webView))
         }
 
-        if (count == 0) {
-            return false
+        timeout = Runnable { fallbackToCanvas() }
+        mainHandler.postDelayed(timeout, PIXEL_COPY_TIMEOUT_MS)
+
+        requestPixelCopy(window, sourceRect, bitmap) { result ->
+            if (
+                result == PixelCopy.SUCCESS &&
+                BrowserThumbnailQuality.isUsable(bitmap)
+            ) {
+                finish(bitmap)
+            } else {
+                fallbackToCanvas()
+            }
         }
+    }
 
-        val average = sum / count
-        val variance = (sumSquares / count) - (average * average)
-        val darkRatio = dark.toDouble() / count
-        val lightRatio = light.toDouble() / count
-        val averageColorSpread = colorSpread / count
-        val flatNeutral = variance < 10.0 && averageColorSpread < 18.0
+    private fun visibleRectInWindow(window: Window, webView: WebView): Rect? {
+        if (webView.width <= 0 || webView.height <= 0) {
+            return null
+        }
+        val location = IntArray(2)
+        webView.getLocationInWindow(location)
+        val rect = Rect(
+            location[0],
+            location[1],
+            location[0] + webView.width,
+            location[1] + webView.height
+        )
+        val decorView = window.decorView
+        val windowWidth = decorView.width
+        val windowHeight = decorView.height
+        if (windowWidth <= 0 || windowHeight <= 0) {
+            return null
+        }
+        return rect.takeIf { it.intersect(0, 0, windowWidth, windowHeight) && !it.isEmpty }
+    }
 
-        return darkRatio < 0.97 && lightRatio < 0.985 && !flatNeutral
+    private fun targetDimensions(sourceWidth: Int, sourceHeight: Int): Pair<Int, Int> {
+        val scale = min(
+            MAX_WIDTH.toFloat() / sourceWidth.toFloat(),
+            MAX_HEIGHT.toFloat() / sourceHeight.toFloat()
+        ).coerceAtMost(1f)
+        return Pair(
+            (sourceWidth * scale).toInt().coerceAtLeast(1),
+            (sourceHeight * scale).toInt().coerceAtLeast(1)
+        )
+    }
+
+    @TargetApi(Build.VERSION_CODES.O)
+    @Suppress("DEPRECATION")
+    private fun requestPixelCopy(
+        window: Window,
+        sourceRect: Rect,
+        bitmap: Bitmap,
+        onResult: (Int) -> Unit
+    ) {
+        runCatching {
+            PixelCopy.request(window, sourceRect, bitmap, onResult, mainHandler)
+        }.onFailure {
+            onResult(PixelCopy.ERROR_UNKNOWN)
+        }
     }
 }

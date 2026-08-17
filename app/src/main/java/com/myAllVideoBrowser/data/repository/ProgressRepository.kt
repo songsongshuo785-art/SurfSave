@@ -62,6 +62,8 @@ interface ProgressRepository {
 
     fun resumeYtDlp(id: String, queuePosition: Long, logPath: String): Int
 
+    fun retryYtDlpFinalization(id: String, token: String, logPath: String): Int
+
     fun updateYtDlpProgress(
         id: String,
         token: String,
@@ -193,6 +195,9 @@ class ProgressRepositoryImpl @Inject constructor(
 
     override fun resumeYtDlp(id: String, queuePosition: Long, logPath: String): Int =
         localDataSource.resumeYtDlp(id, queuePosition, logPath)
+
+    override fun retryYtDlpFinalization(id: String, token: String, logPath: String): Int =
+        localDataSource.retryYtDlpFinalization(id, token, logPath)
 
     override fun updateYtDlpProgress(
         id: String,

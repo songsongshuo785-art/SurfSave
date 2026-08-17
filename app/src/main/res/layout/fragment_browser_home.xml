@@ -120,32 +120,61 @@
                 android:paddingTop="@dimen/spacing_xl"
                 android:paddingBottom="@dimen/spacing_xl">
 
-                <!-- ① 搜索 hero（放大 52->68dp，大字，视觉焦点） -->
-                <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                    android:id="@+id/home_et_search"
+                <!-- ① 搜索 hero：输入与显式提交属于同一个视觉组件 -->
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="68dp"
-                    android:background="@{viewModel.isSearchInputFocused ? @drawable/sx_search_focused_background : @drawable/sx_search_background}"
-                    android:drawableStart="@drawable/search_24px"
-                    android:drawablePadding="@dimen/padding_normal"
-                    android:drawableTint="@color/sxTextSecondary"
-                    android:focusable="@{viewModel.isSearchInputFocused}"
-                    android:focusableInTouchMode="@{viewModel.isSearchInputFocused}"
-                    android:hint="@string/browser_search_hint"
-                    android:onClick="@{() -> viewModel.changeSearchFocus(true)}"
-                    android:inputType="textUri"
-                    android:paddingStart="@dimen/padding_normal"
-                    android:paddingEnd="@dimen/padding_normal"
-                    android:singleLine="true"
-                    android:text="@{viewModel.searchTextInput}"
-                    android:textColor="@color/sxTextPrimary"
-                    android:textColorHint="@color/sxTextSecondary"
-                    android:textSize="@dimen/text_large"
-                    app:items="@{viewModel.listSuggestions}" />
+                    android:baselineAligned="false"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                        android:id="@+id/home_et_search"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:background="@{viewModel.isSearchInputFocused ? @drawable/sx_search_focused_background : @drawable/sx_search_background}"
+                        android:drawableStart="@drawable/search_24px"
+                        android:drawablePadding="@dimen/padding_normal"
+                        android:drawableTint="@color/sxTextSecondary"
+                        android:focusable="@{viewModel.isSearchInputFocused}"
+                        android:focusableInTouchMode="@{viewModel.isSearchInputFocused}"
+                        android:hint="@string/browser_search_hint"
+                        android:imeOptions="actionSearch"
+                        android:inputType="textUri"
+                        android:onClick="@{() -> viewModel.changeSearchFocus(true)}"
+                        android:paddingStart="@dimen/padding_normal"
+                        android:paddingEnd="@dimen/padding_normal"
+                        android:singleLine="true"
+                        android:text="@{viewModel.searchTextInput}"
+                        android:textColor="@color/sxTextPrimary"
+                        android:textColorHint="@color/sxTextSecondary"
+                        android:textSize="@dimen/text_large"
+                        app:items="@{viewModel.listSuggestions}" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/home_search_button"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:layout_marginStart="@dimen/padding_small"
+                        android:contentDescription="@string/home_search_action"
+                        android:insetLeft="0dp"
+                        android:insetTop="0dp"
+                        android:insetRight="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="0dp"
+                        android:text=""
+                        app:cornerRadius="@dimen/corner_md"
+                        app:icon="@drawable/search_24px"
+                        app:iconGravity="textStart"
+                        app:iconPadding="0dp"
+                        app:iconTint="@color/white" />
+                </LinearLayout>
 
                 <!-- ② 粘贴链接主按钮（从教程卡提取，核心操作突出为 hero 下方主按钮） -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/home_paste_link_button"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/min_touch_target"
                     android:layout_marginTop="@dimen/padding_normal"
@@ -154,10 +183,11 @@
                     android:minWidth="0dp"
                     android:text="@string/home_paste_link"
                     android:textAllCaps="false"
-                    android:textColor="@color/white"
+                    android:textColor="@color/sxTextPrimary"
                     app:cornerRadius="@dimen/corner_md"
                     app:icon="@drawable/add_new_tab_icon24"
-                    app:iconTint="@color/white" />
+                    app:iconTint="@color/sxTextPrimary"
+                    app:strokeColor="@color/sxOutline" />
 
                 <!-- ③ 社交平台下载 -->
                 <com.google.android.material.card.MaterialCardView
