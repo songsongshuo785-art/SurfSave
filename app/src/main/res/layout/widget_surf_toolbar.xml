@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Surf 统一工具栏组件。
+    用法：通过 <include layout="@layout/widget_surf_toolbar" /> 引入，
+    然后在代码中设置标题与菜单按钮。
+-->
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/surf_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/component_app_bar_height"
+        android:background="@drawable/surf_app_bar_background"
+        android:contentInsetStart="0dp"
+        android:contentInsetEnd="0dp"
+        android:paddingStart="@dimen/spacing_sm"
+        android:paddingEnd="@dimen/spacing_sm"
+        app:contentInsetStart="0dp"
+        app:contentInsetEnd="0dp"
+        app:titleCentered="true"
+        app:titleTextAppearance="@style/TextAppearance.Surf.TitleLarge"
+        app:titleTextColor="?attr/colorOnSurface"
+        tools:title="Page Title" />
+</merge>

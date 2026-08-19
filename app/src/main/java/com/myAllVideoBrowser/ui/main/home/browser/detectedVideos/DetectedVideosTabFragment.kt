@@ -62,10 +62,12 @@ class DetectedVideosTabFragment : BaseFragment() {
 
         val pageUrl = detectedVideosTabViewModel?.webTabModel?.getTabTextInput()?.get().orEmpty()
         binding = FragmentDetectedVideosTabBinding.inflate(inflater, container, false).apply {
-            title.text = getString(
-                R.string.found_videos_from,
-                sourceLabel(pageUrl)
-            )
+            // Title stays static ("本页视频"); the source host moves to the subtitle row
+            val host = sourceLabel(pageUrl)
+            if (host.isNotBlank()) {
+                detectedSubtitle.text = getString(R.string.detected_videos_from_host, host)
+                detectedSubtitle.visibility = View.VISIBLE
+            }
             detectedVideosTabContainer.setBackgroundColor(getThemeBackgroundColor())
             viewModel = detectedVideosTabViewModel
             videoInfoList.layoutManager = layoutMngr

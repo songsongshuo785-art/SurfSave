@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bottom-sheet surface: one step above the page, large top corners -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/colorSurfaceContainerLow" />
+    <corners android:topLeftRadius="24dp" android:topRightRadius="24dp" />
+</shape>

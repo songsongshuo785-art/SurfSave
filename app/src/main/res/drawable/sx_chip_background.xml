@@ -1,11 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/sxSurfaceSoft" />
+<!-- Icon disc: tonal capsule -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/colorSurfaceContainer" />
     <corners android:radius="999dp" />
-    <padding
-        android:left="10dp"
-        android:top="4dp"
-        android:right="10dp"
-        android:bottom="4dp" />
 </shape>

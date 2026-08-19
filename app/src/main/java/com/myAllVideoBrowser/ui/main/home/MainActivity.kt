@@ -338,7 +338,15 @@ class MainActivity : BaseActivity() {
             return false
         }
         val action = intent?.action
-        return action != Intent.ACTION_VIEW && action != Intent.ACTION_SEND
+        if (action == Intent.ACTION_VIEW || action == Intent.ACTION_SEND) {
+            return false
+        }
+        // Only auto-open when the legacy companion app is actually installed;
+        // fresh installs without it should land on the browser, not the migration center.
+        return runCatching {
+            packageManager.getPackageInfo(BuildConfig.MIGRATION_COMPANION_PACKAGE, 0)
+            true
+        }.getOrDefault(false)
     }
 
     private fun observeDownloadEvents() {

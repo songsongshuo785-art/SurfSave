@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    // Padding size
+    <!-- Legacy padding tokens -->
     <dimen name="padding_tiny">4dp</dimen>
     <dimen name="padding_small">8dp</dimen>
     <dimen name="padding_normal">16dp</dimen>
     <dimen name="padding_large">24dp</dimen>
 
-    // Text size
+    <!-- Legacy text size tokens -->
     <dimen name="text_tiny">12sp</dimen>
     <dimen name="text_small">13sp</dimen>
     <dimen name="text_medium">15sp</dimen>
@@ -15,39 +14,69 @@
     <dimen name="text_xlarge">20sp</dimen>
     <dimen name="text_xxlarge">24sp</dimen>
 
-    // Splash screen
+    <!-- Splash screen -->
     <dimen name="splash_progress_size">50dp</dimen>
     <dimen name="splash_icon_size">80dp</dimen>
 
-    // Browser screen
+    <!-- Browser screen -->
     <dimen name="browser_progress_size">3dp</dimen>
     <dimen name="browser_loading_size">48dp</dimen>
 
-    // Progress screen
+    <!-- Progress screen -->
     <dimen name="progress_icon_size">56dp</dimen>
 
-    // ===== Design tokens (0A) =====
-    // Spacing scale
+    <!-- ===== Design tokens (Clean Tool) ===== -->
+    <!-- Spacing scale -->
     <dimen name="spacing_xs">4dp</dimen>
     <dimen name="spacing_sm">8dp</dimen>
     <dimen name="spacing_md">12dp</dimen>
     <dimen name="spacing_lg">16dp</dimen>
     <dimen name="spacing_xl">24dp</dimen>
     <dimen name="spacing_xxl">32dp</dimen>
+    <dimen name="spacing_3xl">48dp</dimen>
 
-    // Corner scale（UI 现代化阶段1：圆角加大，更现代柔和）
+    <!-- Corner scale -->
     <dimen name="corner_xs">4dp</dimen>
-    <dimen name="corner_sm">12dp</dimen>
+    <dimen name="corner_sm">8dp</dimen>
     <dimen name="corner_md">16dp</dimen>
     <dimen name="corner_lg">24dp</dimen>
+    <dimen name="corner_full">999dp</dimen>
 
-    // Elevation（UI 现代化阶段1：resting 微阴影，卡片浮起、减线框感）
-    <dimen name="elev_resting">1dp</dimen>
-    <dimen name="elev_raised">2dp</dimen>
+    <!-- Elevation -->
+    <dimen name="elev_resting">0dp</dimen>
+    <dimen name="elev_raised">1dp</dimen>
     <dimen name="elev_overlay">4dp</dimen>
+    <dimen name="elev_fab">6dp</dimen>
     <dimen name="elev_drag">8dp</dimen>
 
-    // Touch target
+    <!-- Touch target -->
     <dimen name="min_touch_target">48dp</dimen>
 
+    <!-- Component heights / sizes -->
+    <dimen name="component_app_bar_height">64dp</dimen>
+    <dimen name="component_bottom_nav_height">80dp</dimen>
+    <dimen name="component_button_height">48dp</dimen>
+    <dimen name="component_icon_button_size">48dp</dimen>
+    <dimen name="component_list_item_one_line">56dp</dimen>
+    <dimen name="component_list_item_two_line">72dp</dimen>
+    <dimen name="component_list_item_three_line">88dp</dimen>
+    <dimen name="component_text_field_height">56dp</dimen>
+    <dimen name="component_chip_height">32dp</dimen>
+    <dimen name="component_bottom_sheet_drag_handle_width">32dp</dimen>
+    <dimen name="component_bottom_sheet_drag_handle_height">4dp</dimen>
+    <dimen name="component_progress_indicator_height">4dp</dimen>
+
+    <!-- Card strokes -->
+    <dimen name="stroke_hairline">1dp</dimen>
+    <dimen name="stroke_selected">2dp</dimen>
+
+    <!-- Thumbnail corner (16:9 media) -->
+    <dimen name="corner_thumbnail">12dp</dimen>
+
+    <!-- Empty-state art container -->
+    <dimen name="art_empty_state_container">120dp</dimen>
+    <dimen name="art_empty_state_icon">48dp</dimen>
+
+    <!-- Player -->
+    <dimen name="player_seek_preview_bottom_margin">96dp</dimen>
 </resources>

@@ -3,7 +3,6 @@ package com.myAllVideoBrowser.ui.main.video
 import android.app.Activity
 import android.app.ActivityOptions
 import android.content.Intent
-import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -22,7 +21,6 @@ import androidx.core.view.get
 import androidx.lifecycle.ViewModelProvider
 import androidx.media3.common.util.UnstableApi
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.google.android.material.color.MaterialColors
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.model.LocalVideo
 import com.myAllVideoBrowser.databinding.FragmentVideoBinding
@@ -92,13 +90,6 @@ class VideoFragment : BaseFragment() {
         videoViewModel = ViewModelProvider(this, viewModelFactory)[VideoViewModel::class.java]
         videoAdapter = VideoAdapter(emptyList(), videoListener)
 
-        val isDark = mainActivity.settingsViewModel.isDarkMode.get()
-        val color = if (isDark) {
-            MaterialColors.getColor(requireContext(), R.attr.editTextColor, Color.YELLOW)
-        } else {
-            null
-        }
-
         dataBinding = FragmentVideoBinding.inflate(inflater, container, false).apply {
             val managerL =
                 WrapContentLinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
@@ -107,8 +98,9 @@ class VideoFragment : BaseFragment() {
             this.mainViewModel = mainActivity.mainViewModel
             this.rvVideo.layoutManager = managerL
             this.rvVideo.adapter = videoAdapter
-            if (color != null) {
-                this.ivEmptyIcon.setBackgroundColor(color)
+            // Empty-state CTA: jump back to the browser tab
+            this.emptyActionButton.setOnClickListener {
+                mainActivity.mainViewModel.currentItem.set(0)
             }
         }
 

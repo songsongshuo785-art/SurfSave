@@ -44,7 +44,7 @@
             android:id="@+id/seek_preview_container"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="90dp"
+            android:layout_marginBottom="@dimen/player_seek_preview_bottom_margin"
             android:visibility="gone"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
@@ -55,36 +55,39 @@
                 android:layout_width="160dp"
                 android:layout_height="90dp"
                 android:background="@drawable/sx_thumbnail_background"
-                android:scaleType="fitCenter"
-                app:shapeAppearanceOverlay="@style/customImageViewRounded" />
+                android:scaleType="centerCrop"
+                app:shapeAppearanceOverlay="@style/ShapeAppearance.Surf.Thumbnail" />
 
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/tv_seek_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="bottom|center_horizontal"
-                android:background="@color/black_15"
-                android:paddingHorizontal="6dp"
+                android:background="@drawable/bg_player_control_chip"
+                android:paddingHorizontal="8dp"
                 android:paddingVertical="2dp"
                 android:textColor="@android:color/white"
                 android:textSize="12sp" />
         </FrameLayout>
 
-        <ProgressBar
+        <com.google.android.material.progressindicator.CircularProgressIndicator
             android:id="@+id/loading_bar"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:indeterminate="true"
             android:visibility="visible"
+            app:indicatorColor="@color/colorPrimary"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            app:layout_constraintTop_toTopOf="parent"
+            app:trackColor="@color/colorOutlineVariant" />
 
         <LinearLayout
             android:id="@+id/top_bar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@color/black_15"
+            android:background="@drawable/surf_player_top_scrim"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             app:layout_constraintEnd_toEndOf="parent"

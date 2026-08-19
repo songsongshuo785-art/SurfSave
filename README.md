@@ -66,7 +66,7 @@
 ## Download & install
 
 - **Download APK**: [GitHub Releases](https://github.com/songsongshuo785-art/SurfSave/releases)
-- **Current source version**: `v0.8.28`
+- **Current source version**: `v0.8.29`
 - **Requirements**: Android 7.0+ (API 24)
 
 ### Which APK should I choose?

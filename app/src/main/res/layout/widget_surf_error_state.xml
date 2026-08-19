@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Surf 通用错误态组件。
+    调用方传入 title、subtitle、retry text 与 listener。
+-->
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <data>
+        <import type="android.view.View" />
+        <variable
+            name="title"
+            type="String" />
+        <variable
+            name="subtitle"
+            type="String" />
+        <variable
+            name="retryText"
+            type="String" />
+        <variable
+            name="retryListener"
+            type="android.view.View.OnClickListener" />
+    </data>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="@dimen/spacing_3xl">
+
+        <ImageView
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:alpha="0.45"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_cancel_24dp"
+            app:tint="?attr/colorError" />
+
+        <com.google.android.material.textview.MaterialTextView
+            style="@style/TextAppearance.Surf.Headline"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/spacing_lg"
+            android:gravity="center"
+            android:text="@{title}" />
+
+        <com.google.android.material.textview.MaterialTextView
+            style="@style/TextAppearance.Surf.Body"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/spacing_xs"
+            android:alpha="0.7"
+            android:gravity="center"
+            android:text="@{subtitle}"
+            android:visibility="@{subtitle == null ? View.GONE : View.VISIBLE}" />
+
+        <com.google.android.material.button.MaterialButton
+            style="@style/Widget.Surf.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/spacing_xl"
+            android:onClick="@{retryListener}"
+            android:text="@{retryText}"
+            android:visibility="@{retryText == null ? View.GONE : View.VISIBLE}" />
+    </LinearLayout>
+</layout>

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <data>
+        <variable
+            name="title"
+            type="String" />
+        <variable
+            name="summary"
+            type="String" />
+        <variable
+            name="icon"
+            type="android.graphics.drawable.Drawable" />
+        <variable
+            name="clickListener"
+            type="android.view.View.OnClickListener" />
+    </data>
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/surf_list_item_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:minHeight="@dimen/component_list_item_three_line"
+        android:paddingStart="@dimen/spacing_lg"
+        android:paddingEnd="@dimen/spacing_lg"
+        app:surfOnClick="@{clickListener}"
+        tools:ignore="RtlSymmetry">
+
+        <ImageView
+            android:id="@+id/surf_list_item_icon"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/surf_chip_background"
+            android:contentDescription="@null"
+            android:padding="@dimen/spacing_sm"
+            android:scaleType="centerInside"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:surfSrc="@{icon}"
+            app:tint="?attr/colorPrimary"
+            tools:src="@drawable/public_24px"
+            tools:visibility="visible" />
+
+        <LinearLayout
+            android:id="@+id/surf_list_item_text_container"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/spacing_lg"
+            android:layout_marginEnd="@dimen/spacing_lg"
+            android:orientation="vertical"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@id/surf_list_item_control"
+            app:layout_constraintStart_toEndOf="@id/surf_list_item_icon"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/surf_list_item_title"
+                style="@style/TextAppearance.Surf.BodyLarge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@{title}"
+                tools:text="Title" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/surf_list_item_summary"
+                style="@style/TextAppearance.Surf.BodySmall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/spacing_xs"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:text="@{summary}"
+                tools:text="First line of summary\nSecond line of summary" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/surf_list_item_control"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
+        </FrameLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</layout>

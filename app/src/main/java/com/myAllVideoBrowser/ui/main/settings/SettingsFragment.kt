@@ -10,7 +10,6 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.SeekBar
 import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -59,6 +58,9 @@ class SettingsFragment : BaseFragment() {
     private lateinit var settingsViewModel: SettingsViewModel
 
     private var lastSavedRegularThreadsCount = -1
+
+    /** Detection-threshold slider maps 0..100 percent onto this byte cap (50 MB). */
+    private val THRESHOLD_CAP_BYTES = 50 * 1024 * 1024
     private var detectionAdvancedExpanded = false
     private var downloadingAdvancedExpanded = false
     private var settingsSearchQuery = ""
@@ -148,7 +150,7 @@ class SettingsFragment : BaseFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        setupSeekBarListeners()
+        setupSliderListeners()
         setupRadioGroupListener()
         setupAdvancedSections()
         setupSettingsSearch()
@@ -189,81 +191,62 @@ class SettingsFragment : BaseFragment() {
         super.onDestroyView()
     }
 
-    private fun setupSeekBarListeners() {
-        dataBinding.seekBarRegular.setOnSeekBarChangeListener(object :
-            SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    settingsViewModel.setRegularThreadsCount(progress)
+    private fun setupSliderListeners() {
+        // Regular (direct) download threads: 0..15
+        dataBinding.seekBarRegular.value =
+            settingsViewModel.regularThreadsCount.get().coerceIn(0, 15).toFloat()
+        dataBinding.seekBarRegular.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                val progress = value.toInt()
+                settingsViewModel.setRegularThreadsCount(progress)
 
-                    if (lastSavedRegularThreadsCount == 1 && progress > 1) {
-                        context?.let { showDownloadWarningDialog(it) }
-                    }
-                    lastSavedRegularThreadsCount = progress
+                if (lastSavedRegularThreadsCount == 1 && progress > 1) {
+                    context?.let { showDownloadWarningDialog(it) }
                 }
+                lastSavedRegularThreadsCount = progress
             }
+        }
 
-            override fun onStartTrackingTouch(p0: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                seekBar?.let { settingsViewModel.setRegularThreadsCount(it.progress) }
+        // M3U8 download threads: 0..15
+        dataBinding.seekBarM3u8.value =
+            settingsViewModel.m3u8ThreadsCount.get().coerceIn(0, 15).toFloat()
+        dataBinding.seekBarM3u8.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                settingsViewModel.setM3u8ThreadsCount(value.toInt())
             }
-        })
+        }
 
-        dataBinding.seekBarM3u8.setOnSeekBarChangeListener(object :
-            SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    settingsViewModel.setM3u8ThreadsCount(progress)
-                }
+        // Concurrent downloads: 0..5
+        dataBinding.seekBarMaxConcurrentDownloads.value =
+            settingsViewModel.maxConcurrentDownloads.get().coerceIn(0, 5).toFloat()
+        dataBinding.seekBarMaxConcurrentDownloads.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                settingsViewModel.setMaxConcurrentDownloads(value.toInt())
             }
+        }
 
-            override fun onStartTrackingTouch(p0: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                seekBar?.let { settingsViewModel.setM3u8ThreadsCount(it.progress) }
+        // Detection threshold: slider runs 0..100 (percent of the 50 MB cap) to stay
+        // inside Slider's float precision; bytes are derived on change.
+        dataBinding.seekBarVideoDetectionThreshold.value =
+            (settingsViewModel.videoDetectionThreshold.get() * 100f / THRESHOLD_CAP_BYTES)
+                .coerceIn(0f, 100f)
+        dataBinding.seekBarVideoDetectionThreshold.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                settingsViewModel.setVideoDetectionThreshold(
+                    (value / 100f * THRESHOLD_CAP_BYTES).toInt()
+                )
             }
-        })
+        }
 
-        dataBinding.seekBarMaxConcurrentDownloads.setOnSeekBarChangeListener(object :
-            SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    settingsViewModel.setMaxConcurrentDownloads(progress)
-                }
+        // Short-video filter: slider 0..115 maps to 5..120 seconds
+        dataBinding.seekBarShortVideoDuration.value =
+            (settingsViewModel.shortVideoFilterDurationSeconds.get() - 5)
+                .coerceIn(0, 115).toFloat()
+        dataBinding.seekBarShortVideoDuration.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                settingsViewModel.setShortVideoFilterDurationSeconds(value.toInt() + 5)
             }
-
-            override fun onStartTrackingTouch(p0: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                seekBar?.let { settingsViewModel.setMaxConcurrentDownloads(it.progress) }
-            }
-        })
-
-        dataBinding.seekBarVideoDetectionThreshold.setOnSeekBarChangeListener(object :
-            SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    settingsViewModel.setVideoDetectionThreshold(progress)
-                }
-            }
-
-            override fun onStartTrackingTouch(p0: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                seekBar?.let { settingsViewModel.setVideoDetectionThreshold(it.progress) }
-            }
-        })
-
-        dataBinding.seekBarShortVideoDuration.setOnSeekBarChangeListener(object :
-            SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    settingsViewModel.setShortVideoFilterDurationSeconds(progress + 5)
-                }
-            }
-
-            override fun onStartTrackingTouch(p0: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                seekBar?.let { settingsViewModel.setShortVideoFilterDurationSeconds(it.progress + 5) }
-            }
-        })
+        }
     }
 
     private fun setupRadioGroupListener() {

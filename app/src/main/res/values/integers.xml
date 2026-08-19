@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Motion spec: restrained, one moving element per screen -->
+    <integer name="motion_micro_ms">180</integer>
+    <integer name="motion_page_ms">300</integer>
+</resources>

@@ -51,7 +51,7 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
                     app:cardBackgroundColor="@color/sxSurfaceSoft"
-                    app:cardCornerRadius="@dimen/corner_md"
+                    app:cardCornerRadius="@dimen/corner_thumbnail"
                     app:cardElevation="0dp"
                     app:strokeColor="@color/sxOutline"
                     app:strokeWidth="0dp">
@@ -138,15 +138,20 @@
 
                     <com.google.android.material.textview.MaterialTextView
                         android:id="@+id/typeTextView"
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/padding_small"
+                        android:background="@drawable/sx_chip_background"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:textColor="@color/sxTextPrimary"
-                        android:textSize="@dimen/text_small"
+                        android:paddingStart="10dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="10dp"
+                        android:paddingBottom="3dp"
+                        android:textColor="@color/sxTextSecondary"
+                        android:textSize="@dimen/text_tiny"
                         android:textStyle="bold"
-                        tools:text="Regular MP4 Download" />
+                        tools:text="视频文件" />
 
                     <com.google.android.material.textview.MaterialTextView
                         android:id="@+id/sizeTextView"
@@ -154,6 +159,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/padding_tiny"
                         android:ellipsize="end"
+                        android:fontFeatureSettings="tnum"
                         android:maxLines="1"
                         android:textColor="@color/sxTextSecondary"
                         android:textSize="@dimen/text_small"
@@ -204,7 +210,6 @@
                     android:text="@string/detected_play_online"
                     android:textColor="@color/sxTextPrimary"
                     android:textSize="@dimen/text_small"
-                    app:cornerRadius="@dimen/corner_md"
                     app:icon="@drawable/play_circle_24px"
                     app:iconTint="@color/sxTextPrimary"
                     app:strokeColor="@color/sxOutline" />
@@ -218,11 +223,10 @@
                     android:insetBottom="0dp"
                     android:onClick="@{() -> dialogListener.onDownloadVideo(videoInfo, viewModel.selectedFormats.get(videoInfo.id), viewModel.formatsTitles.get(videoInfo.id))}"
                     android:text="@string/detected_download"
-                    android:textColor="@color/white"
+                    android:textColor="@color/colorOnPrimary"
                     android:textSize="@dimen/text_small"
-                    app:cornerRadius="@dimen/corner_md"
                     app:icon="@drawable/ic_download_24dp"
-                    app:iconTint="@color/white" />
+                    app:iconTint="@color/colorOnPrimary" />
             </LinearLayout>
 
             <LinearLayout

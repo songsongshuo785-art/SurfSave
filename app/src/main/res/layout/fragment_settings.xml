@@ -152,9 +152,7 @@
                         android:checked="@{viewModel.isAutoDarkMode}"
                         android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsAutoTheme(isChecked)}"
                         android:text="@string/is_auto_dark"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/is_dark_mode_check_box"
@@ -165,9 +163,7 @@
                         android:enabled="@{!viewModel.isAutoDarkMode}"
                         android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsDarkMode(isChecked)}"
                         android:text="@string/dark_mode"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/is_auto_pip_check_box"
@@ -176,9 +172,7 @@
                         android:checked="@{viewModel.isAutoPipEnabled}"
                         android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsAutoPipEnabled(isChecked)}"
                         android:text="@string/auto_pip"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/is_desktop_mode_check_box"
@@ -187,9 +181,7 @@
                         android:checked="@{viewModel.isDesktopMode}"
                         android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsDesktopMode(isChecked)}"
                         android:text="@string/desktop_mode"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/lock_orientation_check_box"
@@ -198,9 +190,7 @@
                         android:checked="@{viewModel.isLockPortrait}"
                         android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsLockPortrait(isChecked)}"
                         android:text="@string/lock_screen_orientation_portrait"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/drm_enabled_check_box"
@@ -209,9 +199,7 @@
                         android:checked="@{viewModel.isDrmEnabled}"
                         android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsDrmEnabled(isChecked)}"
                         android:text="@string/drm_permission_title"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
 
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:id="@+id/layout_search_engine"
@@ -322,9 +310,7 @@
                         android:checked="@{viewModel.isAutoTranslatePages}"
                         android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsAutoTranslatePages(isChecked)}"
                         android:text="@string/auto_translate_pages"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -369,9 +355,7 @@
                         android:checked="@{viewModel.getVideoAlertState()}"
                         android:onCheckedChanged="@{(_, isChecked) -> isChecked ? viewModel.setShowVideoAlertOn() : viewModel.setShowVideoAlertOff()}"
                         android:text="@string/show_video_found_alert"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/show_video_action_button_check_box"
@@ -380,9 +364,7 @@
                         android:checked="@{viewModel.getVideoButtonState()}"
                         android:onCheckedChanged="@{(_, isChecked) -> isChecked ? viewModel.setShowVideoActionButtonOn() : viewModel.setShowVideoActionButtonOff()}"
                         android:text="@string/show_action_button"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/find_videos_by_url"
@@ -391,9 +373,7 @@
                         android:checked="@{viewModel.isFindVideoByUrl}"
                         android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsFindVideoByUrl(isChecked)}"
                         android:text="@string/find_videos_by_url"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/filter_short_videos"
@@ -402,9 +382,7 @@
                         android:checked="@{viewModel.isFilterShortVideos}"
                         android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsFilterShortVideos(isChecked)}"
                         android:text="@string/filter_short_videos"
-                        android:textColor="@color/sxTextPrimary"
-                        app:thumbTint="@color/switch_thumb_selector"
-                        app:trackTint="@color/color_gray" />
+                        android:textColor="@color/sxTextPrimary" />
 
                     <LinearLayout
                         android:id="@+id/short_video_duration_container"
@@ -421,15 +399,13 @@
                             android:textStyle="bold"
                             tools:text="Hide clips shorter than 40 seconds" />
 
-                        <SeekBar
+                        <com.google.android.material.slider.Slider
                             android:id="@+id/seekBarShortVideoDuration"
-                            style="@style/Widget.AppCompat.SeekBar.Discrete"
                             android:layout_width="match_parent"
-                            android:layout_height="48dp"
-                            android:max="115"
-                            android:progress="@{viewModel.shortVideoFilterDurationSeconds - 5}"
-                            android:progressTint="@color/colorPrimary"
-                            android:thumbTint="@color/colorPrimary" />
+                            android:layout_height="wrap_content"
+                            android:stepSize="1"
+                            android:valueFrom="0"
+                            android:valueTo="115" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -474,9 +450,7 @@
                             android:checked="@{viewModel.isCheckEveryRequestOnMp4Video}"
                             android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsCheckEveryRequestOnVideo(isChecked)}"
                             android:text="@string/check_every_request_on_video_mp4"
-                            android:textColor="@color/sxTextPrimary"
-                            app:thumbTint="@color/switch_thumb_selector"
-                            app:trackTint="@color/color_gray" />
+                            android:textColor="@color/sxTextPrimary" />
 
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_check_every_request_on_m3u8"
@@ -485,9 +459,7 @@
                             android:checked="@{viewModel.isCheckIfEveryRequestOnM3u8}"
                             android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsCheckIfEveryUrlOnM3u8(isChecked)}"
                             android:text="@string/check_every_request_on_video_m3u8"
-                            android:textColor="@color/sxTextPrimary"
-                            app:thumbTint="@color/switch_thumb_selector"
-                            app:trackTint="@color/color_gray" />
+                            android:textColor="@color/sxTextPrimary" />
 
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_check_every_request_on_audio"
@@ -496,9 +468,7 @@
                             android:checked="@{viewModel.isCheckOnAudio}"
                             android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsCheckOnAudio(isChecked)}"
                             android:text="@string/check_every_request_on_audio"
-                            android:textColor="@color/sxTextPrimary"
-                            app:thumbTint="@color/switch_thumb_selector"
-                            app:trackTint="@color/color_gray" />
+                            android:textColor="@color/sxTextPrimary" />
 
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_force_stream_detection"
@@ -507,9 +477,7 @@
                             android:checked="@{viewModel.isForceStreamDetection}"
                             android:onCheckedChanged="@{(_, isChecked) -> viewModel.setForceStreamDetection(isChecked)}"
                             android:text="@string/force_stream_detection"
-                            android:textColor="@color/sxTextPrimary"
-                            app:thumbTint="@color/switch_thumb_selector"
-                            app:trackTint="@color/color_gray" />
+                            android:textColor="@color/sxTextPrimary" />
 
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_use_legacy_m3u8_detection"
@@ -518,9 +486,7 @@
                             android:checked="@{viewModel.isUseLegacyM3u8Detection}"
                             android:onCheckedChanged="@{(_, isChecked) -> viewModel.setUseLegacyM3u8Detection(isChecked)}"
                             android:text="@string/use_legacy_m3u8_detection"
-                            android:textColor="@color/sxTextPrimary"
-                            app:thumbTint="@color/switch_thumb_selector"
-                            app:trackTint="@color/color_gray" />
+                            android:textColor="@color/sxTextPrimary" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -600,9 +566,7 @@
                             android:checked="@{viewModel.isForceStreamDownloading}"
                             android:onCheckedChanged="@{(_, isChecked) -> viewModel.setForceStreamDownloading(isChecked)}"
                             android:text="@string/force_stream_downloading"
-                            android:textColor="@color/sxTextPrimary"
-                            app:thumbTint="@color/switch_thumb_selector"
-                            app:trackTint="@color/color_gray" />
+                            android:textColor="@color/sxTextPrimary" />
 
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_always_remux_regular_downloads"
@@ -611,9 +575,7 @@
                             android:checked="@{viewModel.isAlwaysRemuxRegularDownloads}"
                             android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsRemuxOnlyRegularDownloads(isChecked)}"
                             android:text="@string/is_always_remux_regular_downloads"
-                            android:textColor="@color/sxTextPrimary"
-                            app:thumbTint="@color/switch_thumb_selector"
-                            app:trackTint="@color/color_gray" />
+                            android:textColor="@color/sxTextPrimary" />
 
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_remux_only_live_regular_downloads"
@@ -622,9 +584,7 @@
                             android:checked="@{viewModel.isRemuxOnlyLiveRegularDownloads}"
                             android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsRemuxOnlyLiveRegularDownloads(isChecked)}"
                             android:text="@string/is_remux_only_live_regular_downloads"
-                            android:textColor="@color/sxTextPrimary"
-                            app:thumbTint="@color/switch_thumb_selector"
-                            app:trackTint="@color/color_gray" />
+                            android:textColor="@color/sxTextPrimary" />
 
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_interrupt_intrecepted_resources"
@@ -633,9 +593,7 @@
                             android:checked="@{viewModel.isInterruptIntreceptedResources}"
                             android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsInterruptInterceptedResources(isChecked)}"
                             android:text="@string/is_interrupt_intrecepted_resources"
-                            android:textColor="@color/sxTextPrimary"
-                            app:thumbTint="@color/switch_thumb_selector"
-                            app:trackTint="@color/color_gray" />
+                            android:textColor="@color/sxTextPrimary" />
 
                         <LinearLayout
                             android:id="@+id/filename_template_container"
@@ -796,15 +754,13 @@
                             android:textStyle="bold"
                             tools:text="Concurrent downloads: 2" />
 
-                        <SeekBar
+                        <com.google.android.material.slider.Slider
                             android:id="@+id/seekBarMaxConcurrentDownloads"
-                            style="@style/Widget.AppCompat.SeekBar.Discrete"
                             android:layout_width="match_parent"
-                            android:layout_height="48dp"
-                            android:max="5"
-                            android:progress="@{viewModel.maxConcurrentDownloads}"
-                            android:progressTint="@color/colorPrimary"
-                            android:thumbTint="@color/colorPrimary" />
+                            android:layout_height="wrap_content"
+                            android:stepSize="1"
+                            android:valueFrom="0"
+                            android:valueTo="5" />
                         </LinearLayout>
 
                         <LinearLayout
@@ -824,15 +780,13 @@
                             android:textStyle="bold"
                             tools:text="Regular Download Threads: 4" />
 
-                        <SeekBar
+                        <com.google.android.material.slider.Slider
                             android:id="@+id/seekBarRegular"
-                            style="@style/Widget.AppCompat.SeekBar.Discrete"
                             android:layout_width="match_parent"
-                            android:layout_height="48dp"
-                            android:max="15"
-                            android:progress="@{viewModel.regularThreadsCount}"
-                            android:progressTint="@color/colorPrimary"
-                            android:thumbTint="@color/colorPrimary" />
+                            android:layout_height="wrap_content"
+                            android:stepSize="1"
+                            android:valueFrom="0"
+                            android:valueTo="15" />
                         </LinearLayout>
 
                         <LinearLayout
@@ -852,15 +806,13 @@
                             android:textStyle="bold"
                             tools:text="M3U8 Download Threads: 8" />
 
-                        <SeekBar
+                        <com.google.android.material.slider.Slider
                             android:id="@+id/seekBarM3u8"
-                            style="@style/Widget.AppCompat.SeekBar.Discrete"
                             android:layout_width="match_parent"
-                            android:layout_height="48dp"
-                            android:max="15"
-                            android:progress="@{viewModel.m3u8ThreadsCount}"
-                            android:progressTint="@color/colorPrimary"
-                            android:thumbTint="@color/colorPrimary" />
+                            android:layout_height="wrap_content"
+                            android:stepSize="1"
+                            android:valueFrom="0"
+                            android:valueTo="15" />
                         </LinearLayout>
 
                         <LinearLayout
@@ -880,14 +832,13 @@
                             android:textStyle="bold"
                             tools:text="Ads detection threshold is 4 MB" />
 
-                        <SeekBar
+                        <com.google.android.material.slider.Slider
                             android:id="@+id/seekBarVideoDetectionThreshold"
                             android:layout_width="match_parent"
-                            android:layout_height="48dp"
-                            android:max="@{50 * 1024 * 1024}"
-                            android:progress="@{viewModel.videoDetectionThreshold}"
-                            android:progressTint="@color/colorPrimary"
-                            android:thumbTint="@color/colorPrimary" />
+                            android:layout_height="wrap_content"
+                            android:stepSize="1"
+                            android:valueFrom="0"
+                            android:valueTo="100" />
                         </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>

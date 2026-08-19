@@ -48,6 +48,7 @@ import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.FragmentPlayerBinding
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.util.AppUtil
+import com.myAllVideoBrowser.util.DisplayNameFormatter
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -232,7 +233,10 @@ class VideoPlayerFragment : BaseFragment() {
                 videoPlayerViewModel.videoHeaders.set(emptyMap())
             }
         }
-        arguments?.getString(VIDEO_NAME)?.let { videoPlayerViewModel.videoName.set(it) }
+        arguments?.getString(VIDEO_NAME)?.let {
+            // Humanized display title (extension/separator cleanup, fallback to raw)
+            videoPlayerViewModel.videoName.set(DisplayNameFormatter.clean(it).ifBlank { it })
+        }
 
         val iUrl = arguments?.getString(VIDEO_URL)?.toUri()
 

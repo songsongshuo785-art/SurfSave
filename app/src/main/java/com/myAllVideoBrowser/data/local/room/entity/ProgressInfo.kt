@@ -122,6 +122,10 @@ data class ProgressInfo(
             downloadStatus == VideoTaskState.DOWNLOADING ||
             downloadStatus == VideoTaskState.PROXYREADY
 
+    // Room-safe computed flag: active task without a known total yet → indeterminate bar
+    val isProgressIndeterminate: Boolean
+        get() = isActive && progress <= 0
+
     val isPendingQueue: Boolean
         get() = downloadStatus == VideoTaskState.PENDING && !queuedForLater
 

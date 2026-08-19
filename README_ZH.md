@@ -66,7 +66,7 @@
 ## 下载与安装
 
 - **下载 APK**：[GitHub Releases](https://github.com/songsongshuo785-art/SurfSave/releases)
-- **当前源码版本**：`v0.8.28`
+- **当前源码版本**：`v0.8.29`
 - **系统要求**：Android 7.0+（API 24）
 
 ### 选择哪个 APK？

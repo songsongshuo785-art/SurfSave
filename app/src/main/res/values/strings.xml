@@ -25,7 +25,7 @@
   <string name="title_browser">Browser</string>
   <string name="progress_subtitle">Active downloads and recovery controls</string>
   <string name="video_library_subtitle">Downloaded videos ready to watch or share</string>
-  <string name="detected_videos_title">Detected Videos</string>
+  <string name="detected_videos_title">Videos on this page</string>
   <string name="detected_videos_unavailable">Detection panel is unavailable. Try reopening the page.</string>
   <string name="detection_status_checking">Checking this page for media…</string>
   <string name="detection_status_empty">No video found yet. Start playback, wait a few seconds, then re-detect.</string>
@@ -379,4 +379,29 @@
   <string name="migration_center_uninstall_legacy_button">Uninstall legacy app</string>
   <string name="migration_center_refresh_button">Refresh status</string>
   <string name="action_view">View</string>
+
+  <!-- Detection sheet (redesign) -->
+  <string name="detected_videos_from_host">From %1$s</string>
+  <string name="detected_videos_snackbar">%1$d videos found</string>
+  <string name="detected_download_with_quality">Download %1$s</string>
+  <string name="video_kind_m3u8">HLS stream</string>
+  <string name="video_kind_mpd">DASH stream</string>
+  <string name="video_kind_master">Playlist</string>
+  <string name="video_kind_regular">Video file</string>
+
+  <!-- Download status, localized -->
+  <string name="download_status_downloading">Downloading</string>
+  <string name="download_status_paused">Paused</string>
+  <string name="download_status_pending">Waiting</string>
+  <string name="download_status_preparing">Preparing</string>
+  <string name="download_status_merging">Finishing up</string>
+  <string name="download_status_canceling">Canceling</string>
+  <string name="download_status_failed">Failed</string>
+
+  <!-- Empty states -->
+  <string name="empty_progress_title">No downloads yet</string>
+  <string name="empty_progress_subtitle">Start a download and its progress will show up here.</string>
+  <string name="empty_video_title">No videos yet</string>
+  <string name="empty_video_subtitle">Videos you save will appear here, ready to play.</string>
+  <string name="empty_action_browse">Browse the web</string>
 </resources>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Empty-state hero art: soft tonal tile with a brand glow in the middle.
+     Procedural (no bitmap), resolves per-night colors automatically. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/colorSurfaceContainerLow" />
+            <corners android:radius="28dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="90dp"
+                android:centerX="0.5"
+                android:centerY="0.42"
+                android:startColor="@color/colorBrandGlow"
+                android:centerColor="@color/colorBrandGlow"
+                android:endColor="@android:color/transparent" />
+            <corners android:radius="28dp" />
+        </shape>
+    </item>
+</layer-list>

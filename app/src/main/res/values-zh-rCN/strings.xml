@@ -243,7 +243,7 @@
     <string name="title_browser">浏览器</string>
     <string name="progress_subtitle">正在下载的任务和恢复控制</string>
     <string name="video_library_subtitle">已下载，可播放或分享的视频</string>
-    <string name="detected_videos_title">发现的视频</string>
+    <string name="detected_videos_title">本页视频</string>
     <string name="detected_videos_unavailable">检测面板暂不可用，请重新打开页面后再试。</string>
     <string name="detection_status_checking">正在检测当前页面的媒体…</string>
     <string name="detection_status_empty">暂未发现视频。请先播放视频，等待几秒后重新检测。</string>
@@ -374,4 +374,29 @@
     <string name="migration_center_delete_package_button">删除本地备份包</string>
     <string name="migration_center_uninstall_legacy_button">卸载旧版应用</string>
     <string name="migration_center_refresh_button">刷新状态</string>
+
+    <!-- 检测 Sheet（重设计） -->
+    <string name="detected_videos_from_host">来自 %1$s</string>
+    <string name="detected_videos_snackbar">检测到 %1$d 个视频</string>
+    <string name="detected_download_with_quality">下载 %1$s</string>
+    <string name="video_kind_m3u8">HLS 流</string>
+    <string name="video_kind_mpd">DASH 流</string>
+    <string name="video_kind_master">播放列表</string>
+    <string name="video_kind_regular">视频文件</string>
+
+    <!-- 下载状态（本地化） -->
+    <string name="download_status_downloading">下载中</string>
+    <string name="download_status_paused">已暂停</string>
+    <string name="download_status_pending">排队中</string>
+    <string name="download_status_preparing">准备中</string>
+    <string name="download_status_merging">即将完成</string>
+    <string name="download_status_canceling">正在取消</string>
+    <string name="download_status_failed">下载失败</string>
+
+    <!-- 空状态 -->
+    <string name="empty_progress_title">还没有下载任务</string>
+    <string name="empty_progress_subtitle">开始下载后，进度会显示在这里。</string>
+    <string name="empty_video_title">还没有视频</string>
+    <string name="empty_video_subtitle">保存的视频会出现在这里，随时可以播放。</string>
+    <string name="empty_action_browse">去浏览网页</string>
 </resources>

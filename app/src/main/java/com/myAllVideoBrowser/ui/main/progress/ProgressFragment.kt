@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
-import android.graphics.Color
 import android.os.Bundle
 import android.util.AttributeSet
 import android.view.LayoutInflater
@@ -20,7 +19,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.RecyclerView.Recycler
-import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.FragmentProgressBinding
@@ -66,13 +64,6 @@ class ProgressFragment : BaseFragment() {
         progressViewModel = mainActivity.progressViewModel
         progressAdapter = ProgressAdapter(emptyList(), progressListener)
 
-        val isDark = mainActivity.settingsViewModel.isDarkMode.get()
-        val color = if (isDark) {
-            MaterialColors.getColor(requireContext(), R.attr.editTextColor, Color.YELLOW)
-        } else {
-            null
-        }
-
         dataBinding = FragmentProgressBinding.inflate(inflater, container, false).apply {
             val managerL =
                 WrapContentLinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
@@ -80,8 +71,9 @@ class ProgressFragment : BaseFragment() {
             this.viewModel = progressViewModel
             this.rvProgress.layoutManager = managerL
             this.rvProgress.adapter = progressAdapter
-            if (color != null) {
-                this.ivEmptyIcon.setBackgroundColor(color)
+            // Empty-state CTA: jump back to the browser tab
+            this.emptyActionButton.setOnClickListener {
+                mainActivity.mainViewModel.currentItem.set(0)
             }
         }
 

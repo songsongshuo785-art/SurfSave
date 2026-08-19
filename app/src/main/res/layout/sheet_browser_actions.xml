@@ -5,7 +5,7 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/sx_bottom_nav_background"
+        android:background="@drawable/surf_sheet_background"
         android:fillViewport="false">
 
         <LinearLayout
@@ -18,8 +18,8 @@
             android:paddingBottom="@dimen/padding_normal">
 
             <View
-                android:layout_width="44dp"
-                android:layout_height="4dp"
+                android:layout_width="@dimen/component_bottom_sheet_drag_handle_width"
+                android:layout_height="@dimen/component_bottom_sheet_drag_handle_height"
                 android:layout_gravity="center_horizontal"
                 android:layout_marginBottom="@dimen/padding_normal"
                 android:background="@drawable/sx_sheet_handle_background" />
@@ -57,7 +57,7 @@
                     android:layout_weight="1"
                     android:text="@string/new_tab"
                     android:textColor="@color/sxTextPrimary"
-                    app:cornerRadius="8dp"
+                    app:cornerRadius="@dimen/corner_full"
                     app:icon="@drawable/add_new_tab_icon24"
                     app:iconTint="@color/colorPrimary"
                     app:strokeColor="@color/sxOutline" />
@@ -68,10 +68,10 @@
                     android:layout_height="44dp"
                     android:layout_weight="1"
                     android:text="@string/tabs"
-                    android:textColor="@color/white"
-                    app:cornerRadius="8dp"
+                    android:textColor="@color/colorOnPrimary"
+                    app:cornerRadius="@dimen/corner_full"
                     app:icon="@drawable/tab_group_24px"
-                    app:iconTint="@color/white" />
+                    app:iconTint="@color/colorOnPrimary" />
             </LinearLayout>
 
             <LinearLayout
@@ -89,7 +89,7 @@
                     android:layout_weight="1"
                     android:text="@string/browser_home_button"
                     android:textColor="@color/sxTextPrimary"
-                    app:cornerRadius="8dp"
+                    app:cornerRadius="@dimen/corner_full"
                     app:icon="@drawable/home_48px"
                     app:iconTint="@color/sxTextSecondary"
                     app:strokeColor="@color/sxOutline" />
@@ -102,7 +102,7 @@
                     android:layout_weight="1"
                     android:text="@string/forward"
                     android:textColor="@color/sxTextPrimary"
-                    app:cornerRadius="8dp"
+                    app:cornerRadius="@dimen/corner_full"
                     app:icon="@drawable/arrow_forward24px"
                     app:iconTint="@color/sxTextSecondary"
                     app:strokeColor="@color/sxOutline" />

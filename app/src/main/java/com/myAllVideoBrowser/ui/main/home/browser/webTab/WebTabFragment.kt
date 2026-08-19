@@ -705,8 +705,6 @@ class WebTabFragment : BaseWebTabFragment() {
 
     private var customWebChromeClient: CustomWebChromeClient? = null
 
-    private var videoToast: Toast? = null
-
     private var canGoCounter = 0
 
     private var translateJob: Job? = null
@@ -1169,6 +1167,9 @@ class WebTabFragment : BaseWebTabFragment() {
         removeMediaProbeScriptHandler()
         tabViewModel.stop()
         videoDetectionTabViewModel.stop()
+        mainActivity.progressViewModel.progressInfos.removeOnPropertyChangedCallback(
+            progressRingCallback
+        )
         mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRouteCallBack)
         tabManagerProvider.getTabsListChangeEvent()
             .removeOnPropertyChangedCallback(tabsListChangeListener)
@@ -1195,17 +1196,48 @@ class WebTabFragment : BaseWebTabFragment() {
     }
 
     private fun onVideoPushed() {
-        showToastVideoFound()
+        // Signature feedback: badge pop + snackbar instead of a modal dialog.
+        // (The FAB pulse already fires via downloadButtonStateCallback.)
+        animateVideoFoundBadge()
 
         val isDownloadsVisible = isDetectedVideosTabFragmentVisible()
         val isCond = !tabViewModel.isDownloadDialogShown.get() && !isDownloadsVisible
         if (context != null && mainActivity.settingsViewModel.getVideoAlertState()
                 .get() && isCond
         ) {
-            lifecycleScope.launch(Dispatchers.Main) {
-                showAlertVideoFound()
-            }
+            tabViewModel.isDownloadDialogShown.set(true)
+            val count = videoDetectionTabViewModel.detectedVideosList.get()?.size ?: 1
+            Snackbar.make(
+                dataBinding.containerBrowser,
+                getString(R.string.detected_videos_snackbar, count),
+                Snackbar.LENGTH_LONG
+            )
+                .setAnchorView(dataBinding.floatingContainer)
+                .setAction(R.string.action_view) {
+                    navigateToDownloadsWithThumbnail()
+                    tabViewModel.isDownloadDialogShown.set(false)
+                }
+                .addCallback(object : Snackbar.Callback() {
+                    override fun onDismissed(transientBottomBar: Snackbar?, event: Int) {
+                        tabViewModel.isDownloadDialogShown.set(false)
+                    }
+                })
+                .show()
         }
+    }
+
+    private fun animateVideoFoundBadge() {
+        val badge = dataBinding.videoDetectionBadge ?: return
+        val micro = resources.getInteger(R.integer.motion_micro_ms).toLong()
+        badge.animate().cancel()
+        badge.scaleX = 0.6f
+        badge.scaleY = 0.6f
+        badge.animate()
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(micro)
+            .setInterpolator(android.view.animation.OvershootInterpolator())
+            .start()
     }
 
     @OptIn(UnstableApi::class)
@@ -1440,6 +1472,37 @@ class WebTabFragment : BaseWebTabFragment() {
         videoDetectionTabViewModel.downloadButtonState.addOnPropertyChangedCallback(
             downloadButtonStateCallback
         )
+
+        // Aggregate download progress ring around the FAB
+        mainActivity.progressViewModel.progressInfos.removeOnPropertyChangedCallback(
+            progressRingCallback
+        )
+        mainActivity.progressViewModel.progressInfos.addOnPropertyChangedCallback(
+            progressRingCallback
+        )
+        updateFabProgressRing()
+    }
+
+    private val progressRingCallback = object : Observable.OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            updateFabProgressRing()
+        }
+    }
+
+    private fun updateFabProgressRing() {
+        if (!::dataBinding.isInitialized) {
+            return
+        }
+        val ring = dataBinding.fabProgressRing ?: return
+        val active = mainActivity.progressViewModel.progressInfos.get().orEmpty()
+            .filter { it.isActive && !it.isProgressIndeterminate }
+        if (active.isEmpty()) {
+            ring.visibility = View.GONE
+            return
+        }
+        val percent = active.map { it.progress.coerceIn(0, 100) }.average().toInt()
+        ring.visibility = View.VISIBLE
+        ring.setProgressCompat(percent, true)
     }
 
     private fun animateFabPulse(view: View) {
@@ -2418,33 +2481,6 @@ class WebTabFragment : BaseWebTabFragment() {
         }
     }
 
-    private fun showAlertVideoFound() {
-        if (!tabViewModel.isDownloadDialogShown.get()) {
-            tabViewModel.isDownloadDialogShown.set(true)
-            val client = getWebViewClientCompat(webTab.getWebView())
-
-            client?.videoAlert =
-                MaterialAlertDialogBuilder(requireContext()).setTitle(R.string.video_found)
-            client?.videoAlert?.setOnDismissListener {
-                client.videoAlert = null
-            }
-            client?.videoAlert?.setMessage(R.string.whatshould)?.setPositiveButton(
-                R.string.view
-            ) { dialog, _ ->
-                navigateToDownloadsWithThumbnail()
-                tabViewModel.isDownloadDialogShown.set(false)
-                dialog.dismiss()
-            }?.setNeutralButton(R.string.dontshow) { dialog, _ ->
-                mainActivity.settingsViewModel.setShowVideoAlertOff()
-                tabViewModel.isDownloadDialogShown.set(false)
-                dialog.dismiss()
-            }?.setNegativeButton(R.string.all_text_cancel) { dialog, _ ->
-                tabViewModel.isDownloadDialogShown.set(false)
-                dialog.dismiss()
-            }?.show()
-        }
-    }
-
     private fun handleOnBackPress() {
         if (!shouldHandleBackPress()) {
             backPressedCallback.isEnabled = false
@@ -2543,20 +2579,6 @@ class WebTabFragment : BaseWebTabFragment() {
     private val changeRouteCallBack = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
             updateBackPressedCallbackState()
-        }
-    }
-
-    private fun showToastVideoFound() {
-        val context = context
-
-        if (context != null) {
-            Handler(Looper.getMainLooper()).postDelayed({
-                videoToast?.cancel()
-                videoToast = Toast.makeText(
-                    context, context.getString(R.string.video_found), Toast.LENGTH_SHORT
-                )
-                videoToast?.show()
-            }, 1)
         }
     }
 

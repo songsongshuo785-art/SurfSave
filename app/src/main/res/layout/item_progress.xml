@@ -62,9 +62,8 @@
                 android:layout_marginEnd="@dimen/padding_tiny"
                 android:ellipsize="end"
                 android:maxLines="2"
-                android:text="@{progressInfo.videoInfo.name}"
                 android:textColor="@color/sxTextPrimary"
-                android:textSize="@dimen/text_large"
+                android:textSize="@dimen/text_medium"
                 android:textStyle="bold"
                 app:layout_constraintEnd_toStartOf="@+id/ip_more"
                 app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
@@ -76,7 +75,7 @@
                 android:layout_width="@dimen/min_touch_target"
                 android:layout_height="@dimen/min_touch_target"
                 app:cardBackgroundColor="@android:color/transparent"
-                app:cardCornerRadius="@dimen/corner_md"
+                app:cardCornerRadius="@dimen/corner_full"
                 app:cardElevation="0dp"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="@id/iv_thumbnail"
@@ -93,21 +92,21 @@
                     tools:ignore="VectorDrawableCompat" />
             </com.google.android.material.card.MaterialCardView>
 
-            <ProgressBar
+            <com.google.android.material.progressindicator.LinearProgressIndicator
                 android:id="@+id/progress_bar"
-                style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="0dp"
-                android:layout_height="8dp"
+                android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/padding_normal"
                 android:layout_marginTop="@dimen/padding_normal"
-                android:background="@android:color/transparent"
-                android:max="100"
                 android:progress="@{progressInfo.progress}"
-                android:progressBackgroundTint="@color/sxSurfaceSoft"
-                android:progressTint="@color/colorPrimary"
+                app:indeterminate="@{progressInfo.progressIndeterminate}"
+                app:indicatorColor="@color/colorPrimary"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
                 app:layout_constraintTop_toBottomOf="@id/tv_title"
+                app:trackColor="@color/colorSurfaceContainerHigh"
+                app:trackCornerRadius="999dp"
+                app:trackThickness="@dimen/component_progress_indicator_height"
                 tools:progress="38" />
 
             <com.google.android.material.textview.MaterialTextView
@@ -117,14 +116,14 @@
                 android:layout_marginStart="@dimen/padding_normal"
                 android:layout_marginTop="@dimen/padding_small"
                 android:ellipsize="end"
+                android:fontFeatureSettings="tnum"
                 android:maxLines="1"
-                android:text="@{progressInfo.progressSize}"
                 android:textColor="@color/sxTextSecondary"
                 android:textSize="@dimen/text_small"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
                 app:layout_constraintTop_toBottomOf="@id/progress_bar"
-                tools:text="4.5 MB / 10 MB" />
+                tools:text="4.5 MB / 10 MB · 下载中" />
 
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/info_line"
@@ -134,13 +133,14 @@
                 android:ellipsize="end"
                 android:lineSpacingExtra="1dp"
                 android:maxLines="2"
-                android:text="@{progressInfo.infoLine}"
                 android:textColor="@color/sxTextSecondary"
                 android:textSize="@dimen/text_tiny"
+                android:visibility="gone"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@+id/iv_thumbnail"
-                tools:text="[download] 38% at 438.62 KiB/s ETA 04:41" />
+                tools:text="网络异常 · 检查网络后重试"
+                tools:visibility="visible" />
 
         </androidx.constraintlayout.widget.ConstraintLayout>
 

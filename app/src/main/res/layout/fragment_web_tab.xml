@@ -172,7 +172,7 @@
                                 android:paddingStart="4dp"
                                 android:paddingEnd="4dp"
                                 android:text="@{viewModel.tabsBadgeText}"
-                                android:textColor="@color/white"
+                                android:textColor="@color/colorBadgeText"
                                 android:textSize="@dimen/text_tiny"
                                 android:textStyle="bold"
                                 android:translationZ="2dp"
@@ -255,6 +255,26 @@
                 android:translationZ="20dp"
                 android:visibility="@{settingsViewModel.getVideoButtonState() ? View.VISIBLE : View.GONE}">
 
+                <!-- Aggregate download progress ring (signature motion): sits behind the FAB -->
+                <com.google.android.material.progressindicator.CircularProgressIndicator
+                    android:id="@+id/fab_progress_ring"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:indeterminate="false"
+                    android:max="100"
+                    android:progress="0"
+                    android:visibility="gone"
+                    app:indicatorColor="@color/colorPrimary"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:trackColor="@color/colorOutlineVariant"
+                    app:trackThickness="3dp"
+                    tools:progress="62"
+                    tools:visibility="visible"
+                    xmlns:tools="http://schemas.android.com/tools" />
+
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/fab"
                     android:layout_width="44dp"
@@ -264,6 +284,8 @@
                     app:cardBackgroundColor="@color/colorPrimary"
                     app:cardCornerRadius="999dp"
                     app:cardElevation="0dp"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent"
                     app:rippleColor="@color/white_30"
@@ -282,7 +304,7 @@
                             android:scaleType="centerInside"
                             app:imageResource="@{videoTabVModel.getDownloadBtnIcon()}"
                             android:visibility="@{videoTabVModel.getDownloadBtnIcon() == R.drawable.invisible_24px ? View.GONE : View.VISIBLE}"
-                            app:tint="@color/white" />
+                            app:tint="@color/colorOnPrimary" />
 
                         <com.google.android.material.progressindicator.CircularProgressIndicator
                             android:id="@+id/loadingWavy"
@@ -293,10 +315,10 @@
                             android:indeterminate="true"
                             android:padding="8dp"
                             android:visibility="@{videoTabVModel.getDownloadBtnIcon() == R.drawable.invisible_24px ? View.VISIBLE : View.GONE}"
-                            app:indicatorColor="@color/white"
+                            app:indicatorColor="@color/colorOnPrimary"
                             app:indicatorSize="24dp"
                             app:trackThickness="2dp"
-                            app:trackColor="@color/white_30" />
+                            app:trackColor="@android:color/transparent" />
                     </FrameLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -312,7 +334,7 @@
                     android:paddingStart="5dp"
                     android:paddingEnd="5dp"
                     android:text="@{videoTabVModel.detectedVideosBadgeText}"
-                    android:textColor="@color/white"
+                    android:textColor="@color/colorBadgeText"
                     android:textSize="@dimen/text_tiny"
                     android:textStyle="bold"
                     android:translationZ="24dp"

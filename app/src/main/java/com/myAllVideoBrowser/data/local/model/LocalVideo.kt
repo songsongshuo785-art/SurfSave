@@ -1,6 +1,7 @@
 package com.myAllVideoBrowser.data.local.model
 
 import android.net.Uri
+import com.myAllVideoBrowser.util.DisplayNameFormatter
 import java.net.URI
 
 data class LocalVideo(
@@ -13,6 +14,10 @@ data class LocalVideo(
     var quality: String = ""
     var sourceUrl: String = ""
     var thumbnailFrameMicros: Long = 1_000_000L
+
+    /** Humanized display name (extension/separator cleanup); raw name untouched */
+    val displayName: String
+        get() = DisplayNameFormatter.clean(name).ifBlank { name }
 
     val thumbnailPath: Uri
         get() = uri

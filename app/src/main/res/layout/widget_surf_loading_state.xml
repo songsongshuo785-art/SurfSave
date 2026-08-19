@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Surf 通用加载态组件。
+    使用 CircularProgressIndicator + 简短文案。
+-->
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <data>
+        <import type="android.view.View" />
+        <variable
+            name="message"
+            type="String" />
+    </data>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="@dimen/spacing_3xl">
+
+        <com.google.android.material.progressindicator.CircularProgressIndicator
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:indeterminate="true"
+            app:indicatorColor="?attr/colorPrimary"
+            app:trackColor="?attr/colorSurfaceContainerHigh"
+            app:trackThickness="4dp" />
+
+        <com.google.android.material.textview.MaterialTextView
+            style="@style/TextAppearance.Surf.Body"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/spacing_lg"
+            android:alpha="0.7"
+            android:gravity="center"
+            android:text="@{message}"
+            android:visibility="@{message == null ? View.GONE : View.VISIBLE}" />
+    </LinearLayout>
+</layout>

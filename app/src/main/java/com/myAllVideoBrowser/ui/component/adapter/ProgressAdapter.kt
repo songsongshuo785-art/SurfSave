@@ -12,6 +12,10 @@ import com.bumptech.glide.request.RequestOptions
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.databinding.ItemProgressBinding
+import com.myAllVideoBrowser.util.DisplayNameFormatter
+import com.myAllVideoBrowser.util.ProgressTextHumanizer
+import com.myAllVideoBrowser.util.UserFacingError
+import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
 
 class ProgressAdapter(
     private var progressInfos: List<ProgressInfo>,
@@ -35,21 +39,39 @@ class ProgressAdapter(
         RecyclerView.ViewHolder(binding.root) {
 
         fun bind(progressInfo: ProgressInfo, progressListener: ProgressListener) {
+            val context = itemView.context
             val thumbnail = progressInfo.videoInfo.thumbnail
-            val placeholder = R.drawable.ic_video_24dp
-            val size = getScreenResolution(itemView.context)
+            val placeholder = R.drawable.surf_video_placeholder
+            val size = getScreenResolution(context)
             with(binding)
             {
-                this.cardProgress.setCardBackgroundColor(
-                    itemView.context.getColor(R.color.sxSurfaceRaised)
-                )
-
                 this.progressInfo = progressInfo
                 this.progressListener = progressListener
                 this.downloadId = progressInfo.downloadId
                 this.isRegular = progressInfo.videoInfo.isRegularDownload
 
-                Glide.with(this@ProgressViewHolder.itemView.context).load(thumbnail).fitCenter()
+                // Humanized title: display-only cleanup, raw name kept as fallback
+                val rawName = progressInfo.videoInfo.name
+                this.tvTitle.text =
+                    DisplayNameFormatter.clean(rawName).ifBlank { rawName }
+
+                // Humanized progress line: localized size + status
+                this.tvProgress.text =
+                    ProgressTextHumanizer.progressLine(context, progressInfo)
+
+                // Error line: compact localized category + suggestion, only on failure
+                val failed = progressInfo.downloadStatus == VideoTaskState.ERROR ||
+                    progressInfo.downloadStatus == VideoTaskState.ENOSPC
+                if (failed) {
+                    this.infoLine.text =
+                        UserFacingError.compactMessage(context, progressInfo.lastError)
+                    this.infoLine.setTextColor(context.getColor(R.color.colorError))
+                    this.infoLine.visibility = View.VISIBLE
+                } else {
+                    this.infoLine.visibility = View.GONE
+                }
+
+                Glide.with(context).load(thumbnail).centerCrop()
                     .error(placeholder)
                     .placeholder(placeholder)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)

@@ -45,6 +45,7 @@ class VideoInfoAdapter(
                 if (foundFormat != null) {
                     model.selectedFormatUrl.set(foundFormat.url)
                 }
+                updateDownloadButton(currentVideoInfo)
             }
         }
 
@@ -90,16 +91,17 @@ class VideoInfoAdapter(
                 }
 
                 videoInfo = info
-                val typeText = if (info.isM3u8 || info.isMpd) {
-                    val isMpd = info.formats.formats.firstOrNull()?.isMpd == true
-                    if (isMpd) "MPD List" else "M3U8 List"
-                } else if (info.isMaster) {
-                    val isMpd = info.formats.formats.firstOrNull()?.isMpd == true
-                    if (isMpd) "MPD Master List" else "M3U8 Mater List"
-                } else if (info.isRegularDownload) {
-                    "Regular MP4 Download"
-                } else {
-                    ""
+                val typeText = when {
+                    info.isM3u8 || info.isMpd -> {
+                        val isMpd = info.formats.formats.firstOrNull()?.isMpd == true
+                        root.context.getString(
+                            if (isMpd) R.string.video_kind_mpd else R.string.video_kind_m3u8
+                        )
+                    }
+
+                    info.isMaster -> root.context.getString(R.string.video_kind_master)
+                    info.isRegularDownload -> root.context.getString(R.string.video_kind_regular)
+                    else -> ""
                 }
 
                 val bestFormat = VideoFormatUi.sortFormats(info.formats.formats).firstOrNull()
@@ -107,6 +109,7 @@ class VideoInfoAdapter(
                     VideoFormatUi.details(root.context, it, 0)
                 }.orEmpty()
                 typeTextView.text = typeText
+                updateDownloadButton(info)
                 trustTextView.text = buildTrustText(info)
                 videoTitleRenameButton.setOnClickListener {
                     videoTitleEdit.requestFocus()
@@ -179,8 +182,21 @@ class VideoInfoAdapter(
             }
         }
 
-        private fun buildTrustText(info: VideoInfo): String {
+        /** Download button shows the currently selected quality: "下载 1080P" */
+        private fun updateDownloadButton(info: VideoInfo) {
             val context = binding.root.context
+            val key = model.selectedFormats.get()?.get(info.id)
+            val format = VideoFormatUi.findFormat(info, key)
+                ?: VideoFormatUi.sortFormats(info.formats.formats).firstOrNull()
+            val quality = format?.let { VideoFormatUi.qualityLabel(it) }.orEmpty()
+            binding.tvDownload.text = if (quality.isNotBlank()) {
+                context.getString(R.string.detected_download_with_quality, quality)
+            } else {
+                context.getString(R.string.detected_download)
+            }
+        }
+
+        private fun buildTrustText(info: VideoInfo): String {            val context = binding.root.context
             val lines = mutableListOf<String>()
             val source = sourceHost(info)
             if (source.isNotBlank()) {

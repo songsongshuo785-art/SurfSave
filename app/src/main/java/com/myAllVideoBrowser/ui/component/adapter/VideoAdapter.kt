@@ -49,18 +49,17 @@ class VideoAdapter(
                 this.videoListener = videoListener
                 // 清除残留 transitionName：保证列表中仅被点击项在 startVideo 时持有共享元素名，避免重名冲突
                 this.ivThumbnail.transitionName = null
-                this.cardVideo.setCardBackgroundColor(itemView.context.getColor(R.color.sxSurfaceRaised))
                 val thumbnailOptions = RequestOptions()
                     .frame(localVideo.thumbnailFrameMicros)
                     .format(DecodeFormat.PREFER_ARGB_8888)
                     .override(VIDEO_THUMBNAIL_WIDTH_PX, VIDEO_THUMBNAIL_HEIGHT_PX)
-                    .fitCenter()
+                    .centerCrop()
                     .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
 
                 Glide.with(this@VideoViewHolder.itemView.context)
                     .load(localVideo.uri)
-                    .error(R.drawable.ic_video_24dp)
-                    .placeholder(R.drawable.ic_video_24dp)
+                    .error(R.drawable.surf_video_placeholder)
+                    .placeholder(R.drawable.surf_video_placeholder)
                     .apply(thumbnailOptions)
                     .into(this.ivThumbnail)
 

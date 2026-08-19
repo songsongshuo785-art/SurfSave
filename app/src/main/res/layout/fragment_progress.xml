@@ -92,25 +92,48 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/progress_header">
 
-            <com.google.android.material.imageview.ShapeableImageView
-                android:id="@+id/iv_empty_icon"
-                android:layout_width="@dimen/progress_icon_size"
-                android:layout_height="@dimen/progress_icon_size"
-                android:adjustViewBounds="true"
-                android:background="@drawable/sx_thumbnail_background"
-                android:padding="@dimen/padding_small"
-                android:scaleType="centerInside"
-                android:src="@drawable/ic_empty"
-                app:shapeAppearanceOverlay="@style/customImageViewRounded" />
+            <FrameLayout
+                android:layout_width="@dimen/art_empty_state_container"
+                android:layout_height="@dimen/art_empty_state_container"
+                android:background="@drawable/surf_empty_state_art">
+
+                <ImageView
+                    android:id="@+id/iv_empty_icon"
+                    android:layout_width="@dimen/art_empty_state_icon"
+                    android:layout_height="@dimen/art_empty_state_icon"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_empty"
+                    app:tint="@color/colorPrimary" />
+            </FrameLayout>
 
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/tv_empty_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/padding_normal"
-                android:text="@string/progress_empty_message"
-                android:textColor="@color/sxTextSecondary"
-                android:textSize="@dimen/text_medium" />
+                android:layout_marginTop="@dimen/padding_large"
+                android:text="@string/empty_progress_title"
+                android:textAppearance="@style/TextAppearance.Surf.TitleMedium"
+                android:textColor="@color/sxTextPrimary" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_small"
+                android:gravity="center"
+                android:text="@string/empty_progress_subtitle"
+                android:textAppearance="@style/TextAppearance.Surf.Body"
+                android:textColor="@color/sxTextSecondary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/empty_action_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_large"
+                android:text="@string/empty_action_browse"
+                app:icon="@drawable/search_24px"
+                app:iconTint="@color/colorOnPrimary" />
         </LinearLayout>
 
         <FrameLayout

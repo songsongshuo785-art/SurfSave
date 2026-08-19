@@ -75,7 +75,7 @@
                         android:minWidth="20dp"
                         android:paddingStart="5dp"
                         android:paddingEnd="5dp"
-                        android:textColor="@color/white"
+                        android:textColor="@color/colorBadgeText"
                         android:textSize="@dimen/text_tiny"
                         android:textStyle="bold"
                         android:translationZ="2dp"
@@ -344,164 +344,164 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- ⑤ 快速入口·标签（紧凑 56dp） -->
+                <!-- ⑤ 快速入口：标签 + 书签合并为一张双行卡（行 id 保留，点击逻辑不变） -->
                 <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/home_tabs_card"
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/spacing_lg"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground"
                     app:cardBackgroundColor="@color/sxSurfaceRaised"
                     app:cardCornerRadius="@dimen/corner_md"
                     app:cardElevation="@dimen/elev_resting"
                     app:strokeColor="@color/sxOutline"
                     app:strokeWidth="0dp">
 
-                    <androidx.constraintlayout.widget.ConstraintLayout
+                    <LinearLayout
                         android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:paddingStart="@dimen/padding_normal"
-                        android:paddingEnd="@dimen/padding_small">
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
 
-                        <ImageView
-                            android:id="@+id/home_tabs_icon"
-                            android:layout_width="36dp"
-                            android:layout_height="36dp"
-                            android:background="@drawable/sx_chip_background"
-                            android:contentDescription="@string/tabs"
-                            android:padding="8dp"
-                            android:src="@drawable/tab_group_24px"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintStart_toStartOf="parent"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:tint="@color/colorPrimary" />
+                        <androidx.constraintlayout.widget.ConstraintLayout
+                            android:id="@+id/home_tabs_card"
+                            android:layout_width="match_parent"
+                            android:layout_height="64dp"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:foreground="?attr/selectableItemBackground"
+                            android:paddingStart="@dimen/padding_normal"
+                            android:paddingEnd="@dimen/padding_small">
 
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/home_tabs_title"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="@dimen/padding_normal"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:text="@string/tabs"
-                            android:textColor="@color/sxTextPrimary"
-                            android:textSize="@dimen/text_medium"
-                            android:textStyle="bold"
-                            app:layout_constraintBottom_toTopOf="@id/home_tabs_count_text"
-                            app:layout_constraintEnd_toStartOf="@id/home_tabs_chevron"
-                            app:layout_constraintStart_toEndOf="@id/home_tabs_icon"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:layout_constraintVertical_chainStyle="packed" />
+                            <ImageView
+                                android:id="@+id/home_tabs_icon"
+                                android:layout_width="36dp"
+                                android:layout_height="36dp"
+                                android:background="@drawable/sx_chip_background"
+                                android:contentDescription="@string/tabs"
+                                android:padding="8dp"
+                                android:src="@drawable/tab_group_24px"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintStart_toStartOf="parent"
+                                app:layout_constraintTop_toTopOf="parent"
+                                app:tint="@color/colorPrimary" />
 
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/home_tabs_count_text"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="@dimen/padding_normal"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:textColor="@color/sxTextSecondary"
-                            android:textSize="@dimen/text_small"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintEnd_toStartOf="@id/home_tabs_chevron"
-                            app:layout_constraintStart_toEndOf="@id/home_tabs_icon"
-                            app:layout_constraintTop_toBottomOf="@id/home_tabs_title"
-                            tools:text="Open tabs: 3/100" />
+                            <com.google.android.material.textview.MaterialTextView
+                                android:id="@+id/home_tabs_title"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/padding_normal"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="@string/tabs"
+                                android:textColor="@color/sxTextPrimary"
+                                android:textSize="@dimen/text_medium"
+                                android:textStyle="bold"
+                                app:layout_constraintBottom_toTopOf="@id/home_tabs_count_text"
+                                app:layout_constraintEnd_toStartOf="@id/home_tabs_chevron"
+                                app:layout_constraintStart_toEndOf="@id/home_tabs_icon"
+                                app:layout_constraintTop_toTopOf="parent"
+                                app:layout_constraintVertical_chainStyle="packed" />
 
-                        <ImageView
-                            android:id="@+id/home_tabs_chevron"
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:contentDescription="@null"
-                            android:padding="10dp"
-                            android:src="@drawable/arrow_forward24px"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintEnd_toEndOf="parent"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:tint="@color/sxTextSecondary" />
-                    </androidx.constraintlayout.widget.ConstraintLayout>
-                </com.google.android.material.card.MaterialCardView>
+                            <com.google.android.material.textview.MaterialTextView
+                                android:id="@+id/home_tabs_count_text"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/padding_normal"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:textColor="@color/sxTextSecondary"
+                                android:textSize="@dimen/text_small"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintEnd_toStartOf="@id/home_tabs_chevron"
+                                app:layout_constraintStart_toEndOf="@id/home_tabs_icon"
+                                app:layout_constraintTop_toBottomOf="@id/home_tabs_title"
+                                tools:text="Open tabs: 3/100" />
 
-                <!-- ⑥ 快速入口·书签（紧凑 56dp） -->
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/home_add_bookmark_card"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:layout_marginTop="@dimen/padding_small"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground"
-                    app:cardBackgroundColor="@color/sxSurfaceRaised"
-                    app:cardCornerRadius="@dimen/corner_md"
-                    app:cardElevation="@dimen/elev_resting"
-                    app:strokeColor="@color/sxOutline"
-                    app:strokeWidth="0dp">
+                            <ImageView
+                                android:id="@+id/home_tabs_chevron"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:contentDescription="@null"
+                                android:padding="10dp"
+                                android:src="@drawable/arrow_forward24px"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintEnd_toEndOf="parent"
+                                app:layout_constraintTop_toTopOf="parent"
+                                app:tint="@color/sxTextSecondary" />
+                        </androidx.constraintlayout.widget.ConstraintLayout>
 
-                    <androidx.constraintlayout.widget.ConstraintLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:paddingStart="@dimen/padding_normal"
-                        android:paddingEnd="@dimen/padding_small">
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:layout_marginStart="68dp"
+                            android:background="@color/colorOutlineVariant" />
 
-                        <ImageView
-                            android:id="@+id/home_add_bookmark_icon"
-                            android:layout_width="36dp"
-                            android:layout_height="36dp"
-                            android:background="@drawable/sx_chip_background"
-                            android:contentDescription="@string/add_bookmark"
-                            android:padding="8dp"
-                            android:src="@drawable/bookmark_add_24px"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintStart_toStartOf="parent"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:tint="@color/colorPrimary" />
+                        <androidx.constraintlayout.widget.ConstraintLayout
+                            android:id="@+id/home_add_bookmark_card"
+                            android:layout_width="match_parent"
+                            android:layout_height="64dp"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:foreground="?attr/selectableItemBackground"
+                            android:paddingStart="@dimen/padding_normal"
+                            android:paddingEnd="@dimen/padding_small">
 
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/home_add_bookmark_title"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="@dimen/padding_normal"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:text="@string/add_bookmark"
-                            android:textColor="@color/sxTextPrimary"
-                            android:textSize="@dimen/text_medium"
-                            android:textStyle="bold"
-                            app:layout_constraintBottom_toTopOf="@id/home_add_bookmark_subtitle"
-                            app:layout_constraintEnd_toStartOf="@id/home_add_bookmark_chevron"
-                            app:layout_constraintStart_toEndOf="@id/home_add_bookmark_icon"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:layout_constraintVertical_chainStyle="packed" />
+                            <ImageView
+                                android:id="@+id/home_add_bookmark_icon"
+                                android:layout_width="36dp"
+                                android:layout_height="36dp"
+                                android:background="@drawable/sx_chip_background"
+                                android:contentDescription="@string/add_bookmark"
+                                android:padding="8dp"
+                                android:src="@drawable/bookmark_add_24px"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintStart_toStartOf="parent"
+                                app:layout_constraintTop_toTopOf="parent"
+                                app:tint="@color/colorPrimary" />
 
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/home_add_bookmark_subtitle"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="@dimen/padding_normal"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:text="@string/home_add_bookmark_subtitle"
-                            android:textColor="@color/sxTextSecondary"
-                            android:textSize="@dimen/text_small"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintEnd_toStartOf="@id/home_add_bookmark_chevron"
-                            app:layout_constraintStart_toEndOf="@id/home_add_bookmark_icon"
-                            app:layout_constraintTop_toBottomOf="@id/home_add_bookmark_title" />
+                            <com.google.android.material.textview.MaterialTextView
+                                android:id="@+id/home_add_bookmark_title"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/padding_normal"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="@string/add_bookmark"
+                                android:textColor="@color/sxTextPrimary"
+                                android:textSize="@dimen/text_medium"
+                                android:textStyle="bold"
+                                app:layout_constraintBottom_toTopOf="@id/home_add_bookmark_subtitle"
+                                app:layout_constraintEnd_toStartOf="@id/home_add_bookmark_chevron"
+                                app:layout_constraintStart_toEndOf="@id/home_add_bookmark_icon"
+                                app:layout_constraintTop_toTopOf="parent"
+                                app:layout_constraintVertical_chainStyle="packed" />
 
-                        <ImageView
-                            android:id="@+id/home_add_bookmark_chevron"
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:contentDescription="@null"
-                            android:padding="10dp"
-                            android:src="@drawable/arrow_forward24px"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintEnd_toEndOf="parent"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:tint="@color/sxTextSecondary" />
-                    </androidx.constraintlayout.widget.ConstraintLayout>
+                            <com.google.android.material.textview.MaterialTextView
+                                android:id="@+id/home_add_bookmark_subtitle"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/padding_normal"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="@string/home_add_bookmark_subtitle"
+                                android:textColor="@color/sxTextSecondary"
+                                android:textSize="@dimen/text_small"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintEnd_toStartOf="@id/home_add_bookmark_chevron"
+                                app:layout_constraintStart_toEndOf="@id/home_add_bookmark_icon"
+                                app:layout_constraintTop_toBottomOf="@id/home_add_bookmark_title" />
+
+                            <ImageView
+                                android:id="@+id/home_add_bookmark_chevron"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:contentDescription="@null"
+                                android:padding="10dp"
+                                android:src="@drawable/arrow_forward24px"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintEnd_toEndOf="parent"
+                                app:layout_constraintTop_toTopOf="parent"
+                                app:tint="@color/sxTextSecondary" />
+                        </androidx.constraintlayout.widget.ConstraintLayout>
+                    </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
         </androidx.core.widget.NestedScrollView>

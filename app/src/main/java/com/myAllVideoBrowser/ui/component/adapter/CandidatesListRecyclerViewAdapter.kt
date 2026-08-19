@@ -81,13 +81,7 @@ class CandidatesListRecyclerViewAdapter(
         with(holder.binding) {
             val selected = selectedFormat.get()?.get(downloadCandidates.id)
 
-            val color = if (candidate == selected) {
-                root.context.getColor(R.color.sxSurfaceSelected)
-            } else {
-                root.context.getColor(R.color.sxSurfaceRaised)
-            }
-            this.cardItem.setCardBackgroundColor(color)
-
+            // Card background/stroke are driven by the is_candidate_selected binding
             this.videoInfo = downloadCandidates
             this.downloadCandidate = candidate
             this.isCandidateSelected = candidate == selected

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Surf 设置行：开关型。
+-->
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <data>
+        <variable
+            name="title"
+            type="String" />
+        <variable
+            name="summary"
+            type="String" />
+        <variable
+            name="checked"
+            type="Boolean" />
+        <variable
+            name="listener"
+            type="android.widget.CompoundButton.OnCheckedChangeListener" />
+        <variable
+            name="enabled"
+            type="Boolean" />
+    </data>
+
+    <com.google.android.material.materialswitch.MaterialSwitch
+        android:id="@+id/surf_setting_switch"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:alpha="@{safeUnbox(enabled) ? (safeUnbox(enabled) ? 1f : 0.45f) : 0.45f}"
+        android:checked="@{checked}"
+        android:enabled="@{enabled == null ? true : enabled}"
+        android:minHeight="@dimen/component_list_item_two_line"
+        android:onCheckedChanged="@{listener}"
+        android:paddingStart="@dimen/spacing_lg"
+        android:paddingEnd="@dimen/spacing_lg"
+        android:text="@{title}"
+        android:textAppearance="@style/TextAppearance.Surf.BodyLarge"
+        app:thumbTint="?attr/colorPrimary"
+        app:trackTint="@color/colorSwitchTrackInactive" />
+</layout>
