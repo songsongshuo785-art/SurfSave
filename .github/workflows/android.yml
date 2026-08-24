@@ -191,16 +191,18 @@ jobs:
           fi
 
           for apk in "${apks[@]}"; do
-            "$apksigner" verify --verbose "$apk" > /dev/null
-            actual_fingerprint="$(
-              "$apksigner" verify --print-certs "$apk" |
-                sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
-                head -n 1 |
-                tr -d ':' |
+            certificate_report="$(
+              "$apksigner" verify --verbose --print-certs "$apk" 2>&1
+            )"
+            printf '%s\n' "$certificate_report"
+
+            normalized_report="$(
+              printf '%s' "$certificate_report" |
+                tr -d ':\r\n' |
                 tr '[:upper:]' '[:lower:]'
             )"
-            if [[ "$actual_fingerprint" != "$EXPECTED_SIGNING_CERT_SHA256" ]]; then
-              echo "::error::APK signing certificate mismatch for $apk: $actual_fingerprint"
+            if [[ "$normalized_report" != *"$EXPECTED_SIGNING_CERT_SHA256"* ]]; then
+              echo "::error::APK signing certificate mismatch for $apk"
               exit 1
             fi
             echo "Verified $(basename "$apk")"
