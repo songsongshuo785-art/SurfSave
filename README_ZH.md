@@ -144,11 +144,13 @@ SurfSave也是我Vibe Coding尝试的一个项目。当前各方各面略显粗�
 
 ## 文档
 
-[隐私说明](PRIVACY.md) · [安全说明](SECURITY.md) · [贡献指南](CONTRIBUTING.md) · [更新日志](CHANGELOG.md) · [第三方声明](THIRD_PARTY_NOTICES.md)
+[隐私说明](PRIVACY.md) · [安全说明](SECURITY.md) · [发布签名](SIGNING.md) · [贡献指南](CONTRIBUTING.md) · [更新日志](CHANGELOG.md) · [第三方声明](THIRD_PARTY_NOTICES.md)
 
 ## 致谢
 
 感谢 **youtube-dl-android**、**yt-dlp**、**FFmpeg/FFmpegKit**、**Xray/libv2ray**、AndroidX、Material Components、OkHttp、Room、Dagger、RxJava、Media3、ML Kit 及其他开源项目的维护者与贡献者（完整列表见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)）。
+
+特别感谢 [alexch33/super-video-downloader](https://github.com/alexch33/super-video-downloader) 提供 SurfSave 延续开发所依托的开源基础与参考。
 
 参考项目：[cuongpm/youtube-dl-android](https://github.com/cuongpm/youtube-dl-android)、[yausername/youtubedl-android](https://github.com/yausername/youtubedl-android)、[JunkFood02/Seal](https://github.com/JunkFood02/Seal)。
 

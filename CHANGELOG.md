@@ -28,6 +28,7 @@
 - Refreshed the README screenshot gallery with the current SurfSave interface.
 - Increased the release base version code to keep ABI split APK upgrades monotonic.
 - CI now resolves official Gradle repositories before mirrors and marks tag builds as the latest stable release.
+- Formalized GitHub Release signing with early secret/alias/version-code validation and post-build APK certificate verification pinned to SurfSave's historical signing identity.
 
 ## [0.8.29] - 2026-08-20
 

@@ -42,23 +42,78 @@ jobs:
           name: diagnostic-apks
           path: app/build/outputs/apk/diagnostic/*.apk
 
-  release:
+  release-build:
     name: Signed release APKs
     needs: verify
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     env:
-      KEYSTORE_PATH: ${{ github.workspace }}/keystore.jks
+      KEYSTORE_PATH: ${{ github.workspace }}/keystore.p12
       KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      EXPECTED_SIGNING_CERT_SHA256: c33027eef9607dcf592ac7f8fefe47961e728c349541c3fa23c99355e2edbcc1
       SPLITS_INCLUDE: "TRUE"
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify monotonic release version code
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_raw="$(
+            sed -nE 's/^[[:space:]]*val baseVersionCode = ([0-9_]+).*/\1/p' \
+              app/build.gradle.kts | head -n 1
+          )"
+          if [[ -z "$current_raw" ]]; then
+            echo "::error::Unable to read baseVersionCode from app/build.gradle.kts"
+            exit 1
+          fi
+
+          current_base="${current_raw//_/}"
+          historical_floor=1786376603
+          required_floor="$historical_floor"
+          previous_tag="$(
+            git tag --merged HEAD --sort=-version:refname |
+              awk -v current="$GITHUB_REF_NAME" '$0 != current { print; exit }'
+          )"
+
+          if [[ -n "$previous_tag" ]]; then
+            previous_raw="$(
+              git show "$previous_tag:app/build.gradle.kts" |
+                sed -nE 's/^[[:space:]]*val baseVersionCode = ([0-9_]+).*/\1/p' |
+                head -n 1
+            )"
+            if [[ -z "$previous_raw" ]]; then
+              echo "::error::Unable to read baseVersionCode from previous tag $previous_tag"
+              exit 1
+            fi
+            previous_max=$((${previous_raw//_/} + 4))
+            if (( previous_max > required_floor )); then
+              required_floor="$previous_max"
+            fi
+          fi
+
+          commit_epoch="$(git show -s --format=%ct HEAD)"
+          if (( current_base <= required_floor )); then
+            echo "::error::Release baseVersionCode $current_base must be greater than prior maximum $required_floor"
+            exit 1
+          fi
+          if (( current_base <= commit_epoch )); then
+            echo "::error::Release baseVersionCode $current_base must be greater than release commit epoch $commit_epoch"
+            exit 1
+          fi
+          if (( current_base + 4 > 2100000000 )); then
+            echo "::error::Release ABI versionCode exceeds Android's 2100000000 limit"
+            exit 1
+          fi
+
+          echo "Release versionCode verified: base=$current_base previous_floor=$required_floor commit=$commit_epoch"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -66,6 +121,41 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: gradle
+
+      - name: Decode and verify release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          for variable in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Missing required release secret: $variable"
+              exit 1
+            fi
+          done
+
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+
+          keytool -list \
+            -keystore "$KEYSTORE_PATH" \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -alias "$KEY_ALIAS" > /dev/null
+
+          actual_fingerprint="$({
+            keytool -exportcert \
+              -keystore "$KEYSTORE_PATH" \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -alias "$KEY_ALIAS"
+          } | sha256sum | awk '{print $1}')"
+
+          if [[ "$actual_fingerprint" != "$EXPECTED_SIGNING_CERT_SHA256" ]]; then
+            echo "::error::Release keystore certificate mismatch: $actual_fingerprint"
+            exit 1
+          fi
+
+          echo "Release keystore verified: $actual_fingerprint"
 
       - name: Set up Android NDK
         uses: nttld/setup-ndk@v1
@@ -78,22 +168,64 @@ jobs:
           go-version: '1.25.7'
           cache: false
 
-      - name: Decode release keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_PATH"
-          chmod 600 "$KEYSTORE_PATH"
-
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build signed release APKs
         run: ./gradlew --console=plain testDiagnosticUnitTest lintDiagnostic assembleRelease
 
+      - name: Verify signed release APKs
+        run: |
+          set -euo pipefail
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" ]]; then
+            echo "::error::apksigner was not found"
+            exit 1
+          fi
+
+          mapfile -t apks < <(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | sort)
+          if [[ "${#apks[@]}" -ne 5 ]]; then
+            echo "::error::Expected 5 release APKs, found ${#apks[@]}"
+            exit 1
+          fi
+
+          for apk in "${apks[@]}"; do
+            "$apksigner" verify --verbose "$apk" > /dev/null
+            actual_fingerprint="$(
+              "$apksigner" verify --print-certs "$apk" |
+                sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
+                head -n 1 |
+                tr -d ':' |
+                tr '[:upper:]' '[:lower:]'
+            )"
+            if [[ "$actual_fingerprint" != "$EXPECTED_SIGNING_CERT_SHA256" ]]; then
+              echo "::error::APK signing certificate mismatch for $apk: $actual_fingerprint"
+              exit 1
+            fi
+            echo "Verified $(basename "$apk")"
+          done
+
       - name: Upload release APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-apks
+          name: release-apks-${{ github.ref_name }}
           path: app/build/outputs/apk/release/*.apk
+
+  release-publish:
+    name: Publish GitHub Release
+    needs: release-build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download signed release APKs
+        uses: actions/download-artifact@v4
+        with:
+          name: release-apks-${{ github.ref_name }}
+          path: release-apks
 
       - name: Upload Release APKs
         uses: softprops/action-gh-release@v2
@@ -106,4 +238,5 @@ jobs:
           draft: false
           make_latest: true
           tag_name: ${{ github.ref_name }}
-          files: app/build/outputs/apk/release/*.apk
+          fail_on_unmatched_files: true
+          files: release-apks/*.apk
