@@ -7,11 +7,11 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.GestureDetector
-import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -20,6 +20,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -32,13 +33,13 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView.SHOW_BUFFERING_ALWAYS
@@ -46,12 +47,19 @@ import com.bumptech.glide.Glide
 import com.bumptech.glide.request.RequestOptions
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.FragmentPlayerBinding
+import com.myAllVideoBrowser.data.repository.VideoRepository
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.util.AppUtil
+import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.DisplayNameFormatter
+import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.Request
 import javax.inject.Inject
 
 
@@ -62,6 +70,15 @@ class VideoPlayerFragment : BaseFragment() {
         const val VIDEO_URL = "video_url"
         const val VIDEO_HEADERS = "video_headers"
         const val VIDEO_NAME = "video_name"
+        const val VIDEO_SOURCE = "video_source"
+        const val VIDEO_MEDIA_KIND = "video_media_kind"
+        const val VIDEO_FORMAT_ID = "video_format_id"
+        const val VIDEO_FORMAT_HEIGHT = "video_format_height"
+        const val VIDEO_PAGE_URL = "video_page_url"
+        const val VIDEO_DETECTED_BY_SUPER_X = "video_detected_by_super_x"
+        const val VIDEO_EXTRACTED_AT = "video_extracted_at"
+        const val SOURCE_BROWSER = "browser"
+        const val SOURCE_VIDEO_LIBRARY = "video_library"
         private const val SEEK_INCREMENT_MS = 10_000L
         private const val TOP_BAR_PADDING_DP = 4
         private const val MENU_TRACKS = 1
@@ -76,6 +93,9 @@ class VideoPlayerFragment : BaseFragment() {
     @Inject
     lateinit var okHttpClient: OkHttpProxyClient
 
+    @Inject
+    lateinit var videoRepository: VideoRepository
+
     private lateinit var player: ExoPlayer
     private lateinit var trackSelector: DefaultTrackSelector
 
@@ -88,6 +108,28 @@ class VideoPlayerFragment : BaseFragment() {
     // 滑动 seek 预览气泡节流：避免每个 move 都 Glide 取帧造成请求堆积卡顿
     private var lastPreviewTargetMs = 0L
     private var lastPreviewWallMs = 0L
+    private var hostBackgrounded = false
+    private var resumePositionMs = 0L
+    private var resumePlayWhenReady = false
+    private var surfaceRecoveryGeneration = 0L
+    private var awaitingForegroundFrame = false
+    private var playbackMediaKind = PlaybackMediaKind.AUTO
+    private var playbackFormatId = ""
+    private var playbackFormatHeight = 0
+    private var playbackPageUrl = ""
+    private var playbackSource = ""
+    private var playbackDetectedBySuperX = false
+    private var playbackExtractedAt = 0L
+    private var currentPlaybackHeaders: Map<String, String> = emptyMap()
+    private var refreshAttempted = false
+    private var refreshInProgress = false
+    private var playbackErrorDialogShown = false
+
+    private val surfaceRecoveryListener = object : Player.Listener {
+        override fun onRenderedFirstFrame() {
+            awaitingForegroundFrame = false
+        }
+    }
 
     private val gestureDetector by lazy {
         GestureDetector(requireContext(), object : GestureDetector.SimpleOnGestureListener() {
@@ -238,6 +280,14 @@ class VideoPlayerFragment : BaseFragment() {
             videoPlayerViewModel.videoName.set(DisplayNameFormatter.clean(it).ifBlank { it })
         }
 
+        playbackMediaKind = PlaybackMediaKind.fromSerialized(arguments?.getString(VIDEO_MEDIA_KIND))
+        playbackFormatId = arguments?.getString(VIDEO_FORMAT_ID).orEmpty()
+        playbackFormatHeight = arguments?.getInt(VIDEO_FORMAT_HEIGHT) ?: 0
+        playbackPageUrl = arguments?.getString(VIDEO_PAGE_URL).orEmpty()
+        playbackSource = arguments?.getString(VIDEO_SOURCE).orEmpty()
+        playbackDetectedBySuperX = arguments?.getBoolean(VIDEO_DETECTED_BY_SUPER_X) == true
+        playbackExtractedAt = arguments?.getLong(VIDEO_EXTRACTED_AT) ?: 0L
+
         val iUrl = arguments?.getString(VIDEO_URL)?.toUri()
 
         if (iUrl != null) {
@@ -247,6 +297,7 @@ class VideoPlayerFragment : BaseFragment() {
         val url = videoPlayerViewModel.videoUrl.get() ?: Uri.EMPTY
         // The "Cookie" header will be passed here, but OkHttp using CookieJar
         val headers = videoPlayerViewModel.videoHeaders.get() ?: emptyMap()
+        currentPlaybackHeaders = headers
 
         val mediaFactory = createMediaFactory(headers, url.toString().startsWith("http"))
 
@@ -258,6 +309,7 @@ class VideoPlayerFragment : BaseFragment() {
             .setSeekBackIncrementMs(SEEK_INCREMENT_MS)
             .setSeekForwardIncrementMs(SEEK_INCREMENT_MS)
             .build()
+        player.addListener(surfaceRecoveryListener)
 
         dataBinding = FragmentPlayerBinding.inflate(inflater, container, false).apply {
             val currentBinding = this
@@ -311,18 +363,10 @@ class VideoPlayerFragment : BaseFragment() {
 
                 override fun onPlayerError(error: PlaybackException) {
                     maybeStartPostponedTransition()  // 兜底：出错也必须启动过渡，否则界面卡死
-                    if (videoPlayerViewModel.videoUrl.get().toString().startsWith("http")) {
-                        AlertDialog.Builder(requireContext())
-                            .setTitle(getString(R.string.player_download_only_title))
-                            .setMessage(getString(R.string.player_download_only_message))
-                            .setPositiveButton(android.R.string.ok) { dialog, _ ->
-                                dialog.dismiss()
-                                handleClose()
-                            }
-                            .show()
+                    if (tryRefreshExpiredRemoteUrl(error)) {
                         return
                     }
-                    Toast.makeText(context, getString(R.string.player_playback_error), Toast.LENGTH_LONG).show()
+                    showPlaybackError(error)
                 }
 
                 override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -331,8 +375,7 @@ class VideoPlayerFragment : BaseFragment() {
                 }
             })
 
-            val mediaItem: MediaItem = MediaItem.fromUri(url)
-            player.setMediaItem(mediaItem)
+            player.setMediaSource(createMediaSource(url, headers))
             player.prepare()
             player.playWhenReady = true
         }
@@ -342,7 +385,6 @@ class VideoPlayerFragment : BaseFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        handleBackPressed()
         handlePlayerEvents()
         applyTopBarInsets()
         videoPlayerViewModel.start()
@@ -395,9 +437,12 @@ class VideoPlayerFragment : BaseFragment() {
     }
 
     override fun onDestroyView() {
+        surfaceRecoveryGeneration++
+        dataBinding.root.removeCallbacks(surfaceRecoveryRunnable)
         unregisterPipStateListener()
         getActivity(context)?.let { appUtil.showSystemUI(it.window, dataBinding.root) }
         videoPlayerViewModel.stop()
+        player.removeListener(surfaceRecoveryListener)
         player.release()
         super.onDestroyView()
     }
@@ -415,16 +460,7 @@ class VideoPlayerFragment : BaseFragment() {
     private fun createRenderFactory(): RenderersFactory {
         return DefaultRenderersFactory(requireContext().applicationContext)
             .setExtensionRendererMode(EXTENSION_RENDERER_MODE_PREFER)
-            .setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-                var decoderInfos =
-                    MediaCodecSelector.DEFAULT
-                        .getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
-                if (MimeTypes.VIDEO_H264 == mimeType) {
-                    decoderInfos = ArrayList(decoderInfos)
-                    decoderInfos.reverse()
-                }
-                decoderInfos
-            }
+            .setEnableDecoderFallback(true)
     }
 
     private fun createMediaFactory(
@@ -441,20 +477,205 @@ class VideoPlayerFragment : BaseFragment() {
         return DefaultMediaSourceFactory(requireContext()).setDataSourceFactory(dataSourceFactory)
     }
 
-    private fun handleBackPressed() {
-        this.view?.isFocusableInTouchMode = true
-        this.view?.requestFocus()
-        this.view?.setOnKeyListener { _, keyCode, _ ->
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                handleClose()
-                true
-            } else false
+    private fun buildMediaItem(url: Uri): MediaItem {
+        return MediaItem.Builder()
+            .setUri(url)
+            .apply {
+                when (playbackMediaKind) {
+                    PlaybackMediaKind.HLS -> setMimeType(MimeTypes.APPLICATION_M3U8)
+                    PlaybackMediaKind.DASH -> setMimeType(MimeTypes.APPLICATION_MPD)
+                    PlaybackMediaKind.AUTO -> Unit
+                }
+            }
+            .build()
+    }
+
+    private fun createMediaSource(url: Uri, headers: Map<String, String>) =
+        createMediaFactory(headers, url.toString().startsWith("http"))
+            .createMediaSource(buildMediaItem(url))
+
+    private fun tryRefreshExpiredRemoteUrl(error: PlaybackException): Boolean {
+        val responseCode = findHttpResponseCode(error)
+        if (responseCode !in setOf(401, 403) ||
+            playbackSource != SOURCE_BROWSER ||
+            playbackPageUrl.isBlank() ||
+            refreshAttempted || refreshInProgress
+        ) {
+            return false
         }
+
+        refreshAttempted = true
+        refreshInProgress = true
+        val sourceUrl = playbackPageUrl
+        val sourceCookie = CookieManager.getInstance().getCookie(sourceUrl)
+        val userAgent = currentPlaybackHeaders.entries
+            .firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }
+            ?.value
+        val request = runCatching {
+            Request.Builder().url(sourceUrl).get().apply {
+                if (!userAgent.isNullOrBlank()) header("User-Agent", userAgent)
+                if (!sourceCookie.isNullOrBlank()) header("Cookie", sourceCookie)
+            }.build()
+        }.getOrNull()
+
+        if (request == null) {
+            refreshInProgress = false
+            return false
+        }
+
+        val resumePosition = player.currentPosition.coerceAtLeast(0L)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val refreshedFormat = withContext(Dispatchers.IO) {
+                runCatching {
+                    val refreshPlan = PlaybackRefreshPlanResolver.resolve(
+                        playbackDetectedBySuperX,
+                        playbackMediaKind
+                    )
+                    val refreshedInfo = if (refreshPlan.useSuperXDetector) {
+                        videoRepository.getVideoInfoBySuperXDetector(
+                            request,
+                            refreshPlan.isHls,
+                            refreshPlan.isDash,
+                            false
+                        )
+                    } else {
+                        videoRepository.getVideoInfo(
+                            request,
+                            refreshPlan.isHls || refreshPlan.isDash,
+                            false
+                        )
+                    }
+                    PlaybackFormatRefreshMatcher.find(
+                        refreshedInfo?.formats?.formats.orEmpty(),
+                        playbackFormatId,
+                        playbackFormatHeight,
+                        playbackMediaKind
+                    )
+                }.getOrNull()
+            }
+            refreshInProgress = false
+            val refreshedUrl = refreshedFormat?.url?.takeIf { it.isNotBlank() }
+                ?: refreshedFormat?.manifestUrl?.takeIf { it.isNotBlank() }
+            if (refreshedFormat == null || refreshedUrl == null || !isAdded) {
+                showPlaybackError(error)
+                return@launch
+            }
+
+            playbackMediaKind = PlaybackMediaKindResolver.resolve(refreshedFormat)
+            playbackFormatId = refreshedFormat.formatId.orEmpty()
+            playbackFormatHeight = refreshedFormat.height
+            playbackExtractedAt = System.currentTimeMillis()
+            val freshCookie = CookieManager.getInstance().getCookie(refreshedUrl)
+            currentPlaybackHeaders = MediaRequestHeaderPolicy.forPlayback(
+                refreshedFormat.httpHeaders.orEmpty(),
+                freshCookie
+            )
+            val refreshedUri = Uri.parse(refreshedUrl)
+            videoPlayerViewModel.videoUrl.set(refreshedUri)
+            videoPlayerViewModel.videoHeaders.set(currentPlaybackHeaders)
+            player.stop()
+            player.setMediaSource(createMediaSource(refreshedUri, currentPlaybackHeaders), resumePosition)
+            player.prepare()
+            player.playWhenReady = true
+            AppLogger.d(
+                "PLAYER_REFRESH: refreshed expired browser media format=$playbackFormatId " +
+                    "kind=$playbackMediaKind superX=$playbackDetectedBySuperX"
+            )
+        }
+        return true
+    }
+
+    private fun showPlaybackError(error: PlaybackException) {
+        if (!isAdded || playbackErrorDialogShown) return
+        playbackErrorDialogShown = true
+        val responseCode = findHttpResponseCode(error)
+        val failure = PlaybackFailureClassifier.classify(error.errorCodeName, responseCode)
+        val message = when (failure) {
+            PlaybackFailureKind.HTTP_AUTHORIZATION -> R.string.player_error_http_authorization
+            PlaybackFailureKind.MANIFEST -> R.string.player_error_manifest
+            PlaybackFailureKind.DECODER -> R.string.player_error_decoder
+            PlaybackFailureKind.DRM -> R.string.player_error_drm
+            PlaybackFailureKind.NETWORK -> R.string.player_error_network
+            PlaybackFailureKind.UNKNOWN -> R.string.player_playback_error
+        }
+        AppLogger.e(
+            "PLAYER_ERROR: kind=$failure code=${error.errorCodeName} http=$responseCode " +
+                "media=$playbackMediaKind"
+        )
+        AlertDialog.Builder(requireContext())
+            .setTitle(getString(R.string.player_playback_error_title))
+            .setMessage(getString(message))
+            .setPositiveButton(android.R.string.ok) { dialog, _ -> dialog.dismiss() }
+            .setOnDismissListener { playbackErrorDialogShown = false }
+            .show()
+    }
+
+    private fun findHttpResponseCode(error: Throwable): Int? {
+        var current: Throwable? = error
+        repeat(12) {
+            if (current is HttpDataSource.InvalidResponseCodeException) {
+                return current.responseCode
+            }
+            current = current?.cause
+        }
+        return null
     }
 
     private fun handleClose() {
         videoPlayerViewModel.stop()
-        activity?.finish()
+        (activity as? VideoPlayerActivity)?.finishPlayer()
+    }
+
+    private val surfaceRecoveryRunnable = Runnable {
+        if (!hostBackgrounded && awaitingForegroundFrame && ::player.isInitialized &&
+            ::dataBinding.isInitialized
+        ) {
+            awaitingForegroundFrame = false
+            val position = resumePositionMs
+            val shouldPlay = resumePlayWhenReady
+            dataBinding.videoView.player = null
+            player.stop()
+            player.clearMediaItems()
+            val recoveryUrl = videoPlayerViewModel.videoUrl.get() ?: Uri.EMPTY
+            player.setMediaSource(createMediaSource(recoveryUrl, currentPlaybackHeaders))
+            player.prepare()
+            player.seekTo(position.coerceAtLeast(0L))
+            player.playWhenReady = shouldPlay
+            dataBinding.videoView.player = player
+            AppLogger.d("PLAYER_SURFACE_RECOVERY: reprepared player after foreground frame timeout")
+        }
+    }
+
+    fun onHostStopped() {
+        if (!::player.isInitialized || !::dataBinding.isInitialized || hostBackgrounded) return
+        hostBackgrounded = true
+        surfaceRecoveryGeneration++
+        dataBinding.root.removeCallbacks(surfaceRecoveryRunnable)
+        val snapshot = PlayerForegroundPolicy.capture(
+            positionMs = player.currentPosition,
+            playWhenReady = player.playWhenReady,
+            playbackState = player.playbackState
+        )
+        resumePositionMs = snapshot.positionMs
+        resumePlayWhenReady = snapshot.shouldResumePlayback
+        awaitingForegroundFrame = false
+        dataBinding.videoView.player = null
+        player.pause()
+        AppLogger.d("PLAYER_LIFECYCLE: stopped position=$resumePositionMs play=$resumePlayWhenReady")
+    }
+
+    fun onHostStarted() {
+        if (!hostBackgrounded || !::player.isInitialized || !::dataBinding.isInitialized) return
+        hostBackgrounded = false
+        val generation = ++surfaceRecoveryGeneration
+        dataBinding.videoView.player = player
+        player.seekTo(resumePositionMs.coerceAtLeast(0L))
+        player.playWhenReady = resumePlayWhenReady
+        awaitingForegroundFrame = true
+        dataBinding.root.postDelayed({
+            if (generation == surfaceRecoveryGeneration) surfaceRecoveryRunnable.run()
+        }, 1_500L)
+        AppLogger.d("PLAYER_LIFECYCLE: started position=$resumePositionMs play=$resumePlayWhenReady")
     }
 
     /** 「更多」按钮：弹出真菜单（当前仅"音轨/字幕"，后续可扩展）。 */

@@ -30,6 +30,7 @@ import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.IntentUtil
 import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.SystemUtil
+import com.myAllVideoBrowser.util.VideoDetectionThresholdSlider
 import java.util.Locale
 import javax.inject.Inject
 
@@ -59,8 +60,6 @@ class SettingsFragment : BaseFragment() {
 
     private var lastSavedRegularThreadsCount = -1
 
-    /** Detection-threshold slider maps 0..100 percent onto this byte cap (50 MB). */
-    private val THRESHOLD_CAP_BYTES = 50 * 1024 * 1024
     private var detectionAdvancedExpanded = false
     private var downloadingAdvancedExpanded = false
     private var settingsSearchQuery = ""
@@ -227,13 +226,12 @@ class SettingsFragment : BaseFragment() {
 
         // Detection threshold: slider runs 0..100 (percent of the 50 MB cap) to stay
         // inside Slider's float precision; bytes are derived on change.
-        dataBinding.seekBarVideoDetectionThreshold.value =
-            (settingsViewModel.videoDetectionThreshold.get() * 100f / THRESHOLD_CAP_BYTES)
-                .coerceIn(0f, 100f)
+        dataBinding.seekBarVideoDetectionThreshold.value = VideoDetectionThresholdSlider
+            .toSliderValue(settingsViewModel.videoDetectionThreshold.get())
         dataBinding.seekBarVideoDetectionThreshold.addOnChangeListener { _, value, fromUser ->
             if (fromUser) {
                 settingsViewModel.setVideoDetectionThreshold(
-                    (value / 100f * THRESHOLD_CAP_BYTES).toInt()
+                    VideoDetectionThresholdSlider.toBytes(value)
                 )
             }
         }

@@ -1,9 +1,6 @@
 package com.myAllVideoBrowser.ui.main.home.browser
 
 import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
-import com.myAllVideoBrowser.util.VideoUtils
-import java.util.Locale
-
 enum class ContentType {
     M3U8,
     MPD,
@@ -41,8 +38,8 @@ class BrowserRequestInspector(
         isMainFrame: Boolean
     ): BrowserRequestInspection {
         val normalizedUrl = url.trim()
-        val contentType = VideoUtils.getContentTypeByUrlPath(normalizedUrl)
-        val isTxtHlsCandidate = isTextPlaylistCandidate(normalizedUrl)
+        val contentType = BrowserMediaClassifier.classify(normalizedUrl)
+        val isTxtHlsCandidate = BrowserMediaClassifier.isTextPlaylistCandidate(normalizedUrl)
         val shouldCheckM3u8 = settingsModel.isCheckIfEveryRequestOnM3u8.get()
         val shouldCheckMp4 = settingsModel.getIsCheckEveryRequestOnMp4Video().get()
         val shouldCheckAudio = settingsModel.isCheckOnAudio.get()
@@ -66,11 +63,4 @@ class BrowserRequestInspector(
         )
     }
 
-    private fun isTextPlaylistCandidate(url: String): Boolean {
-        val path = url
-            .substringBefore('#')
-            .substringBefore('?')
-            .lowercase(Locale.US)
-        return path.endsWith(".txt")
-    }
 }

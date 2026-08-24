@@ -4,14 +4,17 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
 import android.view.Window
 import android.view.WindowManager
 import androidx.annotation.RequiresApi
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.activity.addCallback
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.ui.main.base.BaseActivity
+import com.myAllVideoBrowser.ui.main.home.MainActivity
 import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.ext.addFragment
 import javax.inject.Inject
@@ -24,22 +27,21 @@ class VideoPlayerActivity : BaseActivity() {
 
     private var pipHelper: PipHelper? = null
 
-    /** 进入时记录系统方向，退出时原样恢复（manifest 未写死方向，通常为 UNSPECIFIED）。 */
-    private var initialRequestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-
     /** 上一次按视频尺寸请求的方向，防抖：目标未变时不重复 set，避免系统反复应用抖动。 */
     private var lastRequestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
     override fun onCreate(savedInstanceState: Bundle?) {
         postponeEnterTransition()  // 共享元素过渡：等缩略图→播放器首帧就绪再开演（防黑帧）
         super.onCreate(savedInstanceState)
-        initialRequestedOrientation = requestedOrientation
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_player)
 
         if (savedInstanceState == null && playerFragment() == null) {
             intent.extras?.let { addFragment(R.id.player_content_frame, it, ::VideoPlayerFragment) }
+        }
+        onBackPressedDispatcher.addCallback(this) {
+            finishPlayer()
         }
     }
 
@@ -120,21 +122,39 @@ class VideoPlayerActivity : BaseActivity() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        // 退出恢复进入时的系统方向
-        requestedOrientation = initialRequestedOrientation
         // 兜底注销，防止 receiver 泄漏
         pipHelper?.unregisterReceiver(this)
         pipHelper = null
+        super.onDestroy()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        playerFragment()?.onHostStarted()
     }
 
     override fun onStop() {
+        if (isFinishing) {
+            playerFragment()?.getPlayerOrNull()?.pause()
+        } else {
+            playerFragment()?.onHostStopped()
+        }
         super.onStop()
-        // 无条件暂停：onStop 表示"Activity 不可见了"，此时停播是对的。PiP 小窗可见时不会进入
-        // onStop（系统只让 Activity 处于 PAUSED），故无需 isInPictureInPictureMode 判断。去掉判断
-        // 修复：点 PiP 右上角 X 关闭时，onStop 早于 PiP 状态清零（isInPictureInPictureMode 仍 true），
-        // 原判断会跳过 pause，导致 Activity 进 stopped 但不 finish、player 既不 pause 也不 release，
-        // 声音继续到进程结束。release 仍由 onDestroyView 在真正 finish 时负责，这里只 pause。
-        playerFragment()?.getPlayerOrNull()?.pause()
+    }
+
+    fun finishPlayer() {
+        if (isFinishing) return
+        if (isTaskRoot) {
+            val source = intent.getStringExtra(VideoPlayerFragment.VIDEO_SOURCE)
+            val page = if (source == VideoPlayerFragment.SOURCE_VIDEO_LIBRARY) {
+                MainActivity.EXTRA_START_PAGE_VIDEO_LIBRARY
+            } else {
+                MainActivity.EXTRA_START_PAGE_BROWSER
+            }
+            startActivity(Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_START_PAGE, page))
+            finish()
+        } else {
+            finishAfterTransition()
+        }
     }
 }

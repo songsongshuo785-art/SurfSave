@@ -10,23 +10,27 @@
 
     </data>
 
-    <androidx.drawerlayout.widget.DrawerLayout
-        android:id="@+id/drawer_layout"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <com.myAllVideoBrowser.ui.main.home.browser.CustomViewPager2
-            android:id="@+id/view_pager"
+        <androidx.drawerlayout.widget.DrawerLayout
+            android:id="@+id/drawer_layout"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent">
 
-        <LinearLayout
-            android:id="@+id/drawer_layout_content"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_gravity="start"
-            android:background="@color/sxSurface"
-            android:orientation="vertical">
+            <com.myAllVideoBrowser.ui.main.home.browser.CustomViewPager2
+                android:id="@+id/view_pager"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <LinearLayout
+                android:id="@+id/drawer_layout_content"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_gravity="start"
+                android:background="@color/sxSurface"
+                android:orientation="vertical">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -51,6 +55,17 @@
                     app:titleCentered="true"
                     app:title="@string/tabs"
                     app:titleTextColor="@color/sxTextPrimary">
+
+                    <ImageButton
+                        android:id="@+id/recently_closed_tabs_button"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:layout_gravity="end|center_vertical"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/recently_closed_tabs"
+                        android:padding="10dp"
+                        android:src="@drawable/history_menu_icon_24dp"
+                        app:tint="@color/sxTextSecondary" />
 
                     <ImageButton
                         android:id="@+id/new_tab_button"
@@ -87,8 +102,63 @@
             android:paddingBottom="@dimen/padding_normal"
             app:items="@{viewModel.tabs}" />
 
-        </LinearLayout>
+            </LinearLayout>
 
-    </androidx.drawerlayout.widget.DrawerLayout>
+        </androidx.drawerlayout.widget.DrawerLayout>
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/tab_undo_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_margin="12dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/sxSurfaceRaised"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="6dp"
+            app:strokeColor="@color/sxOutline"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="52dp"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="4dp">
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tab_undo_message"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:maxLines="2"
+                    android:text="@string/browser_tab_closed"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textSize="@dimen/text_small" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tab_undo_action"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:minWidth="64dp"
+                    android:text="@string/undo"
+                    android:textColor="@color/colorPrimary" />
+
+                <ImageButton
+                    android:id="@+id/tab_undo_dismiss"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/dismiss"
+                    android:padding="12dp"
+                    android:src="@drawable/close_24px"
+                    app:tint="@color/sxTextSecondary" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+    </FrameLayout>
 
 </layout>

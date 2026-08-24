@@ -1,11 +1,11 @@
 package com.myAllVideoBrowser.ui.component.binding
 
 import android.graphics.drawable.Drawable
-import android.util.TypedValue
 import android.view.View
 import android.widget.ImageView
 import androidx.databinding.BindingAdapter
 import com.google.android.material.card.MaterialCardView
+import kotlin.math.roundToInt
 
 object ViewBinding {
 
@@ -21,17 +21,10 @@ object ViewBinding {
         imageView.setImageDrawable(drawable)
     }
 
-    /** MaterialCardView.setStrokeWidth takes px; this adapter accepts a dp dimension value. */
+    /** MaterialCardView.setStrokeWidth takes px; data-binding dimensions are already px. */
     @JvmStatic
-    @BindingAdapter("surfStrokeWidthDp")
-    fun setSurfStrokeWidthDp(card: MaterialCardView, dp: Float?) {
-        if (dp == null) {
-            return
-        }
-        card.strokeWidth = TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_DIP,
-            dp,
-            card.resources.displayMetrics
-        ).toInt()
+    @BindingAdapter("surfStrokeWidthPx")
+    fun setSurfStrokeWidthPx(card: MaterialCardView, px: Float?) {
+        card.strokeWidth = px?.roundToInt()?.coerceAtLeast(0) ?: 0
     }
 }

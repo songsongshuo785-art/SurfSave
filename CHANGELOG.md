@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.8.30] - 2026-08-24
+
+### Added
+- Added a split online-play control for detected web media: the main action uses the current default player, while the menu can add installed Android players through the system chooser, remember them, switch defaults, and remove remembered external targets.
+- Added a session-level recently closed tab history with a dismissible undo prompt and a long-press recovery entry from empty space in the tab overview.
+- Added broader discovery for extensionless HLS/DASH manifests and media URLs exposed through fetch/XHR, performance entries, JSON responses, and service workers, with bounded inspection limits.
+
+### Changed
+- Reduced dynamic-page translation cost with per-document language reuse, bounded ambiguous-node detection, visible-content priority, translation caches, character budgets, and observer self-change filtering.
+- Ordered the video library by the best available added/modified timestamp so newly downloaded media appears first.
+
+### Fixed
+- Kept automatic page translation active across navigation and dynamic page updates, translated mixed-language content even when the page declares the target language, and prevented stale translation tasks from suppressing a new page.
+- Restored native-player video surfaces and playback intent after backgrounding, added a task-root return fallback, and kept browser fullscreen video attached while the app is temporarily backgrounded.
+- Paused media in inactive browser tabs, fixed media-detail back handling and first-page tab return behavior, and resolved image-anchor popups to their destination link instead of opening the cover image.
+- Preserved detected media type and format-specific request headers through online playback, refreshed stale 401/403 sources with the original detection engine, and selected explicit HLS/DASH handling for extensionless URLs.
+- Expanded HEVC/Dolby Vision codec recognition for HLS/DASH/live merges and enabled decoder fallback so supported devices choose a compatible decoder more reliably.
+- Quantized the persisted detection threshold before binding it to the discrete Material Slider, preventing legacy settings from crashing the Settings screen.
+- Corrected indeterminate download progress detection and avoided rendering `0 B / 0 B` when the total size is unknown.
+- Prevented display titles such as `Minecraft 1.20.4` from losing their final numeric segment; known media extensions and duplicate extensions are still removed.
+- Prevented duplicate Slider listeners and corrected candidate-card stroke widths so resource dimensions are not converted from dp twice.
+- Removed the browser download-ring observer when the WebView view is destroyed.
+- Made text-appearance line heights compatible with Android 7-8 and scalable with the user's font size.
+
+### Release
+- Refreshed the README screenshot gallery with the current SurfSave interface.
+- Increased the release base version code to keep ABI split APK upgrades monotonic.
+- CI now resolves official Gradle repositories before mirrors and marks tag builds as the latest stable release.
+
 ## [0.8.29] - 2026-08-20
 
 ### Added

@@ -14,6 +14,7 @@ data class LocalVideo(
     var quality: String = ""
     var sourceUrl: String = ""
     var thumbnailFrameMicros: Long = 1_000_000L
+    var sortTimeMillis: Long = 0L
 
     /** Humanized display name (extension/separator cleanup); raw name untouched */
     val displayName: String

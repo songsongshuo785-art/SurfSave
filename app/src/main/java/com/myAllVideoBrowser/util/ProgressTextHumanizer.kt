@@ -35,9 +35,12 @@ object ProgressTextHumanizer {
 
     /** "4.5 MB / 120 MB · 下载中" */
     fun progressLine(context: Context, info: ProgressInfo): String {
-        val size = getFileSizeReadable(info.progressDownloaded.toDouble()) +
-            " / " +
-            getFileSizeReadable(info.progressTotal.toDouble())
+        val downloaded = getFileSizeReadable(info.progressDownloaded.toDouble())
+        val size = if (info.progressTotal > 0) {
+            "$downloaded / ${getFileSizeReadable(info.progressTotal.toDouble())}"
+        } else {
+            "$downloaded · ${context.getString(R.string.candidate_unknown_size)}"
+        }
         val status = statusText(context, info.downloadStatus)
         return if (status.isBlank()) size else "$size · $status"
     }

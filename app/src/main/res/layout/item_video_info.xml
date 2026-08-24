@@ -197,22 +197,67 @@
                 android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/tv_preview"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                <com.google.android.material.card.MaterialCardView
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
                     android:layout_marginEnd="@dimen/padding_small"
                     android:layout_weight="1"
-                    android:insetTop="0dp"
-                    android:insetBottom="0dp"
-                    android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
-                    android:text="@string/detected_play_online"
-                    android:textColor="@color/sxTextPrimary"
-                    android:textSize="@dimen/text_small"
-                    app:icon="@drawable/play_circle_24px"
-                    app:iconTint="@color/sxTextPrimary"
-                    app:strokeColor="@color/sxOutline" />
+                    app:cardBackgroundColor="@color/sxSurfaceRaised"
+                    app:cardCornerRadius="@dimen/corner_full"
+                    app:cardElevation="0dp"
+                    app:strokeColor="@color/sxOutline"
+                    app:strokeWidth="@dimen/stroke_hairline">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:baselineAligned="false"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/tv_preview"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:backgroundTint="@android:color/transparent"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:minWidth="0dp"
+                            android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
+                            android:text="@string/detected_play_online"
+                            android:textColor="@color/sxTextPrimary"
+                            android:textSize="@dimen/text_small"
+                            app:icon="@drawable/play_circle_24px"
+                            app:iconTint="@color/sxTextPrimary" />
+
+                        <View
+                            android:layout_width="@dimen/stroke_hairline"
+                            android:layout_height="24dp"
+                            android:background="@color/sxOutline" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/tv_player_options"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="@dimen/min_touch_target"
+                            android:layout_height="match_parent"
+                            android:backgroundTint="@android:color/transparent"
+                            android:contentDescription="@string/player_target_choose"
+                            android:insetLeft="0dp"
+                            android:insetTop="0dp"
+                            android:insetRight="0dp"
+                            android:insetBottom="0dp"
+                            android:minWidth="0dp"
+                            android:onClick="@{() -> dialogListener.onChoosePlayer(videoInfo, videoThumbnail, tvPlayerOptions, viewModel.selectedFormats.get(videoInfo.id), false)}"
+                            android:padding="0dp"
+                            android:text=""
+                            app:icon="@drawable/ic_arrow_drop_down_24"
+                            app:iconGravity="textStart"
+                            app:iconPadding="0dp"
+                            app:iconTint="@color/sxTextPrimary" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/tv_download"

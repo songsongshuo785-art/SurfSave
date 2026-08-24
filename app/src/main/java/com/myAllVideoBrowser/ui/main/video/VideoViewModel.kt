@@ -1,9 +1,11 @@
 package com.myAllVideoBrowser.ui.main.video
 
+import android.content.ContentResolver
 import android.content.Context
 import android.content.IntentSender
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.provider.MediaStore
 import androidx.databinding.ObservableField
 import androidx.lifecycle.viewModelScope
 //import com.allVideoDownloaderXmaster.OpenForTesting
@@ -55,13 +57,13 @@ class VideoViewModel @Inject constructor(
     private var pendingDelete: PendingDelete? = null
     private var pendingRename: PendingRename? = null
     private val thumbnailFrameMicrosCache = mutableMapOf<String, Long>()
+    private val mediaSortTimeMillisCache = mutableMapOf<String, Long>()
 
     override fun start() {
         viewModelScope.launch(Dispatchers.IO) {
             while (true) {
                 delay(1000)
-                val newList = getFilesList().toMutableList()
-                newList.sortBy { it.uri }
+                val newList = VideoLibraryOrdering.newestFirst(getFilesList())
                 localVideos.set(newList)
             }
         }
@@ -75,9 +77,10 @@ class VideoViewModel @Inject constructor(
         val listVideos: MutableList<LocalVideo> = mutableListOf()
         val completedProgressByName = loadCompletedProgressByName()
         val validCacheKeys = mutableSetOf<String>()
+        val context = ContextUtils.getApplicationContext()
         fileUtil.listFiles.forEach { entry ->
             val fileUri = entry.uri
-            val fileSize = fileUtil.getContentLength(ContextUtils.getApplicationContext(), fileUri)
+            val fileSize = fileUtil.getContentLength(context, fileUri)
             val readableSize = FileUtil.getFileSizeReadable(fileSize.toDouble())
             val progressInfo = completedProgressByName[normalizeFileName(entry.displayName)]
             val cacheKey = fileUri.toString()
@@ -91,12 +94,68 @@ class VideoViewModel @Inject constructor(
             video.quality = progressInfo?.let { resolveQuality(it) }.orEmpty()
             video.sourceUrl = progressInfo?.let { resolveSourceUrl(it) }.orEmpty()
             video.thumbnailFrameMicros =
-                resolveThumbnailFrameMicros(ContextUtils.getApplicationContext(), fileUri)
+                resolveThumbnailFrameMicros(context, fileUri)
+            video.sortTimeMillis = resolveMediaSortTimeMillis(context, fileUri)
             listVideos.add(video)
         }
         thumbnailFrameMicrosCache.keys.retainAll(validCacheKeys)
+        mediaSortTimeMillisCache.keys.retainAll(validCacheKeys)
 
         return listVideos.toList()
+    }
+
+    private fun resolveMediaSortTimeMillis(context: Context, uri: Uri): Long {
+        val cacheKey = uri.toString()
+        mediaSortTimeMillisCache[cacheKey]?.let { return it }
+
+        val sortTimeMillis = runCatching {
+            when (uri.scheme) {
+                ContentResolver.SCHEME_FILE -> uri.path
+                    ?.let(::File)
+                    ?.lastModified()
+                    ?.coerceAtLeast(0L)
+                    ?: 0L
+                ContentResolver.SCHEME_CONTENT -> queryMediaStoreTimeMillis(context, uri)
+                else -> 0L
+            }
+        }.getOrElse { error ->
+            AppLogger.w("Video sort time fallback for $uri: ${error.message}")
+            0L
+        }
+
+        mediaSortTimeMillisCache[cacheKey] = sortTimeMillis
+        return sortTimeMillis
+    }
+
+    private fun queryMediaStoreTimeMillis(context: Context, uri: Uri): Long {
+        return context.contentResolver.query(
+            uri,
+            arrayOf(
+                MediaStore.MediaColumns.DATE_ADDED,
+                MediaStore.MediaColumns.DATE_MODIFIED
+            ),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use 0L
+            val dateAddedSeconds = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_ADDED)
+                .takeIf { it >= 0 }
+                ?.let(cursor::getLong)
+                ?: 0L
+            val dateModifiedSeconds = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+                .takeIf { it >= 0 }
+                ?.let(cursor::getLong)
+                ?: 0L
+            secondsToMillis(
+                dateAddedSeconds.takeIf { it > 0L } ?: dateModifiedSeconds
+            )
+        } ?: 0L
+    }
+
+    private fun secondsToMillis(seconds: Long): Long {
+        if (seconds <= 0L) return 0L
+        return runCatching { Math.multiplyExact(seconds, 1_000L) }.getOrDefault(0L)
     }
 
     private fun resolveThumbnailFrameMicros(context: Context, uri: Uri): Long {
@@ -201,6 +260,7 @@ class VideoViewModel @Inject constructor(
                         it.uri.toString() == video.uri.toString() ||
                         it.uri.path == video.uri.path
                 }
+                removeCachedVideoMetadata(video.uri)
                 localVideos.set(list)
                 deleteSuccessEvent.value = Unit
             }
@@ -302,7 +362,8 @@ class VideoViewModel @Inject constructor(
     private fun applyRenameSuccess(originalUri: Uri, result: RenameMediaResult.Success) {
         val list = localVideos.get()?.toMutableList() ?: mutableListOf()
         list.firstOrNull { sameUri(it.uri, originalUri) }?.let { video ->
-            thumbnailFrameMicrosCache.remove(video.uri.toString())
+            removeCachedVideoMetadata(video.uri)
+            mediaSortTimeMillisCache.remove(result.uri.toString())
             video.uri = result.uri
             video.name = result.name
         }
@@ -313,7 +374,7 @@ class VideoViewModel @Inject constructor(
     private fun removeDeletedVideo(video: LocalVideo) {
         val list = localVideos.get()?.toMutableList() ?: mutableListOf()
         list.removeAll { sameUri(it.uri, video.uri) }
-        thumbnailFrameMicrosCache.remove(video.uri.toString())
+        removeCachedVideoMetadata(video.uri)
         localVideos.set(list)
         deleteSuccessEvent.value = Unit
     }
@@ -323,6 +384,12 @@ class VideoViewModel @Inject constructor(
         return first == second ||
             first.toString() == second.toString() ||
             (firstPath != null && firstPath == second.path)
+    }
+
+    private fun removeCachedVideoMetadata(uri: Uri) {
+        val cacheKey = uri.toString()
+        thumbnailFrameMicrosCache.remove(cacheKey)
+        mediaSortTimeMillisCache.remove(cacheKey)
     }
 
     fun findVideoByName(downloadFilename: String?): Observable<LocalVideo> {

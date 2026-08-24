@@ -4,6 +4,7 @@ import com.antonkarpenko.ffmpegkit.FFmpegKit
 import com.antonkarpenko.ffmpegkit.FFmpegSession
 import com.antonkarpenko.ffmpegkit.ReturnCode
 import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.MediaCodecClassifier
 import com.myAllVideoBrowser.util.downloaders.custom_downloader.CustomFileDownloader
 import com.myAllVideoBrowser.util.downloaders.custom_downloader.DownloadListener
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskItem
@@ -632,11 +633,14 @@ class MpdDownloader(
                 }
             }
 
-            if (hasVideo && (videoCodec?.startsWith("hvc1") == true || videoCodec?.startsWith("dvh1") == true)) {
+            if (hasVideo && MediaCodecClassifier.requiresH264Transcode(videoCodec)) {
                 add("-c:v"); add("libx264"); add("-preset"); add("veryfast"); add("-crf"); add("23"); add(
                     "-pix_fmt"
                 ); add("yuv420p")
-                if (hasAudio) add("-c:a"); add("copy")
+                if (hasAudio) {
+                    add("-c:a")
+                    add("copy")
+                }
             } else {
                 add("-c"); add("copy")
             }

@@ -156,6 +156,22 @@ class VideoInfoAdapter(
                         candidateFormatListener.onPreviewVideo(videoInfo, sharedView, format, isForce)
                     }
 
+                    override fun onChoosePlayer(
+                        videoInfo: VideoInfo,
+                        sharedView: View,
+                        anchorView: View,
+                        format: String,
+                        isForce: Boolean
+                    ) {
+                        candidateFormatListener.onChoosePlayer(
+                            videoInfo,
+                            sharedView,
+                            anchorView,
+                            format,
+                            isForce
+                        )
+                    }
+
                     override fun onFormatUrlShare(videoInfo: VideoInfo, format: String): Boolean {
                         return candidateFormatListener.onFormatUrlShare(videoInfo, format)
                     }

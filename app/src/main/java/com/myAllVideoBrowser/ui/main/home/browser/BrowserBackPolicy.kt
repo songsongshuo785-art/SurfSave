@@ -44,5 +44,6 @@ internal object BrowserTabIndexPolicy {
 }
 
 internal object BrowserTabUndoPolicy {
-    const val DURATION_MS = 15_000
+    const val DURATION_MS = 8_000L
+    const val MAX_RECENTLY_CLOSED_TABS = 10
 }

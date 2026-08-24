@@ -79,4 +79,5 @@
 
     <!-- Player -->
     <dimen name="player_seek_preview_bottom_margin">96dp</dimen>
+    <dimen name="playback_target_menu_width">280dp</dimen>
 </resources>

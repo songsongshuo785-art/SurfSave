@@ -1,37 +1,15 @@
 package com.myAllVideoBrowser.util
 
 import com.myAllVideoBrowser.ui.main.home.browser.ContentType
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserMediaClassifier
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import okhttp3.Headers
 import okhttp3.Request
-import java.util.Locale
 
 class VideoUtils {
     companion object {
-        private val VIDEO_EXTENSION_REGEX = Regex(".*\\.(mp4|m4v|webm|mov|flv|3gp|mkv)$")
-        private val AUDIO_EXTENSION_REGEX = Regex(".*\\.(mp3|m4a|aac|ogg|opus|wav)$")
-
         fun getContentTypeByUrlPath(url: String): ContentType {
-            val cleanUrl = url
-                .substringBefore('#')
-                .substringBefore('?')
-                .lowercase(Locale.US)
-
-            if (cleanUrl.startsWith("blob:")) {
-                return ContentType.OTHER
-            }
-
-            return when {
-                cleanUrl.contains(".m3u8") -> ContentType.M3U8
-                cleanUrl.contains(".mpd") -> ContentType.MPD
-                cleanUrl.matches(VIDEO_EXTENSION_REGEX) -> {
-                    ContentType.VIDEO
-                }
-                cleanUrl.matches(AUDIO_EXTENSION_REGEX) -> {
-                    ContentType.AUDIO
-                }
-                else -> ContentType.OTHER
-            }
+            return BrowserMediaClassifier.classify(url)
         }
 
         fun getContentTypeByUrl(

@@ -39,7 +39,7 @@
         app:cardElevation="0dp"
         app:checkedIconTint="@color/colorPrimary"
         app:strokeColor="@{is_candidate_selected ? @color/colorPrimary : @color/sxOutline}"
-        app:surfStrokeWidthDp="@{is_candidate_selected ? @dimen/stroke_selected : @dimen/stroke_hairline}">
+        app:surfStrokeWidthPx="@{is_candidate_selected ? @dimen/stroke_selected : @dimen/stroke_hairline}">
 
         <LinearLayout
             android:layout_width="match_parent"

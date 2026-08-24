@@ -4,6 +4,7 @@ import com.antonkarpenko.ffmpegkit.FFmpegKit
 import com.antonkarpenko.ffmpegkit.FFmpegSession
 import com.antonkarpenko.ffmpegkit.ReturnCode
 import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.MediaCodecClassifier
 import com.myAllVideoBrowser.util.hls_parser.HlsPlaylistParser
 import okhttp3.Headers
 import okhttp3.OkHttpClient
@@ -761,9 +762,7 @@ object DownloaderUtils {
                 }
             }
 
-            if (hasVideo &&
-                (videoCodec?.startsWith("hvc1") == true || videoCodec?.startsWith("dvh1") == true)
-            ) {
+            if (hasVideo && MediaCodecClassifier.requiresH264Transcode(videoCodec)) {
                 add("-c:v"); add("libx264")
                 add("-preset"); add("veryfast")
                 add("-crf"); add("23")

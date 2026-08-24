@@ -13,6 +13,7 @@ import com.myAllVideoBrowser.util.DownloadFilenameTemplate
 import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.util.YtdlpUpdateManager
+import com.myAllVideoBrowser.util.VideoDetectionThresholdSlider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -101,7 +102,13 @@ class SettingsViewModel @Inject constructor(
             m3u8ThreadsCount.set(sharedPrefHelper.getM3u8DownloaderThreadCount())
             maxConcurrentDownloads.set(sharedPrefHelper.getMaxConcurrentDownloads())
             isCheckOnAudio.set(sharedPrefHelper.getIsCheckOnAudio())
-            videoDetectionThreshold.set(sharedPrefHelper.getVideoDetectionThreshold())
+            val storedDetectionThreshold = sharedPrefHelper.getVideoDetectionThreshold()
+            val normalizedDetectionThreshold =
+                VideoDetectionThresholdSlider.normalizeBytes(storedDetectionThreshold)
+            videoDetectionThreshold.set(normalizedDetectionThreshold)
+            if (normalizedDetectionThreshold != storedDetectionThreshold) {
+                sharedPrefHelper.setVideoDetectionThreshold(normalizedDetectionThreshold)
+            }
             isLockPortrait.set(sharedPrefHelper.getIsLockPortrait())
             isDrmEnabled.set(sharedPrefHelper.getIsDrmEnabled())
             if (sharedPrefHelper.getIsExternalUse() && !sharedPrefHelper.getIsAppDirUse()) {
@@ -287,8 +294,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setIsAutoTranslatePages(isAutoTranslate: Boolean) {
+        isAutoTranslatePages.set(isAutoTranslate)
         viewModelScope.launch(Dispatchers.IO) {
-            isAutoTranslatePages.set(isAutoTranslate)
             sharedPrefHelper.saveIsAutoTranslatePages(isAutoTranslate)
         }
     }

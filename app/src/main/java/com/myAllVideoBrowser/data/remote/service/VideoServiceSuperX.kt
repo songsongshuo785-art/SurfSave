@@ -5,6 +5,7 @@ import com.myAllVideoBrowser.data.local.room.entity.VideFormatEntityList
 import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.MediaCodecClassifier
 import com.myAllVideoBrowser.util.hls_parser.HlsPlaylistParser
 import com.myAllVideoBrowser.util.hls_parser.MpdPlaylistParser
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
@@ -156,13 +157,16 @@ class VideoServiceSuperX(
                             format = "hls-${height}p-${variant.bandwidth}",
                             formatNote = "${height}p",
                             ext = "mp4",
-                            vcodec = variant.codecs?.substringBefore(",") ?: "unknown",
+                            vcodec = MediaCodecClassifier.firstVideoCodec(variant.codecs)
+                                ?: "unknown",
                             // If we have separate audio, its codec is in the rendition tag.
-                            acodec = associatedAudioRendition?.codecs
-                                ?: variant.codecs?.substringAfter(",", "unknown") ?: "unknown",
+                            acodec = MediaCodecClassifier.firstAudioCodec(
+                                associatedAudioRendition?.codecs ?: variant.codecs
+                            ) ?: "unknown",
                             // The downloader only needs the MASTER manifest URL.
                             url = manifest.baseUri,
                             manifestUrl = manifest.baseUri,
+                            protocol = "m3u8_native",
                             // Store the specific media playlist URLs if needed for later selection.
                             // We will use the formatId to find these again.
                             videoOnlyUrl = videoUrl,
@@ -203,6 +207,7 @@ class VideoServiceSuperX(
                         acodec = "unknown",
                         url = manifest.baseUri,
                         manifestUrl = manifest.baseUri,
+                        protocol = "m3u8_native",
                         httpHeaders = headers,
                         height = inferredHeight,
                         width = 0,
@@ -267,13 +272,11 @@ class VideoServiceSuperX(
                 format = "mpd-${rep.height}p-${rep.bandwidth}",
                 formatNote = "${rep.height}p",
                 ext = "mp4",
-                vcodec = rep.codecs?.substringBefore(",") ?: "unknown",
-                // A better fallback for acodec in case there is no comma
-                acodec = if (rep.codecs?.contains(',') == true) rep.codecs.substringAfter(
-                    ","
-                ) else "unknown",
+                vcodec = MediaCodecClassifier.firstVideoCodec(rep.codecs) ?: "unknown",
+                acodec = MediaCodecClassifier.firstAudioCodec(rep.codecs) ?: "unknown",
                 url = manifest.baseUri, // The download URL is always the manifest URL
                 manifestUrl = manifest.baseUri,
+                protocol = "http_dash_segments",
                 httpHeaders = headers,
                 height = rep.height,
                 width = rep.width,

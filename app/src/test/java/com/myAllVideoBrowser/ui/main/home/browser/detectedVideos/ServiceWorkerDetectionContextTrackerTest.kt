@@ -72,11 +72,38 @@ class ServiceWorkerDetectionContextTrackerTest {
                 mapOf("Referer" to "https://example.com/watch?id=8")
             )
         )
-        assertNull(
+        assertSame(
+            current,
             tracker.contextForRequest(
                 mapOf("Origin" to "https://example.com")
             )
         )
         assertNull(tracker.contextForRequest(emptyMap()))
+    }
+
+    @Test
+    fun confirmedMediaRequest_acceptsSameOriginOrMissingReferer() {
+        val tracker = ServiceWorkerDetectionContextTracker()
+        val current = requireNotNull(
+            tracker.activate("tab-a", "https://example.com/watch?id=7")
+        )
+
+        assertSame(
+            current,
+            tracker.contextForRequest(mapOf("Origin" to "https://example.com"))
+        )
+        assertSame(
+            current,
+            tracker.contextForRequest(
+                mapOf("User-Agent" to "WebView"),
+                allowHeaderlessMedia = true
+            )
+        )
+        assertNull(
+            tracker.contextForRequest(
+                mapOf("Origin" to "https://other.example"),
+                allowHeaderlessMedia = true
+            )
+        )
     }
 }

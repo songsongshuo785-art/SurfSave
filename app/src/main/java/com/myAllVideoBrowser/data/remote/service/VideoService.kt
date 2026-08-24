@@ -7,6 +7,7 @@ import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.data.local.room.entity.toDownloadRequestData
 import com.myAllVideoBrowser.util.CookieUtils
+import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
 import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
 import com.myAllVideoBrowser.util.AppLogger
 import com.yausername.youtubedl_android.YoutubeDL
@@ -111,6 +112,10 @@ open class VideoServiceLocal(
                             .find(formatNote)?.groupValues?.getOrNull(1)?.toIntOrNull()
                         ?: 0
                     val tbr = f.optDouble("tbr", 0.0).toInt()
+                    val mediaUrl = f.optString("url")
+                    val formatHeaders = MediaRequestHeaderPolicy.fromJsonObject(
+                        f.optJSONObject("http_headers")
+                    )
 
                     // Create localization label: "original [en]" or just "[en]"
                     val localizedNote = when {
@@ -123,7 +128,7 @@ open class VideoServiceLocal(
                         formatId = f.optString("format_id"),
                         format = f.optString("format"),
                         formatNote = localizedNote,
-                        url = f.optString("url"),
+                        url = mediaUrl,
                         ext = f.optString("ext"),
                         vcodec = f.optString("vcodec", "none"),
                         acodec = f.optString("acodec", "none"),
@@ -138,7 +143,13 @@ open class VideoServiceLocal(
                         bitrate = tbr.takeIf { it > 0 }?.toLong()?.times(1000L),
                         duration = videoDuration * 1000,
                         manifestUrl = f.optString("manifest_url"),
-                        httpHeaders = url.headers.toMap()
+                        protocol = f.optString("protocol").takeIf { it.isNotBlank() },
+                        httpHeaders = MediaRequestHeaderPolicy.mergeForFormat(
+                            sourceHeaders = url.headers.toMap(),
+                            formatHeaders = formatHeaders,
+                            sourceUrl = originalUrl,
+                            mediaUrl = mediaUrl
+                        )
                     )
                     formats.add(entity)
                 }
@@ -213,6 +224,7 @@ open class VideoServiceLocal(
             fps = videoFormat.fps,
             url = videoFormat.url,
             manifestUrl = videoFormat.manifestUrl,
+            protocol = null,
             httpHeaders = videoFormat.httpHeaders
         )
     }

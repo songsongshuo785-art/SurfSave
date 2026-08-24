@@ -45,14 +45,34 @@ class ServiceWorkerDetectionContextTracker {
 
     fun snapshot(): ServiceWorkerDetectionContext? = current
 
-    fun contextForRequest(headers: Map<String, String>): ServiceWorkerDetectionContext? {
+    fun contextForRequest(
+        headers: Map<String, String>,
+        allowHeaderlessMedia: Boolean = false
+    ): ServiceWorkerDetectionContext? {
         val expected = current ?: return null
         val referer = headers.entries
             .firstOrNull { it.key.equals("Referer", ignoreCase = true) }
             ?.value
             ?.let(::normalizePageUrl)
-            ?: return null
-        return expected.takeIf { it.pageUrl == referer }
+        if (referer != null) {
+            return expected.takeIf { it.pageUrl == referer }
+        }
+
+        val origin = headers.entries
+            .firstOrNull { it.key.equals("Origin", ignoreCase = true) }
+            ?.value
+            ?.trim()
+            ?.toHttpUrlOrNull()
+        val page = expected.pageUrl.toHttpUrlOrNull()
+        if (origin != null && page != null) {
+            return expected.takeIf {
+                origin.scheme == page.scheme && origin.host == page.host && origin.port == page.port
+            }
+        }
+
+        // Service Worker 的媒体请求常常不带 Referer。只允许调用方已确认是媒体 URL 时，
+        // 才把无头请求归到当前活动标签，避免把普通后台请求误归类为视频。
+        return expected.takeIf { allowHeaderlessMedia }
     }
 
     fun isCurrent(expected: ServiceWorkerDetectionContext): Boolean = current == expected

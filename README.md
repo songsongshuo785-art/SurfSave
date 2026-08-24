@@ -4,7 +4,7 @@
   <img src="images/icon.png" width="96" alt="SurfSave">
 </p>
 
-<p align="center"><strong>Android video downloader with a built-in browser — realtime media detection, multi-engine downloads, and Picture-in-Picture playback.</strong></p>
+<p align="center"><strong>Android video downloader with a built-in browser — realtime media detection, multi-engine downloads, player selection, and Picture-in-Picture playback.</strong></p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg"></a>
@@ -18,21 +18,28 @@
 
 > ⚠️ <strong>Disclaimer</strong>: This project is intended for personal, research, interoperability, and educational use. Users are responsible for respecting website terms, copyright law, and local regulations.
 
+## Why I built SurfSave
+
+I had been looking for a browser that could give web videos a more consistent player experience while still letting me use players already installed on my phone. Many websites have frustrating built-in players, and some do not even support basic swipe seeking. (This is especially common on certain, shall we say, "magical little websites.")
+
+I also tend to save videos I like so I can keep them in my own collection.
+
+I use Picture-in-Picture a lot too, partly because it makes casual multitasking easier. One of my slightly unusual habits is keeping a video playing in a small window, or just listening to it, while reading comics or novels. I cannot be the only one who does this.
+
+After looking around, I found almost no browser that met all three needs: online playback, video downloads, and Picture-in-Picture. Similar products usually fell short somewhere, and user feedback did not always lead anywhere.
+
+So I decided to build an open-source browser around my own needs. When I find something missing, I can add it and get the improvement into users' hands quickly.
+
+SurfSave is also one of my Vibe Coding experiments, and it still has rough edges. If you run into a problem, please report it through [GitHub Issues](https://github.com/songsongshuo785-art/SurfSave/issues). I will address it as best I can, and feedback is always welcome.
+
 ## How it works
 
 1. Open a web page in SurfSave, or share a link from another app.
-2. When the app detects eligible media requests, the media detail panel opens.
-3. Preview online, pick a quality, and add it to the download queue.
-4. Manage and play downloaded media from the video library, with Picture-in-Picture when you want to keep watching.
+2. When the app detects eligible media requests, you can open the media details to review the available candidates.
+3. From the media details, stream with SurfSave's built-in player or an installed external player, or choose a quality and add it to the download queue.
+4. Manage and play downloaded media from the video library. Picture-in-Picture is available when using the built-in player.
 
 ## Features
-
-### 🌐 Browser
-- Full built-in browser: bookmarks, history, cookies, multi-tab, tab overview
-- **Automatic media detection** while you browse
-- Multiple search engines: Google, Bing, Baidu, DuckDuckGo
-- Long-press links to open in the current window, a new window, or the background
-- Page language detection with ML Kit translation (the first use of a language may download a translation model)
 
 ### ⬇️ Download
 - **Multi-engine downloads**: direct media links, HLS/DASH/live streams, and yt-dlp page parsing are handled by different engines, selected automatically based on the media type
@@ -43,12 +50,20 @@
 - HLS AES-128 encryption support, including key rotation and IV handling
 
 ### ▶️ Player
-- Built-in offline player
-- **Picture-in-Picture**: manual entry, with an optional auto-enter on Home; play/pause/rewind/forward from the PiP window
+- **Player selection**: web media uses SurfSave's built-in player by default; installed external players can be added through the Android system picker and selected directly on later visits
+- **Online and offline playback**: the built-in player supports detected web media and downloaded media
+- **Picture-in-Picture**: with the built-in player, enter manually or optionally on Home; play, pause, rewind, and fast-forward from the PiP window
 - **Gesture controls**: double-tap the left/right half to seek; horizontal swipe to seek with a thumbnail preview
 - Audio / subtitle track selection
 - Playback speed and aspect ratio controls (fit / fill / crop)
 - Smooth shared-element transition from thumbnail to player
+
+### 🌐 Browser
+- Full built-in browser: bookmarks, history, cookies, multi-tab, tab overview
+- **Automatic media detection** while you browse
+- Multiple search engines: Google, Bing, Baidu, DuckDuckGo
+- Long-press links to open in the current window, a new window, or the background
+- Page language detection with ML Kit translation (the first use of a language may download a translation model)
 
 ### 🔒 Privacy & Network
 - Optional **Xray/libv2ray proxy** support
@@ -57,16 +72,17 @@
 
 ## Supported scope & limitations
 
-- DRM/Widevine-protected media cannot be downloaded; the in-app DRM toggle only affects in-page playback.
+- DRM/Widevine-protected media cannot be downloaded; the DRM option in Settings only affects playback inside the WebView and does not bypass DRM download restrictions.
 - Media detection and yt-dlp parsing may temporarily break after a site changes its structure, APIs, or login flow.
 - Content behind a login may require WebView cookies or a manually imported cookie profile.
+- When web media is handed to an external player, SurfSave passes only the media URL and title. WebView cookies and request headers such as `Authorization` and `Referer` are not forwarded, so login-protected or hotlink-protected media may work only in the built-in player.
 - Live downloads are captured in real time from the moment the task starts; previously aired content cannot be retrieved.
 - Online preview depends on network state, media encoding, and device decoding capability.
 
 ## Download & install
 
 - **Download APK**: [GitHub Releases](https://github.com/songsongshuo785-art/SurfSave/releases)
-- **Current source version**: `v0.8.29`
+- **Current source version**: `v0.8.30`
 - **Requirements**: Android 7.0+ (API 24)
 
 ### Which APK should I choose?
@@ -92,17 +108,17 @@ Each release is split into several APKs by CPU architecture. Pick the one that m
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/screenshot_1.png" width="170" alt="Browsing & detection">
-  <img src="screenshots/screenshot_2.png" width="170" alt="Media details">
-  <img src="screenshots/screenshot_3.png" width="170" alt="Download queue">
-  <img src="screenshots/screenshot_4.png" width="170" alt="Player">
+  <img src="screenshots/screenshot_1.png" width="170" alt="Browser home">
+  <img src="screenshots/screenshot_2.png" width="170" alt="Browsing and realtime media detection">
+  <img src="screenshots/screenshot_3.png" width="170" alt="Detected media details">
+  <img src="screenshots/screenshot_4.png" width="170" alt="Download queue">
   <img src="screenshots/screenshot_5.png" width="170" alt="Video library">
-  <img src="screenshots/screenshot_6.png" width="170" alt="Picture-in-Picture">
+  <img src="screenshots/screenshot_6.png" width="170" alt="Tab overview">
   <img src="screenshots/screenshot_7.png" width="170" alt="Settings">
   <img src="screenshots/screenshot_8.png" width="340" alt="Landscape playback">
 </p>
 
-> Screenshots may come from an earlier version; the current release is authoritative.
+> Screenshots show the current SurfSave interface; website content belongs to its respective providers.
 
 ## Build from source
 

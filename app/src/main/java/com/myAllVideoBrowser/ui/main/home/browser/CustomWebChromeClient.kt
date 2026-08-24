@@ -229,6 +229,7 @@ class CustomWebChromeClient(
         fullscreenView = view
         fullscreenCallback = callback
         previousOrientation = mainActivity.requestedOrientation
+        AppLogger.d("WEB_FULLSCREEN: entered previousOrientation=$previousOrientation")
         mainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         dataBinding.webviewContainer.visibility = View.GONE
         dataBinding.customView.rootView.findViewById<View>(R.id.bottom_bar)?.visibility = View.GONE
@@ -246,6 +247,7 @@ class CustomWebChromeClient(
         }
 
         val callback = fullscreenCallback
+        AppLogger.d("WEB_FULLSCREEN: exiting")
         dataBinding.customView.removeAllViews()
         fullscreenView = null
         fullscreenCallback = null
@@ -255,7 +257,9 @@ class CustomWebChromeClient(
         dataBinding.customView.rootView.findViewById<View>(R.id.bottom_bar)?.visibility = View.VISIBLE
         dataBinding.containerBrowser.visibility =
             View.VISIBLE
-        mainActivity.requestedOrientation = previousOrientation
+        if (!mainActivity.isFinishing && !mainActivity.isDestroyed) {
+            mainActivity.requestedOrientation = previousOrientation
+        }
         appUtil.showSystemUI(mainActivity.window, dataBinding.customView)
         callback?.onCustomViewHidden()
     }
@@ -267,5 +271,25 @@ class CustomWebChromeClient(
 
         onHideCustomView()
         return true
+    }
+
+    fun isCustomViewShown(): Boolean = fullscreenView != null
+
+    fun restoreCustomViewAfterResume() {
+        if (fullscreenView == null || mainActivity.isFinishing || mainActivity.isDestroyed) {
+            return
+        }
+        mainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        AppLogger.d("WEB_FULLSCREEN: restoring after foreground")
+        dataBinding.webviewContainer.visibility = View.GONE
+        dataBinding.customView.rootView.findViewById<View>(R.id.bottom_bar)?.visibility = View.GONE
+        dataBinding.containerBrowser.visibility = View.GONE
+        dataBinding.customView.visibility = View.VISIBLE
+        mainActivity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        appUtil.hideSystemUI(mainActivity.window, dataBinding.customView)
+    }
+
+    fun dispose() {
+        hideCustomViewIfShown()
     }
 }

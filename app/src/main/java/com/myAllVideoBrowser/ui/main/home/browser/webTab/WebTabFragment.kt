@@ -1,6 +1,7 @@
 package com.myAllVideoBrowser.ui.main.home.browser.webTab
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -15,6 +16,7 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.HapticFeedbackConstants
 import android.app.ActivityOptions
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -29,6 +31,7 @@ import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.activity.OnBackPressedCallback
 import androidx.annotation.OptIn
+import androidx.appcompat.widget.ListPopupWindow
 import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.app.ShareCompat
 import androidx.core.net.toUri
@@ -49,8 +52,10 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.languageid.LanguageIdentification
+import com.google.mlkit.nl.languageid.LanguageIdentifier
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
+import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
@@ -63,6 +68,8 @@ import com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener
 import com.myAllVideoBrowser.ui.main.home.browser.BaseWebTabFragment
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserBackPolicy
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserFragment
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserMediaClassifier
+import com.myAllVideoBrowser.ui.main.home.browser.ContentType
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserListener
 import com.myAllVideoBrowser.ui.main.home.browser.CurrentTabIndexProvider
 import com.myAllVideoBrowser.ui.main.home.browser.CustomWebChromeClient
@@ -84,21 +91,34 @@ import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.DetectedVideosT
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerActivity
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerFragment
+import com.myAllVideoBrowser.ui.main.player.ExternalPlaybackIntentFactory
+import com.myAllVideoBrowser.ui.main.player.PlaybackMediaKind
+import com.myAllVideoBrowser.ui.main.player.PlaybackMediaKindResolver
+import com.myAllVideoBrowser.ui.main.player.PlaybackTarget
+import com.myAllVideoBrowser.ui.main.player.PlaybackTargetMenuAdapter
+import com.myAllVideoBrowser.ui.main.player.PlaybackTargetMenuItem
+import com.myAllVideoBrowser.ui.main.player.PlaybackTargetResolver
+import com.myAllVideoBrowser.ui.main.player.PlaybackTargetStore
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.AppUtil
 import com.myAllVideoBrowser.util.BrowserThumbnailStore
 import com.myAllVideoBrowser.util.FileNameCleaner
+import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
 import com.myAllVideoBrowser.util.VideoFormatUi
 import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.LinkedHashMap
 import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
@@ -110,7 +130,18 @@ class WebTabFragment : BaseWebTabFragment() {
     companion object {
         fun newInstance() = WebTabFragment()
 
-        private const val MAX_PAGE_TRANSLATION_NODES = 120
+        private const val MAX_PAGE_TRANSLATION_NODES = 96
+        private const val MAX_PAGE_TRANSLATION_CHARACTERS = 16_000
+        private const val MAX_SINGLE_TRANSLATION_NODE_CHARACTERS = 16_000
+        private const val MAX_PAGE_TRANSLATION_CACHE_ENTRIES = 256
+        private const val MAX_PAGE_NODE_LANGUAGE_CACHE_ENTRIES = 512
+        private const val MAX_CACHED_TRANSLATION_TEXT_LENGTH = 4_000
+        private const val MAX_LANGUAGE_SAMPLE_LENGTH = 4_000
+        private const val MAX_NODE_LANGUAGE_SAMPLE_LENGTH = 1_200
+        private const val TRANSLATION_BRIDGE_NAME = "SuperXTranslationBridge"
+        private const val TRANSLATION_MUTATION_DEBOUNCE_MS = 200L
+        private const val TRANSLATION_START_DEBOUNCE_MS = 250L
+        private const val MIN_AUTO_TRANSLATION_INTERVAL_MS = 2_000L
         private const val MEDIA_PROBE_BRIDGE_NAME = "SuperXMediaProbe"
         private const val MAX_MEDIA_PROBE_PAYLOAD_LENGTH = 8_192
         private const val MEDIA_PROBE_THROTTLE_MS = 4_000L
@@ -152,11 +183,12 @@ class WebTabFragment : BaseWebTabFragment() {
                     }
                 }
 
-                function looksLikeMedia(url, contentType) {
+                function looksLikeMedia(url, contentType, manifestKind) {
                     var cleanUrl = String(url || '').split('#')[0].toLowerCase();
                     var type = String(contentType || '').toLowerCase();
 
-                    return cleanUrl.indexOf('blob:') === 0 ||
+                    return manifestKind === 'hls' || manifestKind === 'dash' ||
+                        cleanUrl.indexOf('blob:') === 0 ||
                         /\.(m3u8|mpd|mp4|m4v|webm|mov|flv|ts|m4s)(\?|${'$'})/.test(cleanUrl) ||
                         type.indexOf('video') >= 0 ||
                         type.indexOf('audio') >= 0 ||
@@ -169,8 +201,9 @@ class WebTabFragment : BaseWebTabFragment() {
                 function send(kind, rawUrl, extra) {
                     try {
                         var contentType = extra && extra.contentType ? extra.contentType : '';
+                        var manifestKind = extra && extra.manifestKind ? extra.manifestKind : '';
                         var url = absoluteUrl(rawUrl);
-                        if (!looksLikeMedia(url, contentType)) {
+                        if (!looksLikeMedia(url, contentType, manifestKind)) {
                             return;
                         }
 
@@ -192,8 +225,94 @@ class WebTabFragment : BaseWebTabFragment() {
                             pageUrl: location.href,
                             method: extra && extra.method ? extra.method : 'GET',
                             status: extra && extra.status ? extra.status : 0,
-                            contentType: contentType
+                            contentType: contentType,
+                            manifestKind: manifestKind
                         }));
+                    } catch (e) {
+                    }
+                }
+
+                function inspectSmallTextBody(kind, url, method, contentType, text) {
+                    try {
+                        if (!text || text.length > 1000000) return;
+                        var normalized = String(text).replace(/^\uFEFF/, '').trim();
+                        var lower = normalized.substring(0, 4096).toLowerCase();
+                        var manifestKind = '';
+                        if (lower.indexOf('#extm3u') === 0) manifestKind = 'hls';
+                        else if (/<(?:[a-z0-9_-]+:)?mpd(?:\s|>)/i.test(lower)) manifestKind = 'dash';
+                        if (manifestKind) {
+                            send(kind + '-manifest', url, {
+                                method: method,
+                                contentType: contentType,
+                                manifestKind: manifestKind
+                            });
+                        }
+
+                        var unescaped = normalized.replace(/\\\//g, '/');
+                        var matches = unescaped.match(/https?:\/\/[^\s"'<>\\]+/g) || [];
+                        var seen = {};
+                        for (var index = 0; index < matches.length && index < 24; index++) {
+                            var candidate = matches[index].replace(/[),\]}]+$/, '');
+                            if (!seen[candidate] && looksLikeMedia(candidate, '', '')) {
+                                seen[candidate] = true;
+                                send(kind + '-body-url', candidate, { method: 'GET' });
+                            }
+                        }
+                    } catch (e) {
+                    }
+                }
+
+                function mayInspectResponseBody(response, contentType) {
+                    try {
+                        var type = String(contentType || '').toLowerCase();
+                        var length = parseInt(response.headers && response.headers.get('content-length') || '0', 10);
+                        if (length > 1000000) return false;
+                        return type.indexOf('text/') === 0 || type.indexOf('json') >= 0 ||
+                            type.indexOf('xml') >= 0 || type.indexOf('octet-stream') >= 0 ||
+                            type.indexOf('mpegurl') >= 0 || type.indexOf('dash') >= 0;
+                    } catch (e) {
+                        return false;
+                    }
+                }
+
+                function inspectResponseBody(kind, url, method, contentType, response) {
+                    try {
+                        var clone = response.clone();
+                        if (clone.body && clone.body.getReader && window.TextDecoder) {
+                            var reader = clone.body.getReader();
+                            var decoder = new TextDecoder('utf-8');
+                            var text = '';
+                            var bytesRead = 0;
+                            function finish() {
+                                inspectSmallTextBody(kind, url, method, contentType, text);
+                            }
+                            function pump() {
+                                reader.read().then(function(result) {
+                                    if (result.done) {
+                                        text += decoder.decode();
+                                        finish();
+                                        return;
+                                    }
+                                    bytesRead += result.value ? result.value.byteLength : 0;
+                                    if (bytesRead > 1000000) {
+                                        try { reader.cancel(); } catch (e) {}
+                                        finish();
+                                        return;
+                                    }
+                                    text += decoder.decode(result.value, { stream: true });
+                                    pump();
+                                }).catch(function() {});
+                            }
+                            pump();
+                            return;
+                        }
+
+                        var length = parseInt(response.headers && response.headers.get('content-length') || '0', 10);
+                        if (length > 0 && length <= 1000000) {
+                            clone.text().then(function(text) {
+                                inspectSmallTextBody(kind, url, method, contentType, text);
+                            }).catch(function() {});
+                        }
                     } catch (e) {
                     }
                 }
@@ -207,11 +326,18 @@ class WebTabFragment : BaseWebTabFragment() {
 
                         return originalFetch.apply(this, arguments).then(function(response) {
                             try {
+                                var responseContentType = response.headers ? (response.headers.get('content-type') || '') : '';
                                 send('fetch-response', response.url || requestUrl, {
                                     method: method,
                                     status: response.status || 0,
-                                    contentType: response.headers ? (response.headers.get('content-type') || '') : ''
+                                    contentType: responseContentType
                                 });
+                                if (mayInspectResponseBody(response, responseContentType)) {
+                                    inspectResponseBody(
+                                        'fetch', response.url || requestUrl, method,
+                                        responseContentType, response
+                                    );
+                                }
                             } catch (e) {
                             }
                             return response;
@@ -245,18 +371,59 @@ class WebTabFragment : BaseWebTabFragment() {
                             }
                         }
 
+                        function inspectResponseText() {
+                            try {
+                                var text = '';
+                                if (xhr.responseType === 'json') {
+                                    text = JSON.stringify(xhr.response || {});
+                                } else if (!xhr.responseType || xhr.responseType === 'text') {
+                                    text = xhr.responseText || '';
+                                } else {
+                                    return;
+                                }
+                                inspectSmallTextBody(
+                                    'xhr', xhr.responseURL || xhr.__superxMediaProbeUrl,
+                                    xhr.__superxMediaProbeMethod,
+                                    xhr.getResponseHeader('content-type') || '',
+                                    text
+                                );
+                            } catch (e) {
+                            }
+                        }
+
                         try {
                             xhr.addEventListener('readystatechange', function() {
                                 if (xhr.readyState >= 2) {
                                     report();
                                 }
                             });
-                            xhr.addEventListener('load', report);
+                            xhr.addEventListener('load', function() {
+                                report();
+                                inspectResponseText();
+                            });
                         } catch (e) {
                         }
 
                         return originalSend.apply(this, arguments);
                     };
+                }
+
+                try {
+                    function reportPerformanceEntries(entries) {
+                        for (var index = 0; index < entries.length; index++) {
+                            send('performance-resource', entries[index].name, { method: 'GET' });
+                        }
+                    }
+                    if (window.PerformanceObserver) {
+                        var resourceObserver = new PerformanceObserver(function(list) {
+                            reportPerformanceEntries(list.getEntries());
+                        });
+                        resourceObserver.observe({ entryTypes: ['resource'] });
+                    }
+                    if (window.performance && performance.getEntriesByType) {
+                        reportPerformanceEntries(performance.getEntriesByType('resource'));
+                    }
+                } catch (e) {
                 }
 
                 if (window.URL && typeof window.URL.createObjectURL === 'function') {
@@ -548,9 +715,16 @@ class WebTabFragment : BaseWebTabFragment() {
             })()
         """.trimIndent()
 
-        private val IS_PAGE_TRANSLATED_SCRIPT = """
+        private val PAGE_TRANSLATED_NODE_COUNT_SCRIPT = """
             (function() {
-                return !!window.__superxPageTranslated;
+                var root = document.body || document.documentElement;
+                if (!root) return 0;
+                var count = 0;
+                var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                while (walker.nextNode()) {
+                    if (walker.currentNode.__superxTranslateTarget) count++;
+                }
+                return count;
             })()
         """.trimIndent()
 
@@ -569,19 +743,24 @@ class WebTabFragment : BaseWebTabFragment() {
                 while (walker.nextNode()) {
                     var node = walker.currentNode;
                     var id = node.__superxTranslateId;
-                    if (id && Object.prototype.hasOwnProperty.call(window.__superxTranslateOriginals, id)) {
+                    if (id &&
+                        Object.prototype.hasOwnProperty.call(window.__superxTranslateOriginals, id) &&
+                        (!node.__superxTranslatedValue || node.nodeValue === node.__superxTranslatedValue)
+                    ) {
                         node.nodeValue = window.__superxTranslateOriginals[id];
                         restored++;
                     }
+                    node.__superxTranslateId = null;
+                    node.__superxTranslateTarget = null;
+                    node.__superxTranslatedValue = null;
                 }
 
-                window.__superxPageTranslated = false;
                 return restored;
             })()
         """.trimIndent()
 
         private val EXTRACT_TRANSLATABLE_TEXT_SCRIPT = """
-            (function(maxNodes) {
+            (function(targetLanguage, maxNodes) {
                 var root = document.body || document.documentElement;
                 if (!root) {
                     return '[]';
@@ -618,8 +797,34 @@ class WebTabFragment : BaseWebTabFragment() {
                     return (value || '').replace(/\s+/g, ' ').trim();
                 }
 
+                function isInViewport(element) {
+                    if (!element || !element.getBoundingClientRect) return false;
+                    var rect = element.getBoundingClientRect();
+                    var width = window.innerWidth || document.documentElement.clientWidth || 0;
+                    var height = window.innerHeight || document.documentElement.clientHeight || 0;
+                    return rect.bottom >= 0 && rect.right >= 0 && rect.top <= height && rect.left <= width;
+                }
+
+                function isClearlyTargetText(text) {
+                    if (!targetLanguage || targetLanguage.indexOf('zh') !== 0) return false;
+                    var han = 0;
+                    var latin = 0;
+                    for (var index = 0; index < text.length; index++) {
+                        var code = text.charCodeAt(index);
+                        if ((code >= 0x3400 && code <= 0x9fff) ||
+                            (code >= 0xf900 && code <= 0xfaff)) {
+                            han++;
+                        } else if ((code >= 0x0041 && code <= 0x005a) ||
+                            (code >= 0x0061 && code <= 0x007a) ||
+                            (code >= 0x00c0 && code <= 0x024f)) {
+                            latin++;
+                        }
+                    }
+                    return han >= 2 && han >= latin * 2;
+                }
+
                 function shouldSkipText(text) {
-                    if (!text || text.length < 2 || text.length > 500) {
+                    if (!text || text.length < 2) {
                         return true;
                     }
                     if (/^https?:\/\//i.test(text)) {
@@ -631,43 +836,119 @@ class WebTabFragment : BaseWebTabFragment() {
                     return false;
                 }
 
-                var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-                    acceptNode: function(node) {
-                        var parent = node.parentElement;
-                        if (!parent || skipTags[parent.tagName] || parent.closest('[translate="no"], .notranslate')) {
-                            return NodeFilter.FILTER_REJECT;
-                        }
-                        if (!isVisible(parent)) {
-                            return NodeFilter.FILTER_REJECT;
-                        }
-                        var text = cleanText(node.nodeValue);
-                        if (shouldSkipText(text)) {
-                            return NodeFilter.FILTER_REJECT;
-                        }
-                        return NodeFilter.FILTER_ACCEPT;
-                    }
-                });
+                var scanLimit = maxNodes * 2 + 1;
 
-                while (walker.nextNode() && nodes.length < maxNodes) {
-                    var node = walker.currentNode;
-                    var raw = node.nodeValue || '';
-                    var text = cleanText(raw);
-                    var id = node.__superxTranslateId;
-                    if (!id) {
-                        id = 'sx_' + (window.__superxTranslateCounter++);
-                        node.__superxTranslateId = id;
-                        window.__superxTranslateOriginals[id] = raw;
-                        window.__superxTranslateMeta[id] = {
-                            prefix: (raw.match(/^\s*/) || [''])[0],
-                            suffix: (raw.match(/\s*$/) || [''])[0]
-                        };
-                    }
+                function collectTextNodes(scope) {
+                    if (!scope || nodes.length >= scanLimit) return;
+                    var walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
+                        acceptNode: function(node) {
+                            var parent = node.parentElement;
+                            if (!parent || skipTags[parent.tagName] || parent.closest('[translate="no"], .notranslate')) {
+                                return NodeFilter.FILTER_REJECT;
+                            }
+                            if (!isVisible(parent)) {
+                                return NodeFilter.FILTER_REJECT;
+                            }
+                            if (node.__superxTranslateTarget === targetLanguage &&
+                                node.__superxTranslatedValue === node.nodeValue
+                            ) {
+                                return NodeFilter.FILTER_REJECT;
+                            }
+                            if (node.__superxTranslationIgnoredTarget === targetLanguage &&
+                                node.__superxTranslationIgnoredValue === node.nodeValue
+                            ) {
+                                return NodeFilter.FILTER_REJECT;
+                            }
+                            var text = cleanText(node.nodeValue);
+                            if (shouldSkipText(text) || isClearlyTargetText(text)) {
+                                return NodeFilter.FILTER_REJECT;
+                            }
+                            return NodeFilter.FILTER_ACCEPT;
+                        }
+                    });
 
-                    nodes.push({ id: id, text: text });
+                    while (walker.nextNode() && nodes.length < scanLimit) {
+                        var node = walker.currentNode;
+                        var raw = node.nodeValue || '';
+                        var text = cleanText(raw);
+                        if (node.__superxTranslateTarget && node.__superxTranslatedValue !== raw) {
+                            node.__superxTranslateId = null;
+                            node.__superxTranslateTarget = null;
+                            node.__superxTranslatedValue = null;
+                        }
+                        if (node.__superxTranslationIgnoredTarget &&
+                            node.__superxTranslationIgnoredValue !== raw
+                        ) {
+                            node.__superxTranslationIgnoredTarget = null;
+                            node.__superxTranslationIgnoredValue = null;
+                        }
+                        var id = node.__superxTranslateId;
+                        if (!id) {
+                            id = 'sx_' + (window.__superxTranslateCounter++);
+                            node.__superxTranslateId = id;
+                            window.__superxTranslateOriginals[id] = raw;
+                            window.__superxTranslateMeta[id] = {
+                                prefix: (raw.match(/^\s*/) || [''])[0],
+                                suffix: (raw.match(/\s*$/) || [''])[0]
+                            };
+                        }
+
+                        nodes.push({
+                            id: id,
+                            text: text,
+                            visible: isInViewport(node.parentElement),
+                            order: nodes.length
+                        });
+                    }
                 }
 
-                return JSON.stringify(nodes);
-            })($MAX_PAGE_TRANSLATION_NODES)
+                collectTextNodes(root);
+                nodes.sort(function(first, second) {
+                    if (first.visible !== second.visible) return first.visible ? -1 : 1;
+                    return first.order - second.order;
+                });
+
+                return JSON.stringify({
+                    nodes: nodes.slice(0, maxNodes),
+                    hasMore: nodes.length > maxNodes
+                });
+            })(TARGET_LANGUAGE, $MAX_PAGE_TRANSLATION_NODES)
+        """.trimIndent()
+
+        private val INSTALL_TRANSLATION_OBSERVER_SCRIPT = """
+            (function() {
+                if (window.__surfSaveTranslationObserverInstalled) return true;
+                var root = document.documentElement || document;
+                if (!root || !window.MutationObserver || !window.$TRANSLATION_BRIDGE_NAME) return false;
+                var timer = null;
+                var observer = new MutationObserver(function(mutations) {
+                    var shouldNotify = false;
+                    for (var index = 0; index < mutations.length; index++) {
+                        var mutation = mutations[index];
+                        if (mutation.type === 'characterData') {
+                            var textNode = mutation.target;
+                            var isOwnTranslation = textNode.__superxTranslateTarget &&
+                                textNode.__superxTranslatedValue === textNode.nodeValue;
+                            if (!isOwnTranslation) {
+                                shouldNotify = true;
+                                break;
+                            }
+                        } else if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                            shouldNotify = true;
+                            break;
+                        }
+                    }
+                    if (!shouldNotify) return;
+                    if (timer) clearTimeout(timer);
+                    timer = setTimeout(function() {
+                        try { window.$TRANSLATION_BRIDGE_NAME.onContentChanged(); } catch (e) {}
+                    }, $TRANSLATION_MUTATION_DEBOUNCE_MS);
+                });
+                observer.observe(root, { childList: true, subtree: true, characterData: true });
+                window.__surfSaveTranslationObserverInstalled = true;
+                window.__surfSaveTranslationObserver = observer;
+                return true;
+            })()
         """.trimIndent()
     }
 
@@ -708,14 +989,44 @@ class WebTabFragment : BaseWebTabFragment() {
     private var canGoCounter = 0
 
     private var translateJob: Job? = null
+    private var translationDebounceJob: Job? = null
+    private var translationDocumentGeneration = 0L
+    private var translationFailureNotifiedGeneration = -1L
+    private var translationRerunRequested = false
+    private var lastAutoTranslationStartedAt = 0L
+    private var pageDominantLanguageResolved = false
+    private var pageDominantForeignLanguage: String? = null
+    private var pageDeclaredLanguage: String? = null
+    private var pageTranslationStateUrl: String? = null
+    private var pageLanguageIdentifier: LanguageIdentifier? = null
+    private var reusableTranslator: Translator? = null
+    private var reusableTranslatorSourceLanguage: String? = null
+    private var reusableTranslatorTargetLanguage: String? = null
+    private var reusableTranslatorModelReady = false
+    private val pageNodeLanguageCache = object :
+        LinkedHashMap<String, NodeLanguageCacheEntry>(32, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, NodeLanguageCacheEntry>?
+        ): Boolean = size > MAX_PAGE_NODE_LANGUAGE_CACHE_ENTRIES
+    }
+    private val pageTranslationCache = object :
+        LinkedHashMap<TranslationCacheKey, String>(32, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<TranslationCacheKey, String>?
+        ): Boolean = size > MAX_PAGE_TRANSLATION_CACHE_ENTRIES
+    }
     private var thumbnailJob: Job? = null
     private var playerRecoveryJob: Job? = null
     private var thumbnailTransitionInProgress = false
     private var tabCloseCaptureInProgress = false
     private var mediaProbeScriptHandler: ScriptHandler? = null
     private val mediaProbeBridge = MediaProbeBridge()
+    private val translationBridge = TranslationBridge()
     private val recentMediaProbeEvents = mutableMapOf<String, Long>()
     private var previousFabState: DownloadButtonState? = null
+    private val playbackTargetStore by lazy(LazyThreadSafetyMode.NONE) {
+        PlaybackTargetStore(requireContext())
+    }
     private val downloadButtonStateCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
             val newState = videoDetectionTabViewModel.downloadButtonState.get()
@@ -730,8 +1041,34 @@ class WebTabFragment : BaseWebTabFragment() {
 
     private data class PageTextNode(
         val id: String,
+        val text: String,
+        val isInViewport: Boolean
+    )
+
+    private data class PageTextExtraction(
+        val nodes: List<PageTextNode>,
+        val hasMore: Boolean
+    )
+
+    private data class TranslationNodeBatch(
+        val sourceLanguage: String?,
+        val nodes: List<PageTextNode>,
+        val ignoredNodeIds: List<String>,
+        val hasDeferredNodes: Boolean
+    )
+
+    private data class TranslationCacheKey(
+        val sourceLanguage: String,
+        val targetLanguage: String,
         val text: String
     )
+
+    private data class NodeLanguageCacheEntry(
+        val text: String,
+        val sourceLanguage: String?
+    )
+
+    private class TranslationModelDownloadException(cause: Throwable) : Exception(cause)
 
     private val backPressedCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
@@ -985,7 +1322,6 @@ class WebTabFragment : BaseWebTabFragment() {
     }
 
     override fun translateCurrentPage() {
-        mainActivity.settingsViewModel.setIsAutoTranslatePages(true)
         val webView = webTab.getWebView()
         val currentUrl = webTab.getWebView()?.url
 
@@ -1007,8 +1343,10 @@ class WebTabFragment : BaseWebTabFragment() {
             return
         }
 
+        translationDebounceJob?.cancel()
+        val generation = translationDocumentGeneration
         translateJob = lifecycleScope.launch(Dispatchers.Main) {
-            translatePageInPlace(webView)
+            togglePageTranslation(webView, generation)
         }
     }
 
@@ -1130,10 +1468,16 @@ class WebTabFragment : BaseWebTabFragment() {
     }
 
     override fun onDestroyView() {
+        cancelTranslationWork()
         videoDetectionTabViewModel.downloadButtonState.removeOnPropertyChangedCallback(
             downloadButtonStateCallback
         )
+        mainActivity.progressViewModel.progressInfos.removeOnPropertyChangedCallback(
+            progressRingCallback
+        )
         dataBinding.fab.animate().cancel()
+        dataBinding.fabProgressRing?.animate()?.cancel()
+        customWebChromeClient?.dispose()
         webTab.saveWebViewState()
         webTab.getWebView()?.let { detachWebView(it) }
         customWebChromeClient = null
@@ -1142,18 +1486,31 @@ class WebTabFragment : BaseWebTabFragment() {
 
     override fun onPause() {
         AppLogger.d("onPause Webview::::::::: ${webTab.getUrl()}")
-        captureVisibleTabThumbnail()
+        cancelTranslationWork()
+        if (customWebChromeClient?.isCustomViewShown() != true) {
+            captureVisibleTabThumbnail()
+        }
         webTab.saveWebViewState()
-        customWebChromeClient?.hideCustomViewIfShown()
         onWebViewPause()
         backPressedCallback.isEnabled = false
         super.onPause()
+    }
+
+    private fun cancelTranslationWork() {
+        translationDebounceJob?.cancel()
+        translateJob?.cancel()
+        translationRerunRequested = false
     }
 
     override fun onResume() {
         AppLogger.d("onResume Webview::::::::: ${webTab.getUrl()}")
         super.onResume()
         onWebViewResume()
+        customWebChromeClient?.restoreCustomViewAfterResume()
+        webTab.getWebView()?.let { webView ->
+            webView.evaluateJavascript(INSTALL_TRANSLATION_OBSERVER_SCRIPT, null)
+            maybeAutoTranslatePage(webView)
+        }
         updateBackPressedCallbackState()
         updateNavigationButtons()
     }
@@ -1162,9 +1519,12 @@ class WebTabFragment : BaseWebTabFragment() {
         AppLogger.d("onDestroy Webview::::::::: ${webTab.getUrl()}")
         super.onDestroy()
         translateJob?.cancel()
+        translationDebounceJob?.cancel()
+        closeTranslationClients()
         thumbnailJob?.cancel()
         playerRecoveryJob?.cancel()
         removeMediaProbeScriptHandler()
+        webTab.getWebView()?.removeJavascriptInterface(TRANSLATION_BRIDGE_NAME)
         tabViewModel.stop()
         videoDetectionTabViewModel.stop()
         mainActivity.progressViewModel.progressInfos.removeOnPropertyChangedCallback(
@@ -1244,27 +1604,87 @@ class WebTabFragment : BaseWebTabFragment() {
     private fun onVideoPreviewPropagate(
         videoInfo: VideoInfo, format: String, isForce: Boolean, sharedView: View? = null
     ) {
-        AppLogger.d(
-            "onPreviewVideo: ${videoInfo.formats}  $format"
-        )
+        val request = createBrowserPlaybackRequest(videoInfo, format, isForce) ?: return
+        val defaultComponent = playbackTargetStore.defaultComponent()
+        if (defaultComponent == null) {
+            launchBuiltInPlayer(request, sharedView)
+            return
+        }
+        val target = PlaybackTargetResolver.resolve(requireContext(), defaultComponent, true)
+        if (target == null) {
+            playbackTargetStore.remove(defaultComponent)
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.player_target_unavailable, defaultComponent.packageName),
+                Toast.LENGTH_SHORT
+            ).show()
+            launchBuiltInPlayer(request, sharedView)
+            return
+        }
+        launchExternalPlayer(request, target, sharedView)
+    }
+
+    private fun createBrowserPlaybackRequest(
+        videoInfo: VideoInfo,
+        format: String,
+        isForce: Boolean
+    ): BrowserPlaybackRequest? {
         val selectedFormat = VideoFormatUi.findFormat(videoInfo, format)
+        val mediaUrl = selectedFormat?.url?.takeIf { it.isNotBlank() }
+            ?: selectedFormat?.manifestUrl?.takeIf { it.isNotBlank() }
+        if (selectedFormat == null || mediaUrl == null) {
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.player_playback_error),
+                Toast.LENGTH_SHORT
+            ).show()
+            return null
+        }
+        val freshCookie = CookieManager.getInstance().getCookie(mediaUrl)
+        val playbackHeaders = if (isForce) {
+            emptyMap()
+        } else {
+            MediaRequestHeaderPolicy.forPlayback(
+                selectedFormat.httpHeaders.orEmpty(),
+                freshCookie
+            )
+        }
+        return BrowserPlaybackRequest(
+            title = videoInfo.title,
+            mediaUrl = mediaUrl,
+            playbackHeadersJson = JSONObject(playbackHeaders).toString(),
+            mediaKind = PlaybackMediaKindResolver.resolve(selectedFormat),
+            formatId = selectedFormat.formatId.orEmpty(),
+            height = selectedFormat.height,
+            pageUrl = videoInfo.originalUrl,
+            detectedBySuperX = videoInfo.isDetectedBySuperX,
+            extractedAt = System.currentTimeMillis()
+        )
+    }
 
-        // 开播前暂停网页内所有 <video>/<audio>，避免和 SurfSave 播放器双声道；try/catch 防页面脚本异常
+    private fun launchBuiltInPlayer(
+        request: BrowserPlaybackRequest,
+        sharedView: View?
+    ) {
+        // 开播前暂停网页内所有 <video>/<audio>，避免和目标播放器双声道。
         WebViewMediaController.pause(webTab.getWebView())
-
         val intent = Intent(requireContext(), VideoPlayerActivity::class.java).apply {
-            putExtra(VideoPlayerFragment.VIDEO_NAME, videoInfo.title)
-            if (selectedFormat != null) {
-                val headers = selectedFormat.httpHeaders?.let {
-                    JSONObject(
-                        selectedFormat.httpHeaders ?: emptyMap<String, String>()
-                    ).toString()
-                } ?: "{}"
-
-                putExtra(VideoPlayerFragment.VIDEO_URL, selectedFormat.url)
-                val headersFinal = if (isForce) "{}" else headers
-                putExtra(VideoPlayerFragment.VIDEO_HEADERS, headersFinal)
-            }
+            putExtra(VideoPlayerFragment.VIDEO_NAME, request.title)
+            putExtra(VideoPlayerFragment.VIDEO_SOURCE, VideoPlayerFragment.SOURCE_BROWSER)
+            putExtra(VideoPlayerFragment.VIDEO_URL, request.mediaUrl)
+            putExtra(VideoPlayerFragment.VIDEO_HEADERS, request.playbackHeadersJson)
+            putExtra(
+                VideoPlayerFragment.VIDEO_MEDIA_KIND,
+                request.mediaKind.name
+            )
+            putExtra(VideoPlayerFragment.VIDEO_FORMAT_ID, request.formatId)
+            putExtra(VideoPlayerFragment.VIDEO_FORMAT_HEIGHT, request.height)
+            putExtra(VideoPlayerFragment.VIDEO_PAGE_URL, request.pageUrl)
+            putExtra(
+                VideoPlayerFragment.VIDEO_DETECTED_BY_SUPER_X,
+                request.detectedBySuperX
+            )
+            putExtra(VideoPlayerFragment.VIDEO_EXTRACTED_AT, request.extractedAt)
         }
         // 共享元素过渡：检测视频 sheet 缩略图 → 播放器变形（与 VideoFragment 列表共用 "surf_video_thumb"）
         val options = sharedView?.let { view ->
@@ -1275,6 +1695,167 @@ class WebTabFragment : BaseWebTabFragment() {
         }
         startActivity(intent, options)
     }
+
+    private fun showPlaybackTargetMenu(
+        request: BrowserPlaybackRequest,
+        sharedView: View,
+        anchorView: View
+    ) {
+        val targets = PlaybackTargetResolver.availableTargets(
+            requireContext(),
+            playbackTargetStore,
+            getString(R.string.player_target_built_in)
+        )
+        val menuItems = targets.map<PlaybackTarget, PlaybackTargetMenuItem> {
+            PlaybackTargetMenuItem.Target(it)
+        } + PlaybackTargetMenuItem.Add
+        val popup = ListPopupWindow(requireContext()).apply {
+            this.anchorView = anchorView
+            setAdapter(PlaybackTargetMenuAdapter(requireContext(), menuItems))
+            width = minOf(
+                resources.getDimensionPixelSize(R.dimen.playback_target_menu_width),
+                resources.displayMetrics.widthPixels -
+                    2 * resources.getDimensionPixelSize(R.dimen.padding_normal)
+            )
+            height = ViewGroup.LayoutParams.WRAP_CONTENT
+            isModal = true
+            setDropDownGravity(Gravity.END)
+            setOnItemClickListener { _, _, position, _ ->
+                dismiss()
+                when (val item = menuItems[position]) {
+                    is PlaybackTargetMenuItem.Target -> {
+                        if (item.target.isBuiltIn) {
+                            playbackTargetStore.setBuiltInAsDefault()
+                            launchBuiltInPlayer(request, sharedView)
+                        } else {
+                            playbackTargetStore.rememberAndSetDefault(
+                                requireNotNull(item.target.componentName)
+                            )
+                            launchExternalPlayer(request, item.target, sharedView)
+                        }
+                    }
+
+                    PlaybackTargetMenuItem.Add -> showSystemPlayerChooser(request)
+                }
+            }
+        }
+        popup.show()
+        popup.listView?.setOnItemLongClickListener { _, _, position, _ ->
+            val target = (menuItems.getOrNull(position) as? PlaybackTargetMenuItem.Target)?.target
+            if (target?.componentName != null) {
+                popup.dismiss()
+                showRemovePlaybackTargetDialog(target)
+            }
+            true
+        }
+    }
+
+    private fun showSystemPlayerChooser(request: BrowserPlaybackRequest) {
+        val targetIntent = ExternalPlaybackIntentFactory.createPlaybackIntent(
+            request.mediaUrl,
+            request.title
+        )
+        if (targetIntent.resolveActivity(requireContext().packageManager) == null) {
+            Toast.makeText(
+                requireContext(),
+                R.string.player_target_no_compatible_app,
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        val chooserIntent = ExternalPlaybackIntentFactory.createChooserIntent(
+            requireContext(),
+            targetIntent,
+            getString(R.string.player_target_choose)
+        )
+        WebViewMediaController.pause(webTab.getWebView())
+        try {
+            startActivity(chooserIntent)
+        } catch (error: ActivityNotFoundException) {
+            AppLogger.w("No activity could handle the system player chooser", error)
+            Toast.makeText(
+                requireContext(),
+                R.string.player_target_no_compatible_app,
+                Toast.LENGTH_SHORT
+            ).show()
+        } catch (error: SecurityException) {
+            AppLogger.w("System player chooser was blocked", error)
+            Toast.makeText(
+                requireContext(),
+                R.string.player_target_no_compatible_app,
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private fun launchExternalPlayer(
+        request: BrowserPlaybackRequest,
+        target: PlaybackTarget,
+        sharedView: View?
+    ) {
+        val componentName = requireNotNull(target.componentName)
+        val intent = ExternalPlaybackIntentFactory.createPlaybackIntent(
+            request.mediaUrl,
+            request.title,
+            componentName
+        )
+        WebViewMediaController.pause(webTab.getWebView())
+        try {
+            startActivity(intent)
+        } catch (error: ActivityNotFoundException) {
+            fallbackFromUnavailableExternalPlayer(request, target, sharedView, error)
+        } catch (error: SecurityException) {
+            fallbackFromUnavailableExternalPlayer(request, target, sharedView, error)
+        }
+    }
+
+    private fun fallbackFromUnavailableExternalPlayer(
+        request: BrowserPlaybackRequest,
+        target: PlaybackTarget,
+        sharedView: View?,
+        error: Throwable
+    ) {
+        val componentName = requireNotNull(target.componentName)
+        AppLogger.w(
+            "Failed to open external playback target: ${componentName.flattenToShortString()}",
+            error
+        )
+        playbackTargetStore.remove(componentName)
+        Toast.makeText(
+            requireContext(),
+            getString(R.string.player_target_unavailable, target.label),
+            Toast.LENGTH_SHORT
+        ).show()
+        launchBuiltInPlayer(request, sharedView)
+    }
+
+    private fun showRemovePlaybackTargetDialog(target: PlaybackTarget) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.player_target_remove_title)
+            .setMessage(getString(R.string.player_target_remove_message, target.label))
+            .setNegativeButton(R.string.all_text_cancel, null)
+            .setPositiveButton(R.string.player_target_remove_action) { _, _ ->
+                target.componentName?.let(playbackTargetStore::remove)
+                Toast.makeText(
+                    requireContext(),
+                    getString(R.string.player_target_removed, target.label),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .show()
+    }
+
+    private data class BrowserPlaybackRequest(
+        val title: String,
+        val mediaUrl: String,
+        val playbackHeadersJson: String,
+        val mediaKind: PlaybackMediaKind,
+        val formatId: String,
+        val height: Int,
+        val pageUrl: String,
+        val detectedBySuperX: Boolean,
+        val extractedAt: Long
+    )
 
     private fun onVideoDownloadPropagate(
         videoInfo: VideoInfo, videoTitle: String, format: String
@@ -1334,7 +1915,10 @@ class WebTabFragment : BaseWebTabFragment() {
             onRenderProcessLost = { lostWebView, didCrash ->
                 handleRenderProcessLost(lostWebView, didCrash)
             },
-            onPageContextStarted = tabManagerProvider::onTabNavigationStarted,
+            onPageContextStarted = { tabId, pageUrl ->
+                onTranslationNavigationStarted()
+                tabManagerProvider.onTabNavigationStarted(tabId, pageUrl)
+            },
         ) { webView ->
             injectPageScripts(webView)
         }
@@ -1353,6 +1937,7 @@ class WebTabFragment : BaseWebTabFragment() {
         currentWebView?.webChromeClient = chromeClient
         currentWebView?.webViewClient = webViewClient
         currentWebView?.addJavascriptInterface(mediaProbeBridge, MEDIA_PROBE_BRIDGE_NAME)
+        currentWebView?.addJavascriptInterface(translationBridge, TRANSLATION_BRIDGE_NAME)
         installDocumentStartMediaProbe(currentWebView)
         updateNavigationButtons()
 
@@ -1681,8 +2266,50 @@ class WebTabFragment : BaseWebTabFragment() {
     private fun injectPageScripts(webView: WebView?) {
         injectMediaProbe(webView)
         recoverKvsPlayerIfNeededSoon(webView)
+        webView?.evaluateJavascript(INSTALL_TRANSLATION_OBSERVER_SCRIPT, null)
         maybeAutoTranslatePage(webView)
         captureTabThumbnailSoon(webView)
+    }
+
+    private fun onTranslationNavigationStarted() {
+        translationDocumentGeneration++
+        translationFailureNotifiedGeneration = -1L
+        translationDebounceJob?.cancel()
+        translateJob?.cancel()
+        translationDebounceJob = null
+        translateJob = null
+        resetPageTranslationState()
+    }
+
+    private fun resetPageTranslationState() {
+        translationRerunRequested = false
+        lastAutoTranslationStartedAt = 0L
+        pageTranslationStateUrl = null
+        clearPageTranslationCaches()
+    }
+
+    private fun ensurePageTranslationStateForUrl(url: String) {
+        if (pageTranslationStateUrl == url) return
+        pageTranslationStateUrl = url
+        clearPageTranslationCaches()
+    }
+
+    private fun clearPageTranslationCaches() {
+        pageDominantLanguageResolved = false
+        pageDominantForeignLanguage = null
+        pageDeclaredLanguage = null
+        pageNodeLanguageCache.clear()
+        pageTranslationCache.clear()
+    }
+
+    private fun closeTranslationClients() {
+        pageLanguageIdentifier?.close()
+        pageLanguageIdentifier = null
+        reusableTranslator?.close()
+        reusableTranslator = null
+        reusableTranslatorSourceLanguage = null
+        reusableTranslatorTargetLanguage = null
+        reusableTranslatorModelReady = false
     }
 
     private fun recoverKvsPlayerIfNeededSoon(webView: WebView?) {
@@ -1775,11 +2402,48 @@ class WebTabFragment : BaseWebTabFragment() {
             return
         }
         val url = webView.url ?: return
-        if (!url.startsWith("http") || translateJob?.isActive == true) {
+        if (!url.startsWith("http")) {
             return
         }
-        translateJob = lifecycleScope.launch(Dispatchers.Main) {
-            translatePageInPlace(webView, silent = true)
+
+        translationRerunRequested = true
+        if (translationDebounceJob?.isActive == true) {
+            return
+        }
+
+        val generation = translationDocumentGeneration
+        translationDebounceJob = lifecycleScope.launch(Dispatchers.Main) {
+            do {
+                val now = SystemClock.elapsedRealtime()
+                val intervalDelay = (
+                    lastAutoTranslationStartedAt + MIN_AUTO_TRANSLATION_INTERVAL_MS - now
+                ).coerceAtLeast(0L)
+                delay(maxOf(TRANSLATION_START_DEBOUNCE_MS, intervalDelay))
+                translateJob?.join()
+                if (!isTranslationContextCurrent(webView, generation) ||
+                    !mainActivity.settingsViewModel.isAutoTranslatePages.get()
+                ) {
+                    return@launch
+                }
+
+                translationRerunRequested = false
+                lastAutoTranslationStartedAt = SystemClock.elapsedRealtime()
+                val deferred = lifecycleScope.async(Dispatchers.Main) {
+                    ensurePageTranslated(webView, generation, silent = true)
+                }
+                translateJob = deferred
+                val hasMore = deferred.await()
+                if (translateJob === deferred) {
+                    translateJob = null
+                }
+                if (hasMore) {
+                    translationRerunRequested = true
+                }
+            } while (
+                translationRerunRequested &&
+                isTranslationContextCurrent(webView, generation) &&
+                mainActivity.settingsViewModel.isAutoTranslatePages.get()
+            )
         }
     }
 
@@ -1792,6 +2456,15 @@ class WebTabFragment : BaseWebTabFragment() {
 
             lifecycleScope.launch(Dispatchers.Main) {
                 handleMediaProbePayload(payload)
+            }
+        }
+    }
+
+    private inner class TranslationBridge {
+        @JavascriptInterface
+        fun onContentChanged() {
+            lifecycleScope.launch(Dispatchers.Main) {
+                maybeAutoTranslatePage(webTab.getWebView())
             }
         }
     }
@@ -1809,12 +2482,17 @@ class WebTabFragment : BaseWebTabFragment() {
 
         val kind = event.optString("kind", "")
         val contentType = event.optString("contentType", "")
+        val mediaType = BrowserMediaClassifier.classify(
+            url = url,
+            contentType = contentType,
+            manifestHint = event.optString("manifestKind", "")
+        )
         val method = event.optString("method", "GET").uppercase(Locale.US)
         if (method != "GET" && method != "HEAD") {
             return
         }
 
-        if (!isMediaProbeCandidate(url, contentType)) {
+        if (mediaType == ContentType.OTHER) {
             return
         }
 
@@ -1835,8 +2513,8 @@ class WebTabFragment : BaseWebTabFragment() {
             ?: BrowserFragment.MOBILE_USER_AGENT
         val request = buildMediaProbeRequest(url, pageUrl, userAgent) ?: return
 
-        val isM3u8 = isProbeHls(url, contentType)
-        val isMpd = isProbeDash(url, contentType)
+        val isM3u8 = mediaType == ContentType.M3U8
+        val isMpd = mediaType == ContentType.MPD
         when {
             (isM3u8 || isMpd) && mainActivity.settingsViewModel.isCheckIfEveryRequestOnM3u8.get() -> {
                 AppLogger.d("MEDIA_PROBE: stream $kind $url")
@@ -1848,12 +2526,13 @@ class WebTabFragment : BaseWebTabFragment() {
                 )
             }
 
-            isProbeRegularMedia(url, contentType) && isProbeRegularDetectionEnabled(contentType) -> {
+            (mediaType == ContentType.VIDEO || mediaType == ContentType.AUDIO) &&
+                isProbeRegularDetectionEnabled(mediaType) -> {
                 AppLogger.d("MEDIA_PROBE: direct $kind $url")
                 videoDetectionTabViewModel.checkRegularVideoOrAudio(
                     request,
                     mainActivity.settingsViewModel.isCheckOnAudio.get(),
-                    isProbeVideo(url, contentType)
+                    mediaType == ContentType.VIDEO
                 )
             }
         }
@@ -1879,46 +2558,8 @@ class WebTabFragment : BaseWebTabFragment() {
         }.getOrNull()
     }
 
-    private fun isMediaProbeCandidate(url: String, contentType: String): Boolean {
-        return isProbeHls(url, contentType) ||
-            isProbeDash(url, contentType) ||
-            isProbeRegularMedia(url, contentType)
-    }
-
-    private fun isProbeHls(url: String, contentType: String): Boolean {
-        val normalized = url.lowercase(Locale.US).substringBefore("#")
-        val type = contentType.lowercase(Locale.US)
-        return normalized.contains(".m3u8") ||
-            type.contains("mpegurl") ||
-            type.contains("vnd.apple.mpegurl")
-    }
-
-    private fun isProbeDash(url: String, contentType: String): Boolean {
-        val normalized = url.lowercase(Locale.US).substringBefore("#")
-        val type = contentType.lowercase(Locale.US)
-        return normalized.contains(".mpd") ||
-            type.contains("dash+xml")
-    }
-
-    private fun isProbeRegularMedia(url: String, contentType: String): Boolean {
-        val normalized = url.lowercase(Locale.US).substringBefore("#")
-        val type = contentType.lowercase(Locale.US)
-        if (normalized.contains(".m3u8") || normalized.contains(".mpd")) {
-            return false
-        }
-
-        if (Regex("""\.(m4s|ts)(\?|$)""").containsMatchIn(normalized)) {
-            return false
-        }
-
-        return Regex("""\.(mp4|m4v|webm|mov|flv)(\?|$)""").containsMatchIn(normalized) ||
-            type.contains("video") ||
-            type.contains("audio") ||
-            type.contains("mp4")
-    }
-
-    private fun isProbeRegularDetectionEnabled(contentType: String): Boolean {
-        val isAudio = contentType.contains("audio", ignoreCase = true)
+    private fun isProbeRegularDetectionEnabled(mediaType: ContentType): Boolean {
+        val isAudio = mediaType == ContentType.AUDIO
         val isVideoEnabled = mainActivity.settingsViewModel.getIsFindVideoByUrl().get() ||
             mainActivity.settingsViewModel.getIsCheckEveryRequestOnMp4Video().get()
         val isAudioEnabled = mainActivity.settingsViewModel.isCheckOnAudio.get()
@@ -1928,18 +2569,6 @@ class WebTabFragment : BaseWebTabFragment() {
         } else {
             isVideoEnabled
         }
-    }
-
-    private fun isProbeVideo(url: String, contentType: String): Boolean {
-        val normalized = url.lowercase(Locale.US).substringBefore("#")
-        val type = contentType.lowercase(Locale.US)
-        if (type.contains("audio")) {
-            return false
-        }
-
-        return type.contains("video") ||
-            type.contains("mp4") ||
-            Regex("""\.(mp4|m4v|webm|mov|flv)(\?|$)""").containsMatchIn(normalized)
     }
 
     private fun buildMediaProbeThrottleKey(url: String, contentType: String): String {
@@ -1964,20 +2593,41 @@ class WebTabFragment : BaseWebTabFragment() {
         }
     }
 
-    private suspend fun translatePageInPlace(webView: WebView, silent: Boolean = false) {
-        try {
-            if (isPageTranslated(webView)) {
-                val restored = restorePageTranslation(webView)
-                val message = if (restored > 0) {
-                    R.string.translate_page_restored
-                } else {
-                    R.string.translate_page_unavailable
-                }
-                if (!silent) {
-                    Toast.makeText(requireContext(), getString(message), Toast.LENGTH_SHORT).show()
-                }
-                return
+    private suspend fun togglePageTranslation(webView: WebView, generation: Long) {
+        if (!isTranslationContextCurrent(webView, generation)) {
+            return
+        }
+        if (translatedNodeCount(webView) > 0) {
+            mainActivity.settingsViewModel.setIsAutoTranslatePages(false)
+            val restored = restorePageTranslation(webView)
+            Toast.makeText(
+                requireContext(),
+                getString(
+                    if (restored > 0) R.string.translate_page_restored
+                    else R.string.translate_page_unavailable
+                ),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        mainActivity.settingsViewModel.setIsAutoTranslatePages(true)
+        val hasMore = ensurePageTranslated(webView, generation, silent = false)
+        if (hasMore) {
+            maybeAutoTranslatePage(webView)
+        }
+    }
+
+    private suspend fun ensurePageTranslated(
+        webView: WebView,
+        generation: Long,
+        silent: Boolean
+    ): Boolean {
+        return try {
+            if (!isTranslationContextCurrent(webView, generation)) {
+                return false
             }
+            ensurePageTranslationStateForUrl(webView.url.orEmpty())
 
             if (!silent) {
                 Toast.makeText(
@@ -1987,40 +2637,37 @@ class WebTabFragment : BaseWebTabFragment() {
                 ).show()
             }
 
-            val nodes = extractPageTextNodes(webView)
-            if (nodes.isEmpty()) {
-                if (!silent) {
+            val targetLanguage = getTargetTranslateLanguage()
+            val extraction = extractPageTextNodes(webView, targetLanguage)
+            if (extraction.nodes.isEmpty()) {
+                if (!silent && translatedNodeCount(webView) == 0) {
                     Toast.makeText(
                         requireContext(),
                         getString(R.string.translate_page_no_text),
                         Toast.LENGTH_SHORT
                     ).show()
                 }
-                return
+                return false
             }
 
-            val targetLanguage = getTargetTranslateLanguage()
-            val sourceLanguage = identifySourceLanguage(webView, nodes)
-            if (sourceLanguage == null) {
-                if (!silent) {
-                    Toast.makeText(
-                        requireContext(),
-                        getString(R.string.translate_page_unsupported),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-                return
-            }
-
-            if (sourceLanguage == targetLanguage) {
-                if (!silent) {
+            val batch = selectTranslationNodeBatch(
+                webView = webView,
+                nodes = extraction.nodes,
+                targetLanguage = targetLanguage
+            )
+            markIgnoredPageNodes(webView, batch.ignoredNodeIds, targetLanguage)
+            val sourceLanguage = batch.sourceLanguage
+            val hasMore = sourceLanguage != null &&
+                (extraction.hasMore || batch.hasDeferredNodes)
+            if (sourceLanguage == null || batch.nodes.isEmpty()) {
+                if (!silent && !hasMore) {
                     Toast.makeText(
                         requireContext(),
                         getString(R.string.translate_page_same_language),
                         Toast.LENGTH_SHORT
                     ).show()
                 }
-                return
+                return hasMore
             }
 
             if (!silent) {
@@ -2031,7 +2678,11 @@ class WebTabFragment : BaseWebTabFragment() {
                 ).show()
             }
 
-            val translations = translateTextNodes(nodes, sourceLanguage, targetLanguage)
+            val translations = translateTextNodes(
+                batch.nodes,
+                sourceLanguage,
+                targetLanguage
+            )
             if (translations.isEmpty()) {
                 if (!silent) {
                     Toast.makeText(
@@ -2040,10 +2691,13 @@ class WebTabFragment : BaseWebTabFragment() {
                         Toast.LENGTH_SHORT
                     ).show()
                 }
-                return
+                return hasMore
             }
 
-            val changedCount = applyPageTranslations(webView, translations)
+            if (!isTranslationContextCurrent(webView, generation)) {
+                return false
+            }
+            val changedCount = applyPageTranslations(webView, translations, targetLanguage)
             val message = if (changedCount > 0) {
                 getString(R.string.translate_page_done, changedCount)
             } else {
@@ -2052,64 +2706,223 @@ class WebTabFragment : BaseWebTabFragment() {
             if (!silent) {
                 Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
             }
+            hasMore
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: TranslationModelDownloadException) {
+            AppLogger.e("ML Kit translation model download failed: ${e.cause?.message}")
+            notifyTranslationFailureOnce(generation, R.string.translate_page_model_failed)
+            false
         } catch (e: Throwable) {
             AppLogger.e("ML Kit page translation failed: ${e.message}")
-            if (!silent) {
-                Toast.makeText(
-                    requireContext(),
-                    getString(R.string.translate_page_failed),
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            if (!silent) notifyTranslationFailureOnce(generation, R.string.translate_page_failed)
+            false
         }
     }
 
-    private suspend fun isPageTranslated(webView: WebView): Boolean {
-        return webView.evaluateJavascriptAwait(IS_PAGE_TRANSLATED_SCRIPT).trim() == "true"
+    private fun isTranslationContextCurrent(webView: WebView, generation: Long): Boolean {
+        return isAdded &&
+            generation == translationDocumentGeneration &&
+            webTab.getWebView() === webView
+    }
+
+    private fun notifyTranslationFailureOnce(generation: Long, messageRes: Int) {
+        if (!isAdded || generation != translationDocumentGeneration ||
+            translationFailureNotifiedGeneration == generation
+        ) {
+            return
+        }
+        translationFailureNotifiedGeneration = generation
+        Toast.makeText(requireContext(), getString(messageRes), Toast.LENGTH_LONG).show()
+    }
+
+    private suspend fun translatedNodeCount(webView: WebView): Int {
+        return webView.evaluateJavascriptAwait(PAGE_TRANSLATED_NODE_COUNT_SCRIPT).toJsInt()
     }
 
     private suspend fun restorePageTranslation(webView: WebView): Int {
         return webView.evaluateJavascriptAwait(RESTORE_PAGE_TRANSLATION_SCRIPT).toJsInt()
     }
 
-    private suspend fun extractPageTextNodes(webView: WebView): List<PageTextNode> {
-        val result = webView.evaluateJavascriptAwait(EXTRACT_TRANSLATABLE_TEXT_SCRIPT)
+    private suspend fun extractPageTextNodes(
+        webView: WebView,
+        targetLanguage: String
+    ): PageTextExtraction {
+        val script = EXTRACT_TRANSLATABLE_TEXT_SCRIPT.replace(
+            "TARGET_LANGUAGE",
+            JSONObject.quote(targetLanguage)
+        )
+        val result = webView.evaluateJavascriptAwait(script)
         val jsonText = decodeJavascriptString(result)
         if (jsonText.isBlank()) {
-            return emptyList()
+            return PageTextExtraction(emptyList(), false)
         }
 
-        val array = JSONArray(jsonText)
-        return buildList {
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
-                val id = item.optString("id")
-                val text = item.optString("text")
-                if (id.isNotBlank() && text.isNotBlank()) {
-                    add(PageTextNode(id, text))
+        return withContext(Dispatchers.Default) {
+            val payload = JSONObject(jsonText)
+            val array = payload.optJSONArray("nodes") ?: JSONArray()
+            val nodes = buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val id = item.optString("id")
+                    val text = item.optString("text")
+                    if (id.isNotBlank() && text.isNotBlank()) {
+                        add(
+                            PageTextNode(
+                                id = id,
+                                text = text,
+                                isInViewport = item.optBoolean("visible", false)
+                            )
+                        )
+                    }
                 }
             }
+            PageTextExtraction(nodes, payload.optBoolean("hasMore", false))
         }
     }
 
-    private suspend fun identifySourceLanguage(
+    private suspend fun selectTranslationNodeBatch(
         webView: WebView,
-        nodes: List<PageTextNode>
+        nodes: List<PageTextNode>,
+        targetLanguage: String
+    ): TranslationNodeBatch {
+        val orderedNodes = withContext(Dispatchers.Default) {
+            nodes.sortedByDescending { it.isInViewport }
+        }
+        val dominantForeignLanguage = resolvePageDominantForeignLanguage(
+            webView,
+            orderedNodes,
+            targetLanguage
+        ) ?: return TranslationNodeBatch(null, emptyList(), emptyList(), false)
+        val workByNodeId = withContext(Dispatchers.Default) {
+            orderedNodes.associate { node ->
+                node.id to PageTranslationLanguagePolicy.resolveNodeLanguageWork(
+                    text = node.text,
+                    targetLanguage = targetLanguage,
+                    dominantForeignLanguage = dominantForeignLanguage
+                )
+            }
+        }
+
+        val selectedNodes = mutableListOf<PageTextNode>()
+        val ignoredNodeIds = mutableListOf<String>()
+        var selectedCharacters = 0
+        var individualIdentifications = 0
+        var hasDeferredNodes = false
+        val languageIdentifier = getOrCreateLanguageIdentifier()
+
+        for (node in orderedNodes) {
+            val cachedDecision = pageNodeLanguageCache[node.id]
+                ?.takeIf { it.text == node.text }
+            val sourceLanguage = if (cachedDecision != null) {
+                cachedDecision.sourceLanguage
+            } else {
+                val resolvedLanguage = when (workByNodeId[node.id]) {
+                    NodeLanguageResolution.SKIP_TARGET,
+                    NodeLanguageResolution.SKIP,
+                    null -> null
+                    NodeLanguageResolution.USE_DOMINANT -> dominantForeignLanguage
+                    NodeLanguageResolution.IDENTIFY -> {
+                        if (!PageTranslationLanguagePolicy.canIdentifyAnotherNode(
+                                individualIdentifications
+                            )
+                        ) {
+                            hasDeferredNodes = true
+                            continue
+                        }
+                        individualIdentifications++
+                        val candidates = identifyLanguageCandidates(
+                            languageIdentifier,
+                            node.text.take(MAX_NODE_LANGUAGE_SAMPLE_LENGTH)
+                        )
+                        PageTranslationLanguagePolicy.selectNodeSourceLanguage(
+                            text = node.text,
+                            candidates = candidates,
+                            targetLanguage = targetLanguage,
+                            dominantForeignLanguage = dominantForeignLanguage,
+                            declaredLanguage = pageDeclaredLanguage
+                        )
+                    }
+                }
+                pageNodeLanguageCache[node.id] = NodeLanguageCacheEntry(
+                    text = node.text,
+                    sourceLanguage = resolvedLanguage
+                )
+                resolvedLanguage
+            }
+
+            if (sourceLanguage != dominantForeignLanguage ||
+                node.text.length > MAX_SINGLE_TRANSLATION_NODE_CHARACTERS
+            ) {
+                ignoredNodeIds += node.id
+                continue
+            }
+            if (selectedCharacters + node.text.length > MAX_PAGE_TRANSLATION_CHARACTERS) {
+                hasDeferredNodes = true
+                continue
+            }
+            selectedNodes += node
+            selectedCharacters += node.text.length
+        }
+
+        return TranslationNodeBatch(
+            sourceLanguage = dominantForeignLanguage,
+            nodes = selectedNodes,
+            ignoredNodeIds = ignoredNodeIds,
+            hasDeferredNodes = hasDeferredNodes
+        )
+    }
+
+    private suspend fun resolvePageDominantForeignLanguage(
+        webView: WebView,
+        nodes: List<PageTextNode>,
+        targetLanguage: String
     ): String? {
-        val declaredLanguage = decodeJavascriptString(webView.evaluateJavascriptAwait(PAGE_LANGUAGE_SCRIPT))
-        resolveMlKitLanguage(declaredLanguage)?.let { return it }
-
-        val sample = nodes.joinToString("\n") { it.text }.take(1_000)
-        if (sample.isBlank()) {
-            return null
+        if (pageDominantLanguageResolved) {
+            return pageDominantForeignLanguage
         }
 
-        val languageIdentifier = LanguageIdentification.getClient()
-        return try {
-            resolveMlKitLanguage(languageIdentifier.identifyLanguage(sample).awaitTask())
-        } finally {
-            languageIdentifier.close()
+        pageDeclaredLanguage = resolveMlKitLanguage(
+            decodeJavascriptString(webView.evaluateJavascriptAwait(PAGE_LANGUAGE_SCRIPT))
+        )
+        val dominantSample = withContext(Dispatchers.Default) {
+            nodes.asSequence()
+                .filterNot {
+                    PageTranslationLanguagePolicy.isClearlyTargetText(it.text, targetLanguage)
+                }
+                .joinToString("\n") { it.text }
+                .take(MAX_LANGUAGE_SAMPLE_LENGTH)
         }
+        pageDominantForeignLanguage = PageTranslationLanguagePolicy
+            .selectDominantForeignLanguage(
+                candidates = identifyLanguageCandidates(
+                    getOrCreateLanguageIdentifier(),
+                    dominantSample
+                ),
+                targetLanguage = targetLanguage,
+                declaredLanguage = pageDeclaredLanguage
+            )
+        pageDominantLanguageResolved = pageDominantForeignLanguage != null
+        return pageDominantForeignLanguage
+    }
+
+    private fun getOrCreateLanguageIdentifier(): LanguageIdentifier {
+        return pageLanguageIdentifier ?: LanguageIdentification.getClient().also {
+            pageLanguageIdentifier = it
+        }
+    }
+
+    private suspend fun identifyLanguageCandidates(
+        languageIdentifier: LanguageIdentifier,
+        sample: String
+    ): List<TranslationLanguageCandidate> {
+        if (sample.isBlank()) return emptyList()
+        return languageIdentifier.identifyPossibleLanguages(sample).awaitTask()
+            .mapNotNull { identified ->
+                resolveMlKitLanguage(identified.languageTag)?.let { language ->
+                    TranslationLanguageCandidate(language, identified.confidence)
+                }
+            }
     }
 
     private suspend fun translateTextNodes(
@@ -2117,48 +2930,121 @@ class WebTabFragment : BaseWebTabFragment() {
         sourceLanguage: String,
         targetLanguage: String
     ): Map<String, String> {
-        val options = TranslatorOptions.Builder()
-            .setSourceLanguage(sourceLanguage)
-            .setTargetLanguage(targetLanguage)
-            .build()
-        val translator = Translation.getClient(options)
-
-        return try {
+        val translator = getOrCreateTranslator(sourceLanguage, targetLanguage)
+        if (!reusableTranslatorModelReady) {
             val conditions = DownloadConditions.Builder().build()
-            translator.downloadModelIfNeeded(conditions).awaitTask()
-
-            val textCache = mutableMapOf<String, String>()
-            val translations = linkedMapOf<String, String>()
-            for (node in nodes) {
-                val translated = textCache.getOrPut(node.text) {
-                    translator.translate(node.text).awaitTask()
-                }
-                if (translated.isNotBlank()) {
-                    translations[node.id] = translated
-                }
+            try {
+                translator.downloadModelIfNeeded(conditions).awaitTask()
+                reusableTranslatorModelReady = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                throw TranslationModelDownloadException(e)
             }
-            translations
-        } finally {
-            translator.close()
+
         }
+
+        val passTextCache = mutableMapOf<String, String>()
+        val translations = linkedMapOf<String, String>()
+        for (node in nodes) {
+            val cacheKey = TranslationCacheKey(sourceLanguage, targetLanguage, node.text)
+            val translated = pageTranslationCache[cacheKey]
+                ?: passTextCache[node.text]
+                ?: run {
+                    PageTranslationLanguagePolicy.chunkText(node.text)
+                        .map { chunk -> translator.translate(chunk).awaitTask() }
+                        .filter { it.isNotBlank() }
+                        .joinToString(" ")
+                }
+            if (translated.isNotBlank()) {
+                passTextCache[node.text] = translated
+                if (node.text.length <= MAX_CACHED_TRANSLATION_TEXT_LENGTH) {
+                    pageTranslationCache[cacheKey] = translated
+                }
+                translations[node.id] = translated
+            }
+        }
+        return translations
+    }
+
+    private fun getOrCreateTranslator(
+        sourceLanguage: String,
+        targetLanguage: String
+    ): Translator {
+        val currentTranslator = reusableTranslator
+        if (currentTranslator != null &&
+            reusableTranslatorSourceLanguage == sourceLanguage &&
+            reusableTranslatorTargetLanguage == targetLanguage
+        ) {
+            return currentTranslator
+        }
+
+        currentTranslator?.close()
+        reusableTranslator = Translation.getClient(
+            TranslatorOptions.Builder()
+                .setSourceLanguage(sourceLanguage)
+                .setTargetLanguage(targetLanguage)
+                .build()
+        )
+        reusableTranslatorSourceLanguage = sourceLanguage
+        reusableTranslatorTargetLanguage = targetLanguage
+        reusableTranslatorModelReady = false
+        return checkNotNull(reusableTranslator)
+    }
+
+    private suspend fun markIgnoredPageNodes(
+        webView: WebView,
+        nodeIds: List<String>,
+        targetLanguage: String
+    ) {
+        if (nodeIds.isEmpty()) return
+        val ids = JSONArray()
+        nodeIds.forEach(ids::put)
+        val serializedIds = JSONObject.quote(ids.toString())
+        val serializedTargetLanguage = JSONObject.quote(targetLanguage)
+        webView.evaluateJavascriptAwait(
+            """
+                (function(serializedIds, targetLanguage) {
+                    var ids = JSON.parse(serializedIds || '[]');
+                    var lookup = Object.create(null);
+                    for (var index = 0; index < ids.length; index++) lookup[ids[index]] = true;
+                    var walker = document.createTreeWalker(
+                        document.body || document.documentElement,
+                        NodeFilter.SHOW_TEXT
+                    );
+                    while (walker.nextNode()) {
+                        var node = walker.currentNode;
+                        if (lookup[node.__superxTranslateId]) {
+                            node.__superxTranslationIgnoredTarget = targetLanguage;
+                            node.__superxTranslationIgnoredValue = node.nodeValue;
+                        }
+                    }
+                    return true;
+                })($serializedIds, $serializedTargetLanguage)
+            """.trimIndent()
+        )
     }
 
     private suspend fun applyPageTranslations(
         webView: WebView,
-        translations: Map<String, String>
+        translations: Map<String, String>,
+        targetLanguage: String
     ): Int {
         val payload = JSONObject()
         translations.forEach { (id, translatedText) ->
             payload.put(id, translatedText)
         }
 
-        return webView.evaluateJavascriptAwait(buildApplyTranslationsScript(payload)).toJsInt()
+        return webView.evaluateJavascriptAwait(
+            buildApplyTranslationsScript(payload, targetLanguage)
+        ).toJsInt()
     }
 
-    private fun buildApplyTranslationsScript(payload: JSONObject): String {
+    private fun buildApplyTranslationsScript(payload: JSONObject, targetLanguage: String): String {
         val serializedPayload = JSONObject.quote(payload.toString())
+        val serializedTargetLanguage = JSONObject.quote(targetLanguage)
         return """
-            (function(serializedTranslations) {
+            (function(serializedTranslations, targetLanguage) {
                 var translations = JSON.parse(serializedTranslations || '{}');
                 var metaStore = window.__superxTranslateMeta || {};
                 var changed = 0;
@@ -2176,13 +3062,15 @@ class WebTabFragment : BaseWebTabFragment() {
 
                     var translated = translations[id];
                     var meta = metaStore[id] || { prefix: '', suffix: '' };
-                    node.nodeValue = (meta.prefix || '') + translated + (meta.suffix || '');
+                    var translatedValue = (meta.prefix || '') + translated + (meta.suffix || '');
+                    node.nodeValue = translatedValue;
+                    node.__superxTranslateTarget = targetLanguage;
+                    node.__superxTranslatedValue = translatedValue;
                     changed++;
                 }
 
-                window.__superxPageTranslated = changed > 0;
                 return changed;
-            })($serializedPayload)
+            })($serializedPayload, $serializedTargetLanguage)
         """.trimIndent()
     }
 
@@ -2669,6 +3557,17 @@ class WebTabFragment : BaseWebTabFragment() {
             videoInfo: VideoInfo, sharedView: View, format: String, isForce: Boolean
         ) {
             onVideoPreviewPropagate(videoInfo, format, isForce, sharedView)
+        }
+
+        override fun onChoosePlayer(
+            videoInfo: VideoInfo,
+            sharedView: View,
+            anchorView: View,
+            format: String,
+            isForce: Boolean
+        ) {
+            val request = createBrowserPlaybackRequest(videoInfo, format, isForce) ?: return
+            showPlaybackTargetMenu(request, sharedView, anchorView)
         }
 
         override fun onDownloadVideo(

@@ -30,6 +30,14 @@ interface DownloadTabVideoListener {
         videoInfo: VideoInfo, sharedView: View, format: String, isForce: Boolean
     )
 
+    fun onChoosePlayer(
+        videoInfo: VideoInfo,
+        sharedView: View,
+        anchorView: View,
+        format: String,
+        isForce: Boolean
+    )
+
     fun onDownloadVideo(
         videoInfo: VideoInfo, format: String, videoTitle: String
     )

@@ -88,6 +88,10 @@
         <receiver
             android:name="com.myAllVideoBrowser.util.downloaders.NotificationReceiver"
             android:enabled="true" />
+        <receiver
+            android:name="com.myAllVideoBrowser.ui.main.player.PlaybackTargetChosenReceiver"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 
     <queries>

@@ -98,12 +98,12 @@ jobs:
       - name: Upload Release APKs
         uses: softprops/action-gh-release@v2
         with:
-          prerelease: true
+          prerelease: false
           body: |
             SurfSave open-source release build.
 
             See CHANGELOG.md for release notes and verification guidance.
           draft: false
-          make_latest: false
+          make_latest: true
           tag_name: ${{ github.ref_name }}
           files: app/build/outputs/apk/release/*.apk

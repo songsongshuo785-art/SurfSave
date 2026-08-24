@@ -32,9 +32,9 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.snackbar.Snackbar
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.FragmentBrowserBinding
 import com.myAllVideoBrowser.ui.component.adapter.dispatchListDiff
@@ -193,14 +193,8 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
     private var backPressedOnce = false
 
-    private data class ClosedTabSnapshot(
-        val tab: WebTab,
-        val originalIndex: Int,
-        val wasSelected: Boolean
-    )
-
-    private var pendingClosedTab: ClosedTabSnapshot? = null
-    private var tabUndoSnackbar: Snackbar? = null
+    private var visibleUndoSnapshotId: String? = null
+    private val hideTabUndoRunnable = Runnable { hideClosedTabUndo() }
 
     private lateinit var requestInspector: BrowserRequestInspector
 
@@ -231,13 +225,15 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
     private val serviceWorkerClient = object : ServiceWorkerClient() {
         override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
-            val detectionContext = videoDetectionModel.serviceWorkerContextForRequest(
-                request.requestHeaders
-            )
-                ?: return super.shouldInterceptRequest(request)
             val url = request.url.toString()
-            val pageUrl = detectionContext.pageUrl
+            val activeContext = videoDetectionModel.currentServiceWorkerContext()
+                ?: return super.shouldInterceptRequest(request)
+            val pageUrl = activeContext.pageUrl
             val inspection = requestInspector.inspect(url, pageUrl, request.isForMainFrame)
+            val detectionContext = videoDetectionModel.serviceWorkerContextForRequest(
+                request.requestHeaders,
+                allowHeaderlessMedia = inspection.shouldInspectMedia
+            ) ?: return super.shouldInterceptRequest(request)
 
             if (inspection.shouldInspectMedia) {
                 val requestWithCookies = try {
@@ -411,6 +407,13 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
             this.newTabButton.setOnClickListener {
                 openNewTabPage()
             }
+            this.recentlyClosedTabsButton.setOnClickListener {
+                showRecentlyClosedTabs()
+            }
+            installRecentlyClosedTabsLongPress(this.tabsList)
+            this.tabUndoDismiss.setOnClickListener {
+                hideClosedTabUndo()
+            }
             this.drawerLayoutContent.setBackgroundColor(color)
 
             this.viewModel = browserViewModel
@@ -437,6 +440,29 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         return dataBinding.root
     }
 
+    private fun installRecentlyClosedTabsLongPress(tabsList: RecyclerView) {
+        val gestureDetector = GestureDetector(
+            tabsList.context,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(event: MotionEvent): Boolean = true
+
+                override fun onLongPress(event: MotionEvent) {
+                    if (tabsList.findChildViewUnder(event.x, event.y) != null) {
+                        return
+                    }
+                    tabsList.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    showRecentlyClosedTabs()
+                }
+            }
+        )
+        tabsList.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
+            override fun onInterceptTouchEvent(recyclerView: RecyclerView, event: MotionEvent): Boolean {
+                gestureDetector.onTouchEvent(event)
+                return false
+            }
+        })
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         browserViewModel.start()
@@ -456,9 +482,8 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     }
 
     override fun onDestroyView() {
-        finalizePendingClosedTab()
-        tabUndoSnackbar?.dismiss()
-        tabUndoSnackbar = null
+        mainHandler.removeCallbacks(hideTabUndoRunnable)
+        hideClosedTabUndo()
         mainHandler.removeCallbacks(tabsUiSyncRunnable)
         tabsUiSyncScheduled = false
         clearServiceWorkerInterception()
@@ -617,13 +642,10 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
             return
         }
 
-        finalizePendingClosedTab()
-        tabUndoSnackbar?.dismiss()
-
         val currentIndex = browserViewModel.currentTab.get()
         val wasSelected = currentIndex == index
         tabToClose?.saveWebViewState()
-        val snapshotTab = tabToClose?.copyWith(webview = null) ?: return
+        val snapshotTab = tabToClose?.copyWith(pageThumbnail = null, webview = null) ?: return
         detachAndDestroyWebView(tabToClose.getWebView())
         tabToClose.setWebView(null)
         tabs.removeAt(index)
@@ -644,43 +666,43 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         browserViewModel.persistSession()
 
         val snapshot = ClosedTabSnapshot(snapshotTab, index, wasSelected)
-        pendingClosedTab = snapshot
+        browserViewModel.addRecentlyClosedTab(snapshot)?.let(::finalizeClosedTab)
         showClosedTabUndo(snapshot)
     }
 
     private fun showClosedTabUndo(snapshot: ClosedTabSnapshot) {
         if (!::dataBinding.isInitialized) {
-            finalizePendingClosedTab(snapshot)
             return
         }
 
-        val snackbar = Snackbar.make(
-            dataBinding.drawerLayout,
-            R.string.browser_tab_closed,
-            BrowserTabUndoPolicy.DURATION_MS
-        ).setAction(R.string.undo) {
-            restoreClosedTab(snapshot)
+        mainHandler.removeCallbacks(hideTabUndoRunnable)
+        visibleUndoSnapshotId = snapshot.id
+        dataBinding.tabUndoMessage.text = getString(
+            R.string.closed_tab_undo_message,
+            closedTabDisplayTitle(snapshot)
+        )
+        dataBinding.tabUndoAction.setOnClickListener {
+            restoreClosedTab(snapshot.id)
         }
-        snackbar.addCallback(object : Snackbar.Callback() {
-            override fun onDismissed(transientBottomBar: Snackbar?, event: Int) {
-                if (event != DISMISS_EVENT_ACTION) {
-                    finalizePendingClosedTab(snapshot)
-                }
-                if (tabUndoSnackbar === transientBottomBar) {
-                    tabUndoSnackbar = null
-                }
-            }
-        })
-        tabUndoSnackbar = snackbar
-        snackbar.show()
+        dataBinding.tabUndoBar.visibility = View.VISIBLE
+        mainHandler.postDelayed(hideTabUndoRunnable, BrowserTabUndoPolicy.DURATION_MS)
     }
 
-    private fun restoreClosedTab(snapshot: ClosedTabSnapshot) {
-        if (pendingClosedTab !== snapshot) {
+    private fun hideClosedTabUndo(snapshotId: String? = null) {
+        if (!::dataBinding.isInitialized ||
+            (snapshotId != null && visibleUndoSnapshotId != snapshotId)
+        ) {
             return
         }
+        mainHandler.removeCallbacks(hideTabUndoRunnable)
+        visibleUndoSnapshotId = null
+        dataBinding.tabUndoAction.setOnClickListener(null)
+        dataBinding.tabUndoBar.visibility = View.GONE
+    }
 
-        pendingClosedTab = null
+    private fun restoreClosedTab(snapshotId: String) {
+        val snapshot = browserViewModel.takeRecentlyClosedTab(snapshotId) ?: return
+        hideClosedTabUndo(snapshotId)
         val tabs = browserViewModel.tabs.get().orEmpty().ifEmpty { listOf(WebTab.HOME_TAB) }
             .toMutableList()
         val selectedTabId = tabs.getOrNull(browserViewModel.currentTab.get())?.id
@@ -718,14 +740,38 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         browserViewModel.persistSession()
     }
 
-    private fun finalizePendingClosedTab(snapshot: ClosedTabSnapshot? = pendingClosedTab) {
-        if (snapshot == null || pendingClosedTab !== snapshot) {
+    private fun finalizeClosedTab(snapshot: ClosedTabSnapshot) {
+        BrowserThumbnailStore.delete(snapshot.tab.getPageThumbnailPath())
+        snapshot.tab.clearSavedState()
+    }
+
+    private fun showRecentlyClosedTabs() {
+        val snapshots = browserViewModel.getRecentlyClosedTabs()
+        if (snapshots.isEmpty()) {
+            Toast.makeText(requireContext(), R.string.no_recently_closed_tabs, Toast.LENGTH_SHORT)
+                .show()
             return
         }
 
-        BrowserThumbnailStore.delete(snapshot.tab.getPageThumbnailPath())
-        snapshot.tab.clearSavedState()
-        pendingClosedTab = null
+        val labels = snapshots.map(::closedTabDisplayTitle).toTypedArray()
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.recently_closed_tabs)
+            .setItems(labels) { dialog, which ->
+                snapshots.getOrNull(which)?.let { restoreClosedTab(it.id) }
+                dialog.dismiss()
+            }
+            .setNeutralButton(R.string.clear_recently_closed_tabs) { _, _ ->
+                browserViewModel.clearRecentlyClosedTabs().forEach(::finalizeClosedTab)
+                hideClosedTabUndo()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun closedTabDisplayTitle(snapshot: ClosedTabSnapshot): String {
+        return snapshot.tab.getTitle().trim().ifBlank {
+            UrlInputNormalizer.toDisplayHost(snapshot.tab.getUrl()).ifBlank { snapshot.tab.getUrl() }
+        }
     }
 
     private fun openNewTabPage() {

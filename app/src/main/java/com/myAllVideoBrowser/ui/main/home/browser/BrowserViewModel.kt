@@ -8,6 +8,7 @@ import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTab
 import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
+import com.myAllVideoBrowser.util.BrowserThumbnailStore
 import javax.inject.Inject
 
 //@OpenForTesting
@@ -39,6 +40,8 @@ class BrowserViewModel @Inject constructor(
 
     val currentTab = ObservableInt(HOME_TAB_INDEX)
 
+    private val recentlyClosedTabs = ArrayDeque<ClosedTabSnapshot>()
+
     override fun start() {
         restoreSessionIfNeeded()
         updateTabsBadgeText(tabs.get().orEmpty().count { !it.isHome() })
@@ -53,6 +56,37 @@ class BrowserViewModel @Inject constructor(
 
     fun updateTabsBadgeText(openWebTabsCount: Int) {
         tabsBadgeText.set(openWebTabsCount.coerceIn(0, MAX_WEB_TABS).toString())
+    }
+
+    internal fun addRecentlyClosedTab(snapshot: ClosedTabSnapshot): ClosedTabSnapshot? {
+        recentlyClosedTabs.addFirst(snapshot)
+        return if (recentlyClosedTabs.size > BrowserTabUndoPolicy.MAX_RECENTLY_CLOSED_TABS) {
+            recentlyClosedTabs.removeLast()
+        } else {
+            null
+        }
+    }
+
+    internal fun getRecentlyClosedTabs(): List<ClosedTabSnapshot> = recentlyClosedTabs.toList()
+
+    internal fun takeRecentlyClosedTab(snapshotId: String): ClosedTabSnapshot? {
+        val snapshot = recentlyClosedTabs.firstOrNull { it.id == snapshotId } ?: return null
+        recentlyClosedTabs.remove(snapshot)
+        return snapshot
+    }
+
+    internal fun clearRecentlyClosedTabs(): List<ClosedTabSnapshot> {
+        val snapshots = recentlyClosedTabs.toList()
+        recentlyClosedTabs.clear()
+        return snapshots
+    }
+
+    override fun onCleared() {
+        clearRecentlyClosedTabs().forEach { snapshot ->
+            BrowserThumbnailStore.delete(snapshot.tab.getPageThumbnailPath())
+            snapshot.tab.clearSavedState()
+        }
+        super.onCleared()
     }
 
     private fun restoreSessionIfNeeded() {
@@ -73,6 +107,13 @@ class BrowserViewModel @Inject constructor(
         currentTab.set(restoredIndex)
     }
 }
+
+internal data class ClosedTabSnapshot(
+    val tab: WebTab,
+    val originalIndex: Int,
+    val wasSelected: Boolean,
+    val id: String = java.util.UUID.randomUUID().toString()
+)
 
 abstract class DownloadButtonState
 

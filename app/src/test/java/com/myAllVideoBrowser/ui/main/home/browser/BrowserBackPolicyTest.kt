@@ -96,7 +96,8 @@ class BrowserBackPolicyTest {
     }
 
     @Test
-    fun closedTabUndo_remainsVisibleForFifteenSeconds() {
-        assertEquals(15_000, BrowserTabUndoPolicy.DURATION_MS)
+    fun closedTabUndo_remainsVisibleForEightSeconds() {
+        assertEquals(8_000L, BrowserTabUndoPolicy.DURATION_MS)
+        assertEquals(10, BrowserTabUndoPolicy.MAX_RECENTLY_CLOSED_TABS)
     }
 }

@@ -49,6 +49,12 @@ import javax.inject.Inject
 //@OpenForTesting
 class MainActivity : BaseActivity() {
 
+    companion object {
+        const val EXTRA_START_PAGE = "surfsave_start_page"
+        const val EXTRA_START_PAGE_BROWSER = 0
+        const val EXTRA_START_PAGE_VIDEO_LIBRARY = 2
+    }
+
     @Inject
     lateinit var fragmentFactory: FragmentFactory
 
@@ -154,6 +160,20 @@ class MainActivity : BaseActivity() {
         super.onNewIntent(intent)
         if (intent != null) {
             setIntent(intent)
+        }
+
+        val requestedStartPage = intent?.getIntExtra(EXTRA_START_PAGE, -1) ?: -1
+        if (requestedStartPage == EXTRA_START_PAGE_BROWSER ||
+            requestedStartPage == EXTRA_START_PAGE_VIDEO_LIBRARY
+        ) {
+            dataBinding.viewPager.currentItem = requestedStartPage
+            mainViewModel.currentItem.set(requestedStartPage)
+            dataBinding.bottomBar.selectedItemId = if (requestedStartPage == EXTRA_START_PAGE_VIDEO_LIBRARY) {
+                R.id.tab_video
+            } else {
+                R.id.tab_browser
+            }
+            return
         }
 
         if (intent?.getBooleanExtra(
@@ -332,6 +352,9 @@ class MainActivity : BaseActivity() {
 
     private fun shouldAutoOpenMigrationCenter(savedInstanceState: Bundle?): Boolean {
         if (!BuildConfig.MIGRATION_IMPORT_ENABLED || savedInstanceState != null) {
+            return false
+        }
+        if (intent?.hasExtra(EXTRA_START_PAGE) == true) {
             return false
         }
         if (migrationStateStore.getStage() == MigrationStage.IMPORTED) {

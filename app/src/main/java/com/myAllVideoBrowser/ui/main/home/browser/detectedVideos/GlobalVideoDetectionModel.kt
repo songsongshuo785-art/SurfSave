@@ -74,8 +74,12 @@ class GlobalVideoDetectionModel @Inject constructor(
         serviceWorkerContexts.snapshot()
 
     fun serviceWorkerContextForRequest(
-        headers: Map<String, String>
-    ): ServiceWorkerDetectionContext? = serviceWorkerContexts.contextForRequest(headers)
+        headers: Map<String, String>,
+        allowHeaderlessMedia: Boolean = false
+    ): ServiceWorkerDetectionContext? = serviceWorkerContexts.contextForRequest(
+        headers,
+        allowHeaderlessMedia
+    )
 
     override fun hasCheckLoadingsRegular(): ObservableBoolean {
         return ObservableBoolean(false)

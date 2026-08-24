@@ -98,6 +98,11 @@ data class VideoFormatEntity(
     @Expose
     val manifestUrl: String? = null,
 
+    @ColumnInfo(name = "protocol")
+    @SerializedName("protocol")
+    @Expose
+    val protocol: String? = null,
+
     @ColumnInfo(name = "httpHeaders")
     @SerializedName("httpHeaders")
     @Expose
@@ -125,12 +130,25 @@ data class VideoFormatEntity(
 ) {
     val isM3u8: Boolean
         get() {
-            return formatId?.startsWith("hls") == true
+            val protocolName = protocol.orEmpty().lowercase(Locale.US)
+            return formatId?.startsWith("hls", ignoreCase = true) == true ||
+                protocolName.contains("m3u8") ||
+                sequenceOf(url, manifestUrl).filterNotNull().any {
+                    it.substringBefore('#').substringBefore('?')
+                        .endsWith(".m3u8", ignoreCase = true)
+                }
         }
 
     val isMpd: Boolean
         get() {
-            return formatId?.startsWith("mpd") == true
+            val protocolName = protocol.orEmpty().lowercase(Locale.US)
+            return formatId?.startsWith("mpd", ignoreCase = true) == true ||
+                formatId?.startsWith("dash", ignoreCase = true) == true ||
+                protocolName.contains("dash") ||
+                sequenceOf(url, manifestUrl).filterNotNull().any {
+                    it.substringBefore('#').substringBefore('?')
+                        .endsWith(".mpd", ignoreCase = true)
+                }
         }
 }
 
