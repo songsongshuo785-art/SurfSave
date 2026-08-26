@@ -29,7 +29,8 @@ class CustomWebChromeClient(
     private val pageTabProvider: PageTabProvider,
     private val dataBinding: FragmentWebTabBinding,
     private val appUtil: AppUtil,
-    private val mainActivity: MainActivity
+    private val mainActivity: MainActivity,
+    private val onProtectedMediaRequested: () -> Unit = {}
 ) : WebChromeClient() {
     private var fullscreenView: View? = null
     private var fullscreenCallback: CustomViewCallback? = null
@@ -45,6 +46,7 @@ class CustomWebChromeClient(
             request.resources.any { it == PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID }
 
         if (isDrmRequest) {
+            onProtectedMediaRequested()
             if (settingsViewModel.isDrmEnabled.get()) {
                 AppLogger.d("DRM: Granting permission based on existing setting.")
                 request.grant(arrayOf(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID))

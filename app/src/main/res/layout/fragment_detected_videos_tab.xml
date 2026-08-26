@@ -135,9 +135,71 @@
                 android:text="@{viewModel.detectionStatusText}"
                 android:textColor="@color/sxTextSecondary"
                 android:textSize="@dimen/text_small"
-                android:visibility="@{viewModel.hasDetectionStatus &amp;&amp; !viewModel.hasDetectedVideos ? View.VISIBLE : View.GONE}"
+                android:visibility="@{viewModel.hasDetectionStatus &amp;&amp; !viewModel.hasDetectedVideos &amp;&amp; !viewModel.hasProtectedMedia ? View.VISIBLE : View.GONE}"
                 tools:text="检测暂时失败。请播放视频后再试，或刷新页面重新检测。"
                 tools:visibility="visible" />
+
+            <LinearLayout
+                android:id="@+id/drm_web_playback_notice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/padding_small"
+                android:background="@drawable/sx_section_background"
+                android:orientation="vertical"
+                android:padding="@dimen/padding_normal"
+                android:visibility="@{viewModel.hasProtectedMedia &amp;&amp; !viewModel.hasDetectedVideos ? View.VISIBLE : View.GONE}"
+                tools:visibility="visible">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:contentDescription="@null"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/shield_24px"
+                        app:tint="@color/colorPrimary" />
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/padding_small"
+                        android:layout_weight="1"
+                        android:text="@string/drm_detected_title"
+                        android:textColor="@color/sxTextPrimary"
+                        android:textSize="@dimen/text_medium"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/padding_small"
+                    android:lineSpacingExtra="2dp"
+                    android:text="@string/drm_detected_message"
+                    android:textColor="@color/sxTextSecondary"
+                    android:textSize="@dimen/text_small" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_play_in_webpage"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_gravity="end"
+                    android:layout_marginTop="@dimen/padding_small"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minWidth="0dp"
+                    android:text="@string/drm_play_in_webpage"
+                    android:textAllCaps="false"
+                    android:textColor="@color/colorPrimary"
+                    app:icon="@drawable/play_circle_24px"
+                    app:iconTint="@color/colorPrimary" />
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/detected_secondary_actions"
@@ -172,7 +234,7 @@
                 android:paddingStart="@dimen/padding_tiny"
                 android:paddingEnd="@dimen/padding_tiny"
                 android:paddingBottom="@dimen/padding_small"
-                app:items="@{viewModel.detectedVideosList}" />
+                app:items="@{viewModel.sortedDetectedVideosList}" />
         </LinearLayout>
 
     </androidx.constraintlayout.widget.ConstraintLayout>

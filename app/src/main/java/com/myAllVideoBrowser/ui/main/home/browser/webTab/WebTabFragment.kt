@@ -88,6 +88,7 @@ import com.myAllVideoBrowser.ui.main.home.browser.WorkerEventProvider
 import com.myAllVideoBrowser.ui.main.home.browser.WebTabBackAction
 import com.myAllVideoBrowser.ui.main.home.browser.WebViewMediaController
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.DetectedVideosTabFragment
+import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.PageMediaMetadataParser
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerActivity
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerFragment
@@ -144,6 +145,7 @@ class WebTabFragment : BaseWebTabFragment() {
         private const val MIN_AUTO_TRANSLATION_INTERVAL_MS = 2_000L
         private const val MEDIA_PROBE_BRIDGE_NAME = "SuperXMediaProbe"
         private const val MAX_MEDIA_PROBE_PAYLOAD_LENGTH = 8_192
+        private const val MAX_PAGE_MEDIA_METADATA_PAYLOAD_LENGTH = 16_384
         private const val MEDIA_PROBE_THROTTLE_MS = 4_000L
         private val PLAYER_RECOVERY_DELAYS_MS = longArrayOf(1_500L, 3_500L, 6_500L, 10_000L)
         private const val MENU_OPEN_LINK_CURRENT_WINDOW = 1001
@@ -528,6 +530,131 @@ class WebTabFragment : BaseWebTabFragment() {
                     document.addEventListener('DOMContentLoaded', scanMediaElements);
                 } else {
                     scanMediaElements();
+                }
+            })()
+        """.trimIndent()
+
+        private val PAGE_MEDIA_METADATA_SCRIPT = """
+            (function() {
+                try {
+                    var canonicalElement = document.querySelector('link[rel="canonical"]');
+                    var canonicalUrl = canonicalElement && canonicalElement.href
+                        ? canonicalElement.href
+                        : location.href;
+                    var videoObjects = [];
+                    var inspectedJsonNodes = 0;
+
+                    function hasVideoObjectType(value) {
+                        var type = value && value['@type'];
+                        if (Array.isArray(type)) {
+                            return type.some(function(item) {
+                                return String(item).toLowerCase() === 'videoobject';
+                            });
+                        }
+                        return String(type || '').toLowerCase() === 'videoobject';
+                    }
+
+                    function walkJson(value, depth) {
+                        if (!value || depth > 8 || videoObjects.length >= 64 || inspectedJsonNodes >= 2048) return;
+                        inspectedJsonNodes += 1;
+                        if (Array.isArray(value)) {
+                            for (var index = 0; index < value.length; index++) {
+                                walkJson(value[index], depth + 1);
+                            }
+                            return;
+                        }
+                        if (typeof value !== 'object') return;
+                        if (hasVideoObjectType(value)) videoObjects.push(value);
+                        Object.keys(value).forEach(function(key) {
+                            walkJson(value[key], depth + 1);
+                        });
+                    }
+
+                    var jsonLdScripts = document.querySelectorAll('script[type="application/ld+json"]');
+                    for (var scriptIndex = 0; scriptIndex < jsonLdScripts.length; scriptIndex++) {
+                        try {
+                            var jsonLdText = jsonLdScripts[scriptIndex].textContent || '';
+                            if (jsonLdText.length <= 262144) {
+                                walkJson(JSON.parse(jsonLdText), 0);
+                            }
+                        } catch (ignored) {
+                        }
+                    }
+
+                    function referenceUrl(value) {
+                        if (!value) return '';
+                        if (typeof value === 'string') return value;
+                        if (typeof value === 'object') return value['@id'] || value.url || '';
+                        return '';
+                    }
+
+                    function normalizedUrl(value) {
+                        try {
+                            return new URL(referenceUrl(value), document.baseURI || location.href)
+                                .href.split('#')[0].replace(/\/$/, '');
+                        } catch (ignored) {
+                            return '';
+                        }
+                    }
+
+                    var normalizedCanonical = normalizedUrl(canonicalUrl);
+                    var selectedVideo = null;
+                    var selectedScore = -1;
+                    for (var objectIndex = 0; objectIndex < videoObjects.length; objectIndex++) {
+                        var candidate = videoObjects[objectIndex];
+                        var score = 0;
+                        var pageReference = normalizedUrl(candidate.mainEntityOfPage);
+                        var objectUrl = normalizedUrl(candidate.url);
+                        if (pageReference && pageReference === normalizedCanonical) score += 100;
+                        if (objectUrl && objectUrl === normalizedCanonical) score += 80;
+                        if (candidate.contentUrl) score += 20;
+                        if (candidate.duration) score += 10;
+                        if (score > selectedScore) {
+                            selectedScore = score;
+                            selectedVideo = candidate;
+                        }
+                    }
+
+                    var contentUrls = [];
+                    function addContentUrl(value) {
+                        if (Array.isArray(value)) {
+                            value.forEach(addContentUrl);
+                            return;
+                        }
+                        var url = normalizedUrl(value);
+                        if (url && /^https?:/i.test(url) && contentUrls.indexOf(url) < 0) {
+                            contentUrls.push(url);
+                        }
+                    }
+                    if (selectedVideo) addContentUrl(selectedVideo.contentUrl);
+                    document.querySelectorAll(
+                        'meta[property="og:video"],meta[property="og:video:url"],meta[property="og:video:secure_url"]'
+                    ).forEach(function(meta) {
+                        addContentUrl(meta.content || '');
+                    });
+
+                    var durationMeta = document.querySelector(
+                        'meta[property="video:duration"],meta[name="video:duration"]'
+                    );
+                    return JSON.stringify({
+                        pageUrl: location.href,
+                        canonicalUrl: canonicalUrl,
+                        contentUrls: contentUrls,
+                        duration: selectedVideo && selectedVideo.duration
+                            ? String(selectedVideo.duration)
+                            : '',
+                        durationSeconds: durationMeta && durationMeta.content
+                            ? String(durationMeta.content)
+                            : ''
+                    });
+                } catch (error) {
+                    return JSON.stringify({
+                        pageUrl: location.href,
+                        canonicalUrl: location.href,
+                        contentUrls: [],
+                        duration: '',
+                        durationSeconds: ''
+                    });
                 }
             })()
         """.trimIndent()
@@ -991,6 +1118,7 @@ class WebTabFragment : BaseWebTabFragment() {
     private var translateJob: Job? = null
     private var translationDebounceJob: Job? = null
     private var translationDocumentGeneration = 0L
+    private var mediaPageGeneration = 0L
     private var translationFailureNotifiedGeneration = -1L
     private var translationRerunRequested = false
     private var lastAutoTranslationStartedAt = 0L
@@ -1101,6 +1229,9 @@ class WebTabFragment : BaseWebTabFragment() {
 
         webTab = pageTabProvider.getPageTab(thisTabIndex)
         videoDetectionTabViewModel.initialUrl = webTab.getUrl()
+        mediaPageGeneration = videoDetectionTabViewModel.beginPageContext(
+            webTab.getWebView()?.url ?: webTab.getUrl()
+        )
 
         AppLogger.d("onCreate Webview::::::::: ${webTab.getUrl()} $savedInstanceState")
         suggestionAdapter =
@@ -1365,6 +1496,7 @@ class WebTabFragment : BaseWebTabFragment() {
             videoDetectionTabViewModel.onReloadPage(currentUrl, userAgent)
         }
         injectMediaProbe(webView)
+        capturePageMediaMetadata(webView)
         Toast.makeText(requireContext(), R.string.refresh_video_detection_started, Toast.LENGTH_SHORT).show()
     }
 
@@ -1917,7 +2049,11 @@ class WebTabFragment : BaseWebTabFragment() {
             },
             onPageContextStarted = { tabId, pageUrl ->
                 onTranslationNavigationStarted()
+                mediaPageGeneration = videoDetectionTabViewModel.beginPageContext(pageUrl)
                 tabManagerProvider.onTabNavigationStarted(tabId, pageUrl)
+            },
+            onPageReady = { webView ->
+                capturePageMediaMetadata(webView)
             },
         ) { webView ->
             injectPageScripts(webView)
@@ -1930,7 +2066,10 @@ class WebTabFragment : BaseWebTabFragment() {
             pageTabProvider,
             fragmentWebTabBinding,
             appUtil,
-            mainActivity
+            mainActivity,
+            onProtectedMediaRequested = {
+                videoDetectionTabViewModel.markProtectedMedia(mediaPageGeneration)
+            }
         )
         customWebChromeClient = chromeClient
 
@@ -3506,8 +3645,27 @@ class WebTabFragment : BaseWebTabFragment() {
     }
 
     private fun navigateToDownloadsWithThumbnail() {
+        capturePageMediaMetadata(webTab.getWebView())
         capturePageThumbnailForDetectedVideos {
             navigateToDownloads()
+        }
+    }
+
+    private fun capturePageMediaMetadata(webView: WebView?) {
+        if (webView == null) return
+        val generation = mediaPageGeneration
+        webView.evaluateJavascript(PAGE_MEDIA_METADATA_SCRIPT) { result ->
+            val payload = decodeJavascriptString(result)
+            if (payload.length > MAX_PAGE_MEDIA_METADATA_PAYLOAD_LENGTH) {
+                AppLogger.d("PAGE_MEDIA_METADATA: ignored oversized payload")
+                return@evaluateJavascript
+            }
+            val metadata = runCatching {
+                PageMediaMetadataParser.parse(payload)
+            }.onFailure {
+                AppLogger.d("PAGE_MEDIA_METADATA: parse failed: ${it.message}")
+            }.getOrNull() ?: return@evaluateJavascript
+            videoDetectionTabViewModel.updatePageMediaMetadata(generation, metadata)
         }
     }
 

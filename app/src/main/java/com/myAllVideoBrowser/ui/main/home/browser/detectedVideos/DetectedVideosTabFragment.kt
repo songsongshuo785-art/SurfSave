@@ -50,7 +50,7 @@ class DetectedVideosTabFragment : BaseFragment() {
         val adapter = detectedVideosTabViewModel?.let {
             candidateFormatListener?.let { it1 ->
                 VideoInfoAdapter(
-                    detectedVideosTabViewModel?.detectedVideosList?.get()?.toList() ?: emptyList(),
+                    detectedVideosTabViewModel?.sortedDetectedVideosList?.get() ?: emptyList(),
                     it,
                     it1,
                     appUtil,
@@ -77,6 +77,7 @@ class DetectedVideosTabFragment : BaseFragment() {
             detectedBackdrop.setOnClickListener { closeDetectedVideos() }
             detectedSheet.setOnClickListener { /* Keep sheet taps from closing the overlay. */ }
             tvCancel.setOnClickListener { closeDetectedVideos() }
+            buttonPlayInWebpage.setOnClickListener { closeDetectedVideos() }
             buttonParsePlaylist.setOnClickListener { parsePlaylistFromCurrentPage() }
             detectedSecondaryActions.visibility =
                 if (shouldShowPlaylistAction(pageUrl)) View.VISIBLE else View.GONE

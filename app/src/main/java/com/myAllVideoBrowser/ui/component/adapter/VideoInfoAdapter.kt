@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.databinding.ItemVideoInfoBinding
+import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.DetectedMediaPresentation
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel
 import com.myAllVideoBrowser.util.AppUtil
 import com.myAllVideoBrowser.util.VideoFormatUi
@@ -108,7 +109,15 @@ class VideoInfoAdapter(
                 sizeTextView.text = bestFormat?.let {
                     VideoFormatUi.details(root.context, it, 0)
                 }.orEmpty()
-                typeTextView.text = typeText
+                val durationText = DetectedMediaPresentation.formatDuration(
+                    durationMs = model.displayDurationMs(info),
+                    isLive = info.isLive,
+                    liveText = root.context.getString(R.string.detected_duration_live),
+                    unknownText = root.context.getString(R.string.detected_duration_unknown)
+                )
+                typeTextView.text = listOf(typeText, durationText)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
                 updateDownloadButton(info)
                 trustTextView.text = buildTrustText(info)
                 videoTitleRenameButton.setOnClickListener {
@@ -294,13 +303,12 @@ class VideoInfoAdapter(
     override fun getItemCount(): Int = videoInfoList.size
 
     fun setData(localVideos: List<VideoInfo>) {
-        val newItems = localVideos.reversed()
         dispatchListDiff(
             oldItems = this.videoInfoList,
-            newItems = newItems,
+            newItems = localVideos,
             areItemsTheSame = { oldItem, newItem -> oldItem.id == newItem.id }
         ) {
-            this.videoInfoList = newItems
+            this.videoInfoList = localVideos
         }
     }
 }

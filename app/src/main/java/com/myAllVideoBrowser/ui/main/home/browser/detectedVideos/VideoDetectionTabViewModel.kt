@@ -108,6 +108,13 @@ open class VideoDetectionTabViewModel @Inject constructor(
     var webTabModel: WebTabViewModel? = null
     lateinit var settingsModel: SettingsViewModel
     val detectedVideosList = ObservableField(setOf<VideoInfo>())
+    val sortedDetectedVideosList = ObservableField<List<VideoInfo>>(emptyList())
+    val hasProtectedMedia = ObservableBoolean(false)
+
+    private val protectedMediaPageTracker = ProtectedMediaPageTracker()
+
+    @Volatile
+    private var pageMediaMetadata = PageMediaMetadata()
 
     val filterRegex =
         Regex("^(.*\\.(apk|html|xml|ico|css|js|png|gif|json|jpg|jpeg|svg|woff|woff2|m3u8|mpd|ts|php|ttf|otf|eot|cur|webp|bmp|tif|tiff|psd|ai|eps|pdf|doc|docx|xls|xlsx|ppt|pptx|csv|md|rtf|vtt|srt|swf|jar|log|txt|m4s))?$")
@@ -221,6 +228,60 @@ open class VideoDetectionTabViewModel @Inject constructor(
         }
     }
 
+    fun beginPageContext(url: String): Long {
+        val snapshot = protectedMediaPageTracker.beginPage(url)
+        runOnMain {
+            if (protectedMediaPageTracker.snapshot().generation != snapshot.generation) {
+                return@runOnMain
+            }
+            pageMediaMetadata = PageMediaMetadata(pageUrl = url)
+            hasProtectedMedia.set(false)
+            sortedDetectedVideosList.set(
+                DetectedMediaPresentation.sort(
+                    detectedVideosList.get().orEmpty().toList(),
+                    pageMediaMetadata
+                )
+            )
+        }
+        return snapshot.generation
+    }
+
+    fun markProtectedMedia(pageGeneration: Long) {
+        val snapshot = protectedMediaPageTracker.markProtectedMedia(pageGeneration) ?: return
+        runOnMain {
+            if (protectedMediaPageTracker.snapshot().generation != snapshot.generation) {
+                return@runOnMain
+            }
+            hasProtectedMedia.set(true)
+            if (detectedVideosList.get().isNullOrEmpty()) {
+                lastDetectionError.set(null)
+                detectionStatusText.set("")
+                hasDetectionStatus.set(false)
+                detectionStatusIsError.set(false)
+            }
+        }
+    }
+
+    fun updatePageMediaMetadata(pageGeneration: Long, metadata: PageMediaMetadata) {
+        if (protectedMediaPageTracker.snapshot().generation != pageGeneration) return
+        runOnMain {
+            if (protectedMediaPageTracker.snapshot().generation != pageGeneration) {
+                return@runOnMain
+            }
+            pageMediaMetadata = metadata
+            sortedDetectedVideosList.set(
+                DetectedMediaPresentation.sort(
+                    detectedVideosList.get().orEmpty().toList(),
+                    metadata
+                )
+            )
+        }
+    }
+
+    fun displayDurationMs(videoInfo: VideoInfo): Long {
+        return DetectedMediaPresentation.displayDurationMs(videoInfo, pageMediaMetadata)
+    }
+
     fun onReloadPage(url: String, userAgentString: String) {
         lastUrl = url
         setDownloadStateNow(DownloadButtonStateCanNotDownload())
@@ -248,6 +309,12 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     override fun showVideoInfo() {
         AppLogger.d("SHOW")
+        if (hasProtectedMedia.get() && detectedVideosList.get().isNullOrEmpty()) {
+            runOnMain {
+                showDetectedVideosEvent.call()
+            }
+            return
+        }
         val state = downloadButtonState.get()
 
         if (state is DownloadButtonStateCanNotDownload) {
@@ -598,6 +665,9 @@ open class VideoDetectionTabViewModel @Inject constructor(
     private fun setDetectedVideosNow(videos: Set<VideoInfo>) {
         runOnMain {
             detectedVideosList.set(videos)
+            sortedDetectedVideosList.set(
+                DetectedMediaPresentation.sort(videos.toList(), pageMediaMetadata)
+            )
             detectedVideosCount.set(videos.size)
             hasDetectedVideos.set(videos.isNotEmpty())
             detectedVideosBadgeText.set(

@@ -273,6 +273,11 @@
     <string name="detection_failed_network">网络或代理异常，请检查连接后重试。</string>
     <string name="detection_failed_auth">可能需要登录。请在当前网页登录后重试。</string>
     <string name="detection_failed_playlist">播放列表解析失败。请直接打开列表页面后重试。</string>
+    <string name="detected_duration_live">直播</string>
+    <string name="detected_duration_unknown">时长未知</string>
+    <string name="drm_detected_title">检测到受保护媒体</string>
+    <string name="drm_detected_message">当前页面使用 DRM 保护媒体。请返回原网页继续观看，以保留登录状态和 Widevine 会话；SurfSave 不为此项目提供下载。</string>
+    <string name="drm_play_in_webpage">在网页中播放</string>
     <string name="download_candidate_section">可用格式</string>
     <string name="settings_general_subtitle">浏览状态、主题和屏幕行为</string>
     <string name="settings_detection_subtitle">控制页面媒体扫描的强度和过滤方式</string>

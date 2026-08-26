@@ -40,6 +40,7 @@ class CustomWebViewClient(
     private val onNavigationStateChanged: () -> Unit = {},
     private val onRenderProcessLost: (WebView?, Boolean) -> Unit = { _, _ -> },
     private val onPageContextStarted: (String, String) -> Unit = { _, _ -> },
+    private val onPageReady: (WebView) -> Unit = {},
     private val injectMediaProbe: (WebView) -> Unit = {}
 ) : WebViewClient() {
     var videoAlert: MaterialAlertDialogBuilder? = null
@@ -65,6 +66,13 @@ class CustomWebViewClient(
         val viewTitle = view?.title
         val title = tabViewModel.currentTitle.get()
         val userAgent = view?.settings?.userAgentString ?: tabViewModel.userAgent.get()
+
+        if (url != null && url != currentPageUrl) {
+            currentPageUrl = url
+            val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+            onPageContextStarted(pageTab.id, url)
+            view?.let(onPageReady)
+        }
 
         if (url != null && lastSavedHistoryUrl != url) {
             videoDetectionModel.onStartPage(
@@ -226,6 +234,7 @@ class CustomWebViewClient(
         currentPageUrl = url
         onNavigationStateChanged()
         injectMediaProbe(view)
+        onPageReady(view)
         tabViewModel.finishPage(url)
     }
 

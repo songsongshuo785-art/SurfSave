@@ -34,6 +34,11 @@
   <string name="detection_failed_network">Network or proxy problem. Check the connection, then retry.</string>
   <string name="detection_failed_auth">Login may be required. Sign in on this page, then retry.</string>
   <string name="detection_failed_playlist">Playlist parsing failed. Open the list page directly, then retry.</string>
+  <string name="detected_duration_live">Live</string>
+  <string name="detected_duration_unknown">Duration unknown</string>
+  <string name="drm_detected_title">Protected media detected</string>
+  <string name="drm_detected_message">This page uses DRM-protected media. Keep watching in the current webpage to preserve its login and Widevine session. SurfSave does not offer a download for this item.</string>
+  <string name="drm_play_in_webpage">Play in webpage</string>
     <string name="dialog_preview_video">Play in SurfSave</string>
     <string name="detected_play_online">Play online</string>
     <string name="player_target_built_in">SurfSave built-in player</string>
