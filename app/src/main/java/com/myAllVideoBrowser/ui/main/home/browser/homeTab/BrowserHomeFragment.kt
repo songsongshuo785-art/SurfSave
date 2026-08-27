@@ -32,6 +32,7 @@ import com.myAllVideoBrowser.ui.main.home.browser.BrowserListener
 import com.myAllVideoBrowser.ui.main.home.browser.MAX_WEB_TABS
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabFactory
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabNavigationPurpose
 import com.myAllVideoBrowser.util.AppUtil
 import com.myAllVideoBrowser.util.UrlInputNormalizer
 import java.util.Locale
@@ -150,15 +151,9 @@ class BrowserHomeFragment : BaseWebTabFragment() {
             this.homeHowItWorksButton.setOnClickListener {
                 showSocialGuide()
             }
-            this.homeSocialGuideDismiss.setOnClickListener {
-                sharedPrefHelper.setHomeSocialGuideDismissed(true)
-                this.homeSocialGuideCard.visibility = View.GONE
-            }
             this.homeAddBookmarkCard.setOnClickListener {
                 showAddBookmarkOptions()
             }
-            this.homeSocialGuideCard.visibility =
-                if (sharedPrefHelper.isHomeSocialGuideDismissed()) View.GONE else View.VISIBLE
             updateHomeTabsButtonContentDescription()
             updateHomeSites()
         }
@@ -184,16 +179,19 @@ class BrowserHomeFragment : BaseWebTabFragment() {
         homeViewModel.start()
         val openingUrl = mainViewModel.openedUrl.get()
         val openingText = mainViewModel.openedText.get()
+        val openingPurpose = mainViewModel.openedNavigationPurpose.get()
+            ?: WebTabNavigationPurpose.NORMAL_BROWSE
 
         if (openingUrl != null) {
-            openNewTab(openingUrl)
+            openNewTab(openingUrl, openingPurpose)
             mainViewModel.openedUrl.set(null)
         }
 
         if (openingText != null) {
-            openNewTab(openingText)
+            openNewTab(openingText, openingPurpose)
             mainViewModel.openedText.set(null)
         }
+        mainViewModel.openedNavigationPurpose.set(WebTabNavigationPurpose.NORMAL_BROWSE)
     }
 
     // Bug fix for not updating home page grid after adding new bookmark
@@ -208,12 +206,21 @@ class BrowserHomeFragment : BaseWebTabFragment() {
         }
     }
 
-    private fun openNewTab(input: String) {
+    private fun openNewTab(
+        input: String,
+        navigationPurpose: WebTabNavigationPurpose = WebTabNavigationPurpose.NORMAL_BROWSE
+    ) {
         if (input.isNotEmpty()) {
             browserServicesProvider.getOpenTabEvent().value =
                 WebTabFactory.createWebTabFromInput(
                     input,
-                    searchUrlPattern = sharedPrefHelper.getSearchUrlPattern()
+                    searchUrlPattern = sharedPrefHelper.getSearchUrlPattern(),
+                    initialTitle = if (navigationPurpose == WebTabNavigationPurpose.MEDIA_IMPORT) {
+                        getString(R.string.media_import_tab_title)
+                    } else {
+                        null
+                    },
+                    navigationPurpose = navigationPurpose
                 )
         }
     }
@@ -258,7 +265,7 @@ class BrowserHomeFragment : BaseWebTabFragment() {
         }
 
         binding.homeEtSearch.text?.clear()
-        openNewTab(input)
+        openNewTab(input, WebTabNavigationPurpose.MEDIA_IMPORT)
     }
 
     private fun showSocialGuide() {

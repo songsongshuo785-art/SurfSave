@@ -85,7 +85,7 @@ SurfSave也是我Vibe Coding尝试的一个项目。当前各方各面略显粗�
 ## 下载与安装
 
 - **下载 APK**：[GitHub Releases](https://github.com/songsongshuo785-art/SurfSave/releases)
-- **当前源码版本**：`v0.8.30`
+- **当前源码版本**：`v0.8.31`
 - **系统要求**：Android 7.0+（API 24）
 
 ### 选择哪个 APK？

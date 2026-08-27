@@ -106,6 +106,10 @@ import com.myAllVideoBrowser.util.BrowserThumbnailStore
 import com.myAllVideoBrowser.util.FileNameCleaner
 import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
 import com.myAllVideoBrowser.util.VideoFormatUi
+import com.myAllVideoBrowser.util.telegram.TelegramPostResolver
+import com.myAllVideoBrowser.util.telegram.TelegramPostUrl
+import com.myAllVideoBrowser.util.telegram.TelegramImportSession
+import com.myAllVideoBrowser.util.telegram.TelegramDownloadPolicy
 import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import kotlinx.coroutines.Dispatchers
@@ -1093,6 +1097,9 @@ class WebTabFragment : BaseWebTabFragment() {
     @Inject
     lateinit var okHttpProxyClient: OkHttpProxyClient
 
+    @Inject
+    lateinit var telegramPostResolver: TelegramPostResolver
+
     private lateinit var dataBinding: FragmentWebTabBinding
 
     private lateinit var tabManagerProvider: TabManagerProvider
@@ -1145,6 +1152,8 @@ class WebTabFragment : BaseWebTabFragment() {
     }
     private var thumbnailJob: Job? = null
     private var playerRecoveryJob: Job? = null
+    private var telegramResolveJob: Job? = null
+    private lateinit var telegramImportSession: TelegramImportSession
     private var thumbnailTransitionInProgress = false
     private var tabCloseCaptureInProgress = false
     private var mediaProbeScriptHandler: ScriptHandler? = null
@@ -1228,9 +1237,19 @@ class WebTabFragment : BaseWebTabFragment() {
         tabViewModel.thisTabIndex.set(thisTabIndex)
 
         webTab = pageTabProvider.getPageTab(thisTabIndex)
+        telegramImportSession = TelegramImportSession(
+            autoOpenRequested = webTab.navigationPurpose == WebTabNavigationPurpose.MEDIA_IMPORT
+        )
         videoDetectionTabViewModel.initialUrl = webTab.getUrl()
         mediaPageGeneration = videoDetectionTabViewModel.beginPageContext(
             webTab.getWebView()?.url ?: webTab.getUrl()
+        )
+        telegramImportSession.beginPage(
+            mediaPageGeneration,
+            webTab.getWebView()?.url ?: webTab.getUrl()
+        )
+        videoDetectionTabViewModel.setMediaImportContext(
+            telegramImportSession.isMediaImportPage()
         )
 
         AppLogger.d("onCreate Webview::::::::: ${webTab.getUrl()} $savedInstanceState")
@@ -1601,6 +1620,7 @@ class WebTabFragment : BaseWebTabFragment() {
 
     override fun onDestroyView() {
         cancelTranslationWork()
+        telegramResolveJob?.cancel()
         videoDetectionTabViewModel.downloadButtonState.removeOnPropertyChangedCallback(
             downloadButtonStateCallback
         )
@@ -1992,12 +2012,17 @@ class WebTabFragment : BaseWebTabFragment() {
     private fun onVideoDownloadPropagate(
         videoInfo: VideoInfo, videoTitle: String, format: String
     ) {
+        val selectedFormat = VideoFormatUi.findFormat(videoInfo, format)
+            ?: videoInfo.formats.formats.firstOrNull()
         val info = videoInfo.copy(
             id = UUID.randomUUID().toString(),
             title = FileNameCleaner.cleanFileName(videoTitle),
             formats = VideFormatEntityList(
-                listOfNotNull(VideoFormatUi.findFormat(videoInfo, format))
-                    .ifEmpty { videoInfo.formats.formats.take(1) }
+                listOfNotNull(
+                    selectedFormat?.let {
+                        TelegramDownloadPolicy.prepareFormatForQueue(videoInfo.originalUrl, it)
+                    }
+                )
             )
         )
 
@@ -2050,10 +2075,12 @@ class WebTabFragment : BaseWebTabFragment() {
             onPageContextStarted = { tabId, pageUrl ->
                 onTranslationNavigationStarted()
                 mediaPageGeneration = videoDetectionTabViewModel.beginPageContext(pageUrl)
+                onTelegramNavigationStarted(pageUrl)
                 tabManagerProvider.onTabNavigationStarted(tabId, pageUrl)
             },
             onPageReady = { webView ->
                 capturePageMediaMetadata(webView)
+                maybeResolveTelegramPost(webView)
             },
         ) { webView ->
             injectPageScripts(webView)
@@ -3667,6 +3694,72 @@ class WebTabFragment : BaseWebTabFragment() {
             }.getOrNull() ?: return@evaluateJavascript
             videoDetectionTabViewModel.updatePageMediaMetadata(generation, metadata)
         }
+    }
+
+    private fun onTelegramNavigationStarted(pageUrl: String) {
+        telegramResolveJob?.cancel()
+        telegramResolveJob = null
+        telegramImportSession.beginPage(mediaPageGeneration, pageUrl)
+        videoDetectionTabViewModel.setMediaImportContext(telegramImportSession.isMediaImportPage())
+    }
+
+    private fun maybeResolveTelegramPost(webView: WebView) {
+        val currentUrl = webView.url ?: webTab.getUrl()
+        val post = TelegramPostUrl.parse(currentUrl) ?: return
+        val generation = mediaPageGeneration
+        if (telegramResolveJob?.isActive == true) return
+        val token = telegramImportSession.startResolution(generation, currentUrl) ?: return
+
+        videoDetectionTabViewModel.showDetectionNotice(R.string.telegram_post_resolving)
+        telegramResolveJob = viewLifecycleOwner.lifecycleScope.launch {
+            val result = try {
+                withContext(Dispatchers.IO) {
+                    telegramPostResolver.resolve(post)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                val published = telegramImportSession.publishIfCurrent(
+                    token,
+                    generation,
+                    webView.url ?: ""
+                )
+                if (!published) {
+                    return@launch
+                }
+                videoDetectionTabViewModel.showDetectionError(error)
+                openImportedMediaDetailsOnce()
+                return@launch
+            }
+
+            val isMediaImport = telegramImportSession.isMediaImportPage()
+            val published = telegramImportSession.publishIfCurrent(
+                token,
+                generation,
+                webView.url ?: ""
+            )
+            if (!published) {
+                return@launch
+            }
+            videoDetectionTabViewModel.applyTelegramPostResolution(
+                generation,
+                result,
+                notifyVideoPushed = !isMediaImport
+            )
+            openImportedMediaDetailsOnce()
+        }
+    }
+
+    private fun openImportedMediaDetailsOnce() {
+        if (!isAdded || !telegramImportSession.consumeAutoOpen()) return
+        clearMediaImportPurpose()
+        navigateToDownloadsWithThumbnail()
+    }
+
+    private fun clearMediaImportPurpose() {
+        webTab.navigationPurpose = WebTabNavigationPurpose.NORMAL_BROWSE
+        pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get()).navigationPurpose =
+            WebTabNavigationPurpose.NORMAL_BROWSE
     }
 
     private fun capturePageThumbnailForDetectedVideos(onComplete: () -> Unit) {

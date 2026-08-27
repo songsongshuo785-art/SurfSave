@@ -8,17 +8,13 @@
   <string name="press_back_again_to_exit">Press back again to exit</string>
   <string name="browser_primary_action">Paste a link or keep browsing.</string>
   <string name="home_social_downloads_title">Common sites</string>
-  <string name="home_paste_link">Paste Link</string>
+  <string name="home_link_import_title">Post or video link</string>
+  <string name="home_link_import_description">Paste a public post or video link from Telegram, TikTok, X, Instagram, and more.</string>
+  <string name="home_paste_and_open">Paste and open</string>
   <string name="home_paste_link_empty">No usable link found in the clipboard.</string>
   <string name="home_how_it_works">How It Works</string>
-  <string name="home_hide_guide">Hide guide</string>
   <string name="home_social_guide_title">Use SurfSave with social apps</string>
-  <string name="home_social_guide_message">1. Copy the post or video link and return to %1$s.\n\n2. Or use the share action in TikTok, X, Instagram, or Facebook and send the page to %1$s.\n\n3. %1$s opens the link in a tab and continues with the existing detection and download flow.</string>
-  <string name="home_social_steps_title">How to download from social apps</string>
-  <string name="home_social_step_number_one" translatable="false">1</string>
-  <string name="home_social_step_number_two" translatable="false">2</string>
-  <string name="home_social_step_copy">Copy a post or video link, then paste it into SurfSave.</string>
-  <string name="home_social_step_share">Or share the page into SurfSave and continue downloading in a new browser tab.</string>
+  <string name="home_social_guide_message">1. Copy a public Telegram post or another post/video link, then tap “Paste and open.”\n\n2. Or use Share in Telegram, TikTok, X, Instagram, or Facebook and send the link to %1$s.\n\n3. %1$s opens the real page in a browser tab. Supported public Telegram posts are resolved into preview, play, and download actions; other sites continue through the normal media detection flow.</string>
   <string name="title_video">Video</string>
   <string name="title_progress">Progress</string>
   <string name="title_settings">Settings</string>
@@ -26,6 +22,13 @@
   <string name="progress_subtitle">Active downloads and recovery controls</string>
   <string name="video_library_subtitle">Downloaded videos ready to watch or share</string>
   <string name="detected_videos_title">Videos on this page</string>
+  <string name="media_import_tab_title">Shared content</string>
+  <string name="media_import_panel_title">Shared content</string>
+  <string name="telegram_post_resolving">Reading this public Telegram post…</string>
+  <string name="telegram_post_media_summary">%1$d media items · %2$d playable</string>
+  <string name="telegram_post_poster_only_message">Telegram exposed a cover for part of this post, but no public media address. Those items cannot be played or downloaded in SurfSave.</string>
+  <string name="telegram_open_in_app">Open in Telegram</string>
+  <string name="telegram_open_failed">No app can open this Telegram post.</string>
   <string name="detected_videos_unavailable">Detection panel is unavailable. Try reopening the page.</string>
   <string name="detection_status_checking">Checking this page for media…</string>
   <string name="detection_status_empty">No video found yet. Start playback, wait a few seconds, then re-detect.</string>

@@ -1,5 +1,8 @@
 package com.myAllVideoBrowser.ui.main.home.browser.detectedVideos
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -19,6 +22,7 @@ import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.ui.main.home.MainActivity
 import com.myAllVideoBrowser.ui.main.progress.WrapContentLinearLayoutManager
 import com.myAllVideoBrowser.util.AppUtil
+import com.myAllVideoBrowser.util.telegram.TelegramPostUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -78,6 +82,7 @@ class DetectedVideosTabFragment : BaseFragment() {
             detectedSheet.setOnClickListener { /* Keep sheet taps from closing the overlay. */ }
             tvCancel.setOnClickListener { closeDetectedVideos() }
             buttonPlayInWebpage.setOnClickListener { closeDetectedVideos() }
+            buttonOpenTelegramPost.setOnClickListener { openTelegramPost() }
             buttonParsePlaylist.setOnClickListener { parsePlaylistFromCurrentPage() }
             detectedSecondaryActions.visibility =
                 if (shouldShowPlaylistAction(pageUrl)) View.VISIBLE else View.GONE
@@ -152,6 +157,34 @@ class DetectedVideosTabFragment : BaseFragment() {
         }
 
         parentFragmentManager.popBackStack()
+    }
+
+    private fun openTelegramPost() {
+        val url = detectedVideosTabViewModel?.telegramPostOpenUrl?.get().orEmpty()
+        if (!url.startsWith("http", ignoreCase = true)) return
+
+        val post = TelegramPostUrl.parse(url)
+        val telegramIntent = post?.let {
+            Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse("tg://resolve?domain=${it.channel}&post=${it.messageId}")
+            )
+        }
+        try {
+            if (telegramIntent != null &&
+                telegramIntent.resolveActivity(requireContext().packageManager) != null
+            ) {
+                startActivity(telegramIntent)
+            } else {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            }
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(requireContext(), R.string.telegram_open_failed, Toast.LENGTH_SHORT)
+                .show()
+        } catch (_: SecurityException) {
+            Toast.makeText(requireContext(), R.string.telegram_open_failed, Toast.LENGTH_SHORT)
+                .show()
+        }
     }
 
     private fun sourceLabel(url: String): String {

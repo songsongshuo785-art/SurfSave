@@ -30,6 +30,7 @@ import com.myAllVideoBrowser.util.CookieUtils
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.util.UserFacingError
 import com.myAllVideoBrowser.util.VideoFormatUi
+import com.myAllVideoBrowser.util.telegram.TelegramPostResolution
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import com.myAllVideoBrowser.util.scheduler.BaseSchedulers
 import io.reactivex.rxjava3.disposables.Disposable
@@ -76,6 +77,17 @@ open class VideoDetectionTabViewModel @Inject constructor(
             "policy",
             "range"
         )
+
+        internal fun mergeTelegramResolvedVideo(
+            existing: VideoInfo,
+            resolved: VideoInfo
+        ): VideoInfo {
+            return resolved.copy(
+                id = existing.id,
+                thumbnail = resolved.thumbnail.ifBlank { existing.thumbnail },
+                duration = maxOf(existing.duration, resolved.duration)
+            )
+        }
     }
 
     // key: videoInfo.id, value: format - string
@@ -110,8 +122,21 @@ open class VideoDetectionTabViewModel @Inject constructor(
     val detectedVideosList = ObservableField(setOf<VideoInfo>())
     val sortedDetectedVideosList = ObservableField<List<VideoInfo>>(emptyList())
     val hasProtectedMedia = ObservableBoolean(false)
+    val detectedPanelTitle = ObservableField<String>()
+    val hasTelegramPostPreview = ObservableBoolean(false)
+    val hasTelegramDescription = ObservableBoolean(false)
+    val hasTelegramThumbnail = ObservableBoolean(false)
+    val hasTelegramPosterOnlyMedia = ObservableBoolean(false)
+    val telegramPostChannel = ObservableField("")
+    val telegramPostDescription = ObservableField("")
+    val telegramPostThumbnail = ObservableField("")
+    val telegramPostMediaSummary = ObservableField("")
+    val telegramPostOpenUrl = ObservableField("")
 
     private val protectedMediaPageTracker = ProtectedMediaPageTracker()
+
+    @Volatile
+    private var telegramVideoOrder: List<String> = emptyList()
 
     @Volatile
     private var pageMediaMetadata = PageMediaMetadata()
@@ -181,6 +206,9 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     override fun start() {
         AppLogger.d("START")
+        if (detectedPanelTitle.get().isNullOrBlank()) {
+            setMediaImportContext(false)
+        }
         regularLoadingList.addOnPropertyChangedCallback(regularLoadingListCallback)
         m3u8LoadingList.addOnPropertyChangedCallback(m3u8LoadingListCallback)
         downloadButtonState.addOnPropertyChangedCallback(downloadButtonStateCallback)
@@ -236,14 +264,98 @@ open class VideoDetectionTabViewModel @Inject constructor(
             }
             pageMediaMetadata = PageMediaMetadata(pageUrl = url)
             hasProtectedMedia.set(false)
-            sortedDetectedVideosList.set(
-                DetectedMediaPresentation.sort(
-                    detectedVideosList.get().orEmpty().toList(),
-                    pageMediaMetadata
+            clearTelegramPostStateNow()
+            sortedDetectedVideosList.set(sortDetectedVideos(detectedVideosList.get().orEmpty()))
+        }
+        return snapshot.generation
+    }
+
+    fun setMediaImportContext(isMediaImport: Boolean) {
+        val context = ContextUtils.getApplicationContext()
+        runOnMain {
+            detectedPanelTitle.set(
+                context.getString(
+                    if (isMediaImport) R.string.media_import_panel_title
+                    else R.string.detected_videos_title
                 )
             )
         }
-        return snapshot.generation
+    }
+
+    fun applyTelegramPostResolution(
+        pageGeneration: Long,
+        resolution: TelegramPostResolution,
+        notifyVideoPushed: Boolean = true
+    ) {
+        if (protectedMediaPageTracker.snapshot().generation != pageGeneration) return
+        runOnMain {
+            if (protectedMediaPageTracker.snapshot().generation != pageGeneration) {
+                return@runOnMain
+            }
+
+            val context = ContextUtils.getApplicationContext()
+            val preview = resolution.preview
+            telegramPostChannel.set(
+                preview.channel.ifBlank {
+                    runCatching { URI(preview.postUrl).path.substringBeforeLast('/') }
+                        .getOrDefault("")
+                        .substringAfterLast('/')
+                        .let { channel -> if (channel.isBlank()) "Telegram" else "@$channel" }
+                }
+            )
+            telegramPostDescription.set(preview.description)
+            hasTelegramDescription.set(preview.description.isNotBlank())
+            telegramPostThumbnail.set(preview.thumbnail)
+            hasTelegramThumbnail.set(preview.thumbnail.isNotBlank())
+            telegramPostOpenUrl.set(preview.postUrl)
+            telegramPostMediaSummary.set(
+                context.getString(
+                    R.string.telegram_post_media_summary,
+                    preview.items.size,
+                    preview.playableCount
+                )
+            )
+            hasTelegramPosterOnlyMedia.set(preview.posterOnlyCount > 0)
+            hasTelegramPostPreview.set(true)
+
+            var detected = detectedVideosList.get().orEmpty()
+            val orderedIds = mutableListOf<String>()
+            val resolvedSelections = selectedFormats.get().orEmpty().toMutableMap()
+            var lastResolvedVideo: VideoInfo? = null
+            resolution.videos.forEach { newInfo ->
+                val duplicate = detected.firstOrNull { isVideoInfoDuplicate(it, newInfo) }
+                val resolved = if (duplicate == null) {
+                    newInfo
+                } else {
+                    mergeTelegramResolvedVideo(duplicate, newInfo).also {
+                        detected = detected - duplicate
+                    }
+                }
+                detected = detected + resolved
+                orderedIds += resolved.id
+                lastResolvedVideo = resolved
+                VideoFormatUi.defaultSelectionKey(resolved)
+                    .takeUnless { it == "unknown" }
+                    ?.let { resolvedSelections[resolved.id] = it }
+            }
+            telegramVideoOrder = orderedIds
+            selectedFormats.set(resolvedSelections)
+            setDetectedVideosNow(detected)
+
+            if (lastResolvedVideo != null) {
+                setButtonState(DownloadButtonStateCanDownload(lastResolvedVideo))
+                clearDetectionStatus()
+                if (notifyVideoPushed) {
+                    videoPushedEvent.call()
+                }
+            } else {
+                setButtonState(DownloadButtonStateCanNotDownload())
+                setDetectionStatus(
+                    context.getString(R.string.telegram_post_poster_only_message),
+                    isError = false
+                )
+            }
+        }
     }
 
     fun markProtectedMedia(pageGeneration: Long) {
@@ -269,12 +381,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 return@runOnMain
             }
             pageMediaMetadata = metadata
-            sortedDetectedVideosList.set(
-                DetectedMediaPresentation.sort(
-                    detectedVideosList.get().orEmpty().toList(),
-                    metadata
-                )
-            )
+            sortedDetectedVideosList.set(sortDetectedVideos(detectedVideosList.get().orEmpty()))
         }
     }
 
@@ -309,7 +416,9 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     override fun showVideoInfo() {
         AppLogger.d("SHOW")
-        if (hasProtectedMedia.get() && detectedVideosList.get().isNullOrEmpty()) {
+        if ((hasProtectedMedia.get() || hasTelegramPostPreview.get()) &&
+            detectedVideosList.get().isNullOrEmpty()
+        ) {
             runOnMain {
                 showDetectedVideosEvent.call()
             }
@@ -665,9 +774,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
     private fun setDetectedVideosNow(videos: Set<VideoInfo>) {
         runOnMain {
             detectedVideosList.set(videos)
-            sortedDetectedVideosList.set(
-                DetectedMediaPresentation.sort(videos.toList(), pageMediaMetadata)
-            )
+            sortedDetectedVideosList.set(sortDetectedVideos(videos))
             detectedVideosCount.set(videos.size)
             hasDetectedVideos.set(videos.isNotEmpty())
             detectedVideosBadgeText.set(
@@ -684,6 +791,31 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 detectionStatusIsError.set(false)
             }
         }
+    }
+
+    private fun sortDetectedVideos(videos: Set<VideoInfo>): List<VideoInfo> {
+        val sorted = DetectedMediaPresentation.sort(videos.toList(), pageMediaMetadata)
+        if (telegramVideoOrder.isEmpty()) return sorted
+
+        val telegramRank = telegramVideoOrder.withIndex().associate { it.value to it.index }
+        val fallbackRank = sorted.withIndex().associate { it.value.id to it.index }
+        return sorted.sortedWith(
+            compareBy<VideoInfo> { telegramRank[it.id] ?: Int.MAX_VALUE }
+                .thenBy { fallbackRank[it.id] ?: Int.MAX_VALUE }
+        )
+    }
+
+    private fun clearTelegramPostStateNow() {
+        telegramVideoOrder = emptyList()
+        hasTelegramPostPreview.set(false)
+        hasTelegramDescription.set(false)
+        hasTelegramThumbnail.set(false)
+        hasTelegramPosterOnlyMedia.set(false)
+        telegramPostChannel.set("")
+        telegramPostDescription.set("")
+        telegramPostThumbnail.set("")
+        telegramPostMediaSummary.set("")
+        telegramPostOpenUrl.set("")
     }
 
     private fun setRegularLoadingSet(loadings: Set<String>) {

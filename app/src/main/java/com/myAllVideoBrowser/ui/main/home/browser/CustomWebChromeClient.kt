@@ -185,7 +185,8 @@ class CustomWebChromeClient(
             pageTab.getPageThumbnailPath(),
             headers,
             view,
-            id = pageTab.id
+            id = pageTab.id,
+            navigationPurpose = pageTab.navigationPurpose
         )
         updateTabEvent.value = updateTab
     }
@@ -202,7 +203,8 @@ class CustomWebChromeClient(
             pageTab.getPageThumbnailPath(),
             headers,
             view,
-            id = pageTab.id
+            id = pageTab.id,
+            navigationPurpose = pageTab.navigationPurpose
         )
         tabViewModel.currentTitle.set(title.orEmpty())
         tabViewModel.refreshBrowseText(view?.url ?: pageTab.getUrl(), title)

@@ -70,7 +70,6 @@ class SharedPrefHelper @Inject constructor(
         private const val SEARCH_ENGINE = "SEARCH_ENGINE"
         private const val DOWNLOAD_FILENAME_TEMPLATE = "DOWNLOAD_FILENAME_TEMPLATE"
         private const val HOME_DEFAULT_SITES_MIGRATED = "HOME_DEFAULT_SITES_MIGRATED"
-        private const val HOME_SOCIAL_GUIDE_DISMISSED = "HOME_SOCIAL_GUIDE_DISMISSED"
         val DEFAULT_SEARCH_ENGINE = SearchEngine.BAIDU
     }
 
@@ -593,16 +592,6 @@ class SharedPrefHelper @Inject constructor(
     fun setHasMigratedHomeDefaultSites(hasMigrated: Boolean) {
         sharedPreferences.edit {
             putBoolean(HOME_DEFAULT_SITES_MIGRATED, hasMigrated)
-        }
-    }
-
-    fun isHomeSocialGuideDismissed(): Boolean {
-        return sharedPreferences.getBoolean(HOME_SOCIAL_GUIDE_DISMISSED, false)
-    }
-
-    fun setHomeSocialGuideDismissed(isDismissed: Boolean) {
-        sharedPreferences.edit {
-            putBoolean(HOME_SOCIAL_GUIDE_DISMISSED, isDismissed)
         }
     }
 

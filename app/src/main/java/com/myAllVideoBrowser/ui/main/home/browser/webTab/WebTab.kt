@@ -7,6 +7,11 @@ import android.os.Message
 import android.webkit.WebView
 import java.util.UUID
 
+enum class WebTabNavigationPurpose {
+    NORMAL_BROWSE,
+    MEDIA_IMPORT
+}
+
 class WebTab(
     private val url: String,
     private val title: String?,
@@ -18,7 +23,8 @@ class WebTab(
     private var resultMsg: Message? = null,
     private var savedState: Bundle? = null,
     var lastActiveAt: Long = System.currentTimeMillis(),
-    var id: String = UUID.randomUUID().toString()
+    var id: String = UUID.randomUUID().toString(),
+    var navigationPurpose: WebTabNavigationPurpose = WebTabNavigationPurpose.NORMAL_BROWSE
 ) {
 
     companion object {
@@ -109,7 +115,8 @@ class WebTab(
         resultMsg: Message? = this.resultMsg,
         savedState: Bundle? = this.savedState,
         lastActiveAt: Long = this.lastActiveAt,
-        id: String = this.id
+        id: String = this.id,
+        navigationPurpose: WebTabNavigationPurpose = this.navigationPurpose
     ): WebTab {
         val stateCopy = savedState?.let { Bundle(it) }
         return WebTab(
@@ -123,7 +130,8 @@ class WebTab(
             resultMsg,
             stateCopy,
             lastActiveAt,
-            id
+            id,
+            navigationPurpose
         )
     }
 
@@ -133,7 +141,7 @@ class WebTab(
 
 
     override fun toString(): String {
-        return "WebTab(url='$url', title=$title, iconBytes=$iconBytes, pageThumbnail=$pageThumbnail, headers=$headers, webview=$webview, resultMsg=$resultMsg, hasSavedState=${savedState != null}, lastActiveAt=$lastActiveAt, id='$id')"
+        return "WebTab(url='$url', title=$title, iconBytes=$iconBytes, pageThumbnail=$pageThumbnail, headers=$headers, webview=$webview, resultMsg=$resultMsg, hasSavedState=${savedState != null}, lastActiveAt=$lastActiveAt, id='$id', navigationPurpose=$navigationPurpose)"
     }
 
     override fun equals(other: Any?): Boolean {
@@ -152,6 +160,7 @@ class WebTab(
         if (resultMsg != other.resultMsg) return false
         if (lastActiveAt != other.lastActiveAt) return false
         if (id != other.id) return false
+        if (navigationPurpose != other.navigationPurpose) return false
 
         return true
     }
@@ -167,6 +176,7 @@ class WebTab(
         result = 31 * result + (resultMsg?.hashCode() ?: 0)
         result = 31 * result + lastActiveAt.hashCode()
         result = 31 * result + id.hashCode()
+        result = 31 * result + navigationPurpose.hashCode()
         return result
     }
 }

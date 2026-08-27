@@ -30,6 +30,7 @@ import com.myAllVideoBrowser.migration.MigrationStateStore
 import com.myAllVideoBrowser.ui.component.adapter.MainAdapter
 import com.myAllVideoBrowser.ui.main.base.BaseActivity
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabFactory
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabNavigationPurpose
 import com.myAllVideoBrowser.ui.main.migration.MigrationCenterFragment
 import com.myAllVideoBrowser.ui.main.progress.ProgressViewModel
 import com.myAllVideoBrowser.ui.main.proxies.ProxiesViewModel
@@ -215,6 +216,11 @@ class MainActivity : BaseActivity() {
 
     private fun handleIncomingContent(intent: Intent?): Boolean {
         val input = extractIncomingInput(intent) ?: return false
+        val navigationPurpose = if (intent?.action == Intent.ACTION_SEND) {
+            WebTabNavigationPurpose.MEDIA_IMPORT
+        } else {
+            WebTabNavigationPurpose.NORMAL_BROWSE
+        }
 
         dataBinding.viewPager.currentItem = 0
         mainViewModel.currentItem.set(0)
@@ -223,14 +229,23 @@ class MainActivity : BaseActivity() {
         if (provider != null) {
             provider.getOpenTabEvent().value = WebTabFactory.createWebTabFromInput(
                 input,
-                searchUrlPattern = sharedPrefHelper.getSearchUrlPattern()
+                searchUrlPattern = sharedPrefHelper.getSearchUrlPattern(),
+                initialTitle = if (navigationPurpose == WebTabNavigationPurpose.MEDIA_IMPORT) {
+                    getString(R.string.media_import_tab_title)
+                } else {
+                    null
+                },
+                navigationPurpose = navigationPurpose
             )
             mainViewModel.openedUrl.set(null)
             mainViewModel.openedText.set(null)
+            mainViewModel.openedNavigationPurpose.set(WebTabNavigationPurpose.NORMAL_BROWSE)
         } else if (isProbablyUrl(input)) {
             mainViewModel.openedUrl.set(input)
+            mainViewModel.openedNavigationPurpose.set(navigationPurpose)
         } else {
             mainViewModel.openedText.set(input)
+            mainViewModel.openedNavigationPurpose.set(navigationPurpose)
         }
 
         return true

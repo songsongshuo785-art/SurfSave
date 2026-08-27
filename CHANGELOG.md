@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.8.31] - 2026-08-27
+
+### Added
+- Added limited import support for public Telegram post links shared or pasted into SurfSave. Posts whose anonymous Telegram web preview exposes direct video media can reuse the existing playback, media-detail, and download queue flows.
+- Added a Telegram post summary state with channel, description, media counts, poster-only handling, and an explicit action to open the post in Telegram.
+- Added page-metadata-aware media ranking and duration labels so the likely main video is easier to find on pages with many detected requests.
+
+### Changed
+- Consolidated the home-page paste action and usage guide into a single compact post-or-video link panel.
+- Kept one-shot media imports isolated from normal browser tabs and discarded stale resolver results after navigation.
+
+### Fixed
+- Preserved stable Telegram post URLs for download-time re-extraction instead of persisting temporary CDN URLs and request headers in the queue.
+- Added a clear web-playback action when a page exposes protected media state but no transferable media URL.
+
+### Limitations
+- Telegram import is intentionally anonymous and only works when Telegram exposes media through its public web preview. Posts that show only “Please open Telegram to view this post” cannot be played or downloaded by SurfSave and must be opened in Telegram.
+
 ## [0.8.30] - 2026-08-24
 
 ### Added

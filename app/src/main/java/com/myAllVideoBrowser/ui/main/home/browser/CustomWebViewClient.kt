@@ -202,7 +202,8 @@ class CustomWebViewClient(
             pageTab.getPageThumbnailPath(),
             headers,
             view,
-            id = pageTab.id
+            id = pageTab.id,
+            navigationPurpose = pageTab.navigationPurpose
         )
         tabViewModel.onStartPage(url, view.title)
     }

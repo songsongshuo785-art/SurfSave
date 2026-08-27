@@ -50,6 +50,7 @@ import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTab
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabFactory
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabFragment
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabThumbnailCapture
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabNavigationPurpose
 import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
 import com.myAllVideoBrowser.util.*
 import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
@@ -645,7 +646,11 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         val currentIndex = browserViewModel.currentTab.get()
         val wasSelected = currentIndex == index
         tabToClose?.saveWebViewState()
-        val snapshotTab = tabToClose?.copyWith(pageThumbnail = null, webview = null) ?: return
+        val snapshotTab = tabToClose?.copyWith(
+            pageThumbnail = null,
+            webview = null,
+            navigationPurpose = WebTabNavigationPurpose.NORMAL_BROWSE
+        ) ?: return
         detachAndDestroyWebView(tabToClose.getWebView())
         tabToClose.setWebView(null)
         tabs.removeAt(index)

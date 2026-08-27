@@ -10,6 +10,7 @@ import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.data.repository.TopPagesRepository
 import com.myAllVideoBrowser.ui.main.base.BaseViewModel
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserServicesProvider
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabNavigationPurpose
 import com.myAllVideoBrowser.util.FaviconUtils
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
@@ -30,6 +31,8 @@ class MainViewModel @Inject constructor(
     val openedUrl = ObservableField<String?>()
 
     val openedText = ObservableField<String?>()
+
+    val openedNavigationPurpose = ObservableField(WebTabNavigationPurpose.NORMAL_BROWSE)
 
     val isBrowserCurrent = ObservableBoolean(false)
 

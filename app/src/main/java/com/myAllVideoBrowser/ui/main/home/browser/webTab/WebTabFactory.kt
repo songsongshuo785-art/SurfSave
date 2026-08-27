@@ -8,16 +8,19 @@ class WebTabFactory {
         fun createWebTabFromInput(
             input: String,
             locale: Locale = Locale.getDefault(),
-            searchUrlPattern: String = UrlInputNormalizer.defaultSearchUrlPattern(locale)
+            searchUrlPattern: String = UrlInputNormalizer.defaultSearchUrlPattern(locale),
+            initialTitle: String? = null,
+            navigationPurpose: WebTabNavigationPurpose = WebTabNavigationPurpose.NORMAL_BROWSE
         ): WebTab {
             if (input.isNotBlank()) {
                 return WebTab(
                     UrlInputNormalizer.toLoadableUrlOrSearch(input, searchUrlPattern),
+                    initialTitle,
                     null,
                     null,
                     null,
-                    null,
-                    emptyMap()
+                    emptyMap(),
+                    navigationPurpose = navigationPurpose
                 )
             }
 

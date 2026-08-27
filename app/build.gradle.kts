@@ -51,9 +51,10 @@ val skipGoBuild = (project.findProperty("SKIP_GO_BUILD")?.toString()
 val abiFilterList = (project.findProperty("ABI_FILTERS") as? String ?: "").split(';')
 // Release version codes share the epoch-second range used by diagnostic builds. Before
 // publishing a tag, this value must be greater than every APK distributed so far; ABI
-// split offsets 0..4 are added below. v0.8.30 is above all known v0.8.28/0.8.29 builds.
-val baseVersionCode = 1_787_590_000
-val baseVersionName = "0.8.30"
+// split offsets 0..4 are added below. v0.8.31 remains above all previously
+// distributed builds and the release commit timestamp checked by CI.
+val baseVersionCode = 1_787_900_000
+val baseVersionName = "0.8.31"
 val exportStamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
 // diagnostic versionCode 默认用秒级时间戳递增：每次构建版本号不同，覆盖安装（同
 // applicationId+签名）能识别为新版并保留数据，无需卸载重装。秒时间戳 2026 年 ~1.78e9 < 2.1e9 上限。
