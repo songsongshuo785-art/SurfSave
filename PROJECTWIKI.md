@@ -196,6 +196,7 @@ sequenceDiagram
 ## 10. 维护建议
 
 - **构建**：使用 `SKIP_GO_BUILD=true` 跳过 Go 库编译以加快日常 UI 调试；正式发布前必须完整构建。
+- **发布**：使用 `Build-ReleaseCandidate.ps1` 在 GitHub 只构建一次正式签名候选，候选下载到既有 `app/build/outputs/apk/release/` 验收；通过后用 `Publish-ReleaseCandidate.ps1` 按清单和 SHA-256 原样晋级，禁止标签触发二次构建。
 - **测试**：运行 `testDiagnosticUnitTest` 与 `lintDiagnostic` 作为回归闸门。
 - **UI 变更**：任何布局/主题变更必须同步更新 `PROJECTWIKI.md` 设计系统章节与 `CHANGELOG.md`。
 - **深色模式**：新增颜色必须同时在 `values/colors.xml` 与 `values-night/colors.xml` 定义语义 token。

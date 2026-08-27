@@ -1,0 +1,285 @@
+name: Promote release candidate
+run-name: Promote ${{ inputs.release_tag }} from candidate ${{ inputs.candidate_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful Build signed release candidate workflow run ID
+        required: true
+        type: string
+      release_tag:
+        description: Version tag recorded in the candidate manifest
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: release-promotion-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_SIGNING_CERT_SHA256: c33027eef9607dcf592ac7f8fefe47961e728c349541c3fa23c99355e2edbcc1
+
+jobs:
+  promote:
+    name: Promote tested bytes without rebuilding
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure trusted temporary candidate paths
+        shell: bash
+        run: |
+          echo "CANDIDATE_DIR=$RUNNER_TEMP/release-candidate" >> "$GITHUB_ENV"
+          echo "CANDIDATE_MANIFEST=$RUNNER_TEMP/release-candidate/release-candidate-manifest.json" >> "$GITHUB_ENV"
+
+      - name: Verify promotion request and candidate run provenance
+        id: provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "::error::Promotion must be dispatched from refs/heads/$DEFAULT_BRANCH"
+            exit 1
+          fi
+          if [[ ! "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::candidate_run_id must be a positive integer"
+            exit 1
+          fi
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::release_tag must use vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+
+          run_json="$RUNNER_TEMP/candidate-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" > "$run_json"
+          workflow_path="$(jq -r '.path' "$run_json")"
+          event="$(jq -r '.event' "$run_json")"
+          status="$(jq -r '.status' "$run_json")"
+          conclusion="$(jq -r '.conclusion' "$run_json")"
+          head_branch="$(jq -r '.head_branch' "$run_json")"
+          head_repository="$(jq -r '.head_repository.full_name' "$run_json")"
+          source_sha="$(jq -r '.head_sha' "$run_json")"
+          if [[ "$workflow_path" != ".github/workflows/release-candidate.yml" ||
+                "$event" != "workflow_dispatch" ||
+                "$status" != "completed" ||
+                "$conclusion" != "success" ||
+                "$head_branch" != "$DEFAULT_BRANCH" ||
+                "$head_repository" != "$GITHUB_REPOSITORY" ||
+                ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Candidate workflow run provenance is not trusted"
+            jq '{path,event,status,conclusion,head_branch,head_repository:.head_repository.full_name,head_sha}' "$run_json"
+            exit 1
+          fi
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "source_ref=refs/heads/$DEFAULT_BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Download exact immutable candidate artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: release-candidate
+          path: ${{ runner.temp }}/release-candidate
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify manifest, source ancestry, and candidate bytes
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+          SOURCE_REF: ${{ steps.provenance.outputs.source_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/release_manifest.py verify \
+            --manifest "$CANDIDATE_MANIFEST" \
+            --apk-dir "$CANDIDATE_DIR" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$CANDIDATE_RUN_ID" \
+            --source-sha "$SOURCE_SHA" \
+            --source-ref "$SOURCE_REF" \
+            --tag "$RELEASE_TAG" \
+            --certificate-sha256 "$EXPECTED_SIGNING_CERT_SHA256"
+
+          git fetch --no-tags origin "$DEFAULT_BRANCH"
+          if ! git cat-file -e "$SOURCE_SHA^{commit}"; then
+            echo "::error::Candidate source commit is unavailable"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" "origin/$DEFAULT_BRANCH"; then
+            echo "::error::Candidate source is no longer an ancestor of origin/$DEFAULT_BRANCH"
+            exit 1
+          fi
+
+      - name: Set up JDK 21 for APK signature verification
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Independently verify downloaded APK signatures and versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" || -z "$aapt" ]]; then
+            echo "::error::Android APK verification tools were not found"
+            exit 1
+          fi
+
+          version_name="$(jq -r '.release.versionName' "$CANDIDATE_MANIFEST")"
+          while IFS=$'\t' read -r name version_code; do
+            apk="$CANDIDATE_DIR/$name"
+            certificate_report="$("$apksigner" verify --verbose --print-certs "$apk" 2>&1)"
+            normalized_report="$(
+              printf '%s' "$certificate_report" |
+                tr -d ':\r\n' |
+                tr '[:upper:]' '[:lower:]'
+            )"
+            if [[ "$normalized_report" != *"$EXPECTED_SIGNING_CERT_SHA256"* ]]; then
+              echo "::error::APK signing certificate mismatch for $name"
+              exit 1
+            fi
+            badging="$("$aapt" dump badging "$apk")"
+            if [[ "$badging" != *"name='com.surfsave.browser'"* ||
+                  "$badging" != *"versionName='$version_name'"* ||
+                  "$badging" != *"versionCode='$version_code'"* ]]; then
+              echo "::error::APK package/version mismatch for $name"
+              exit 1
+            fi
+          done < <(jq -r '.apks[] | [.name, (.versionCode|tostring)] | @tsv' "$CANDIDATE_MANIFEST")
+
+      - name: Create or validate immutable release tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" > /dev/null 2>&1; then
+            git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            existing_sha="$(git rev-list -n 1 "$RELEASE_TAG")"
+            if [[ "$existing_sha" != "$SOURCE_SHA" ]]; then
+              echo "::error::Existing tag $RELEASE_TAG points to $existing_sha, expected $SOURCE_SHA"
+              exit 1
+            fi
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$RELEASE_TAG" "$SOURCE_SHA" -m "SurfSave $RELEASE_TAG"
+            git push origin "refs/tags/$RELEASE_TAG"
+          fi
+
+      - name: Create or resume a safe draft Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_json="$RUNNER_TEMP/release-before.json"
+          if release_lookup="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" 2>&1)"; then
+            printf '%s' "$release_lookup" > "$release_json"
+            if [[ "$(jq -r '.draft' "$release_json")" != "true" ]]; then
+              echo "::error::Public Release $RELEASE_TAG already exists and will not be overwritten"
+              exit 1
+            fi
+            while IFS= read -r asset_id; do
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+            done < <(jq -r '.assets[].id' "$release_json")
+          elif [[ "$release_lookup" == *"HTTP 404"* ]]; then
+            notes="$RUNNER_TEMP/release-notes.md"
+            {
+              echo "SurfSave open-source release build."
+              echo
+              echo "This Release promotes the APK bytes tested from signed candidate workflow run \`$CANDIDATE_RUN_ID\`."
+              echo "Source commit: \`$SOURCE_SHA\`."
+              echo
+              echo "See CHANGELOG.md for release notes and verification guidance."
+            } > "$notes"
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --draft \
+              --title "$RELEASE_TAG" \
+              --notes-file "$notes"
+          else
+            echo "::error::Unable to inspect existing Release $RELEASE_TAG"
+            printf '%s\n' "$release_lookup"
+            exit 1
+          fi
+
+      - name: Upload the tested APK bytes to the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t apk_paths < <(
+            jq -r '.apks[].name' "$CANDIDATE_MANIFEST" |
+              while IFS= read -r name; do printf '%s/%s\n' "$CANDIDATE_DIR" "$name"; done
+          )
+          gh release upload "$RELEASE_TAG" "${apk_paths[@]}"
+
+      - name: Verify draft asset digests before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          draft_json="$RUNNER_TEMP/release-draft.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$draft_json"
+          if [[ "$(jq -r '.draft' "$draft_json")" != "true" ]]; then
+            echo "::error::Release unexpectedly became public before digest verification"
+            exit 1
+          fi
+          python3 .github/scripts/release_manifest.py verify-release \
+            --manifest "$CANDIDATE_MANIFEST" \
+            --release-json "$draft_json"
+
+      - name: Publish verified Release as Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
+
+      - name: Verify final public Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          final_json="$RUNNER_TEMP/release-final.json"
+          latest_json="$RUNNER_TEMP/release-latest.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$final_json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$latest_json"
+          if [[ "$(jq -r '.draft' "$final_json")" != "false" ||
+                "$(jq -r '.prerelease' "$final_json")" != "false" ||
+                "$(jq -r '.tag_name' "$latest_json")" != "$RELEASE_TAG" ]]; then
+            echo "::error::Final Release state is not public stable Latest"
+            exit 1
+          fi
+          python3 .github/scripts/release_manifest.py verify-release \
+            --manifest "$CANDIDATE_MANIFEST" \
+            --release-json "$final_json"
+          echo "Verified byte-for-byte Release: $(jq -r '.html_url' "$final_json")"

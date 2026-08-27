@@ -138,7 +138,19 @@ SurfSave也是我Vibe Coding尝试的一个项目。当前各方各面略显粗�
 .\gradlew.bat --console=plain -PGO_EXECUTABLE=C:\Go\bin\go.exe exportDiagnosticApks
 ```
 
-> **Release 签名**：读取 `KEYSTORE_PATH`、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`。
+### 维护者正式发布流程
+
+正式版本只构建一次签名候选包，验收后原样晋级，不再重新构建：
+
+```powershell
+# 在 GitHub 构建，并把正式签名候选下载到 app/build/outputs/apk/release/
+.\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.32
+
+# 安装并确认该候选包后，将同一批字节发布到 GitHub Release
+.\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.32
+```
+
+不可变制品、签名证书、SHA-256 校验和密钥恢复合同详见 [SIGNING.md](SIGNING.md)。单独推送标签不会再构建正式版本。
 
 > **项目标识**：应用名 `SurfSave`，applicationId `com.surfsave.browser`，Kotlin namespace `com.myAllVideoBrowser`。
 

@@ -135,7 +135,19 @@ Prerequisites: JDK 21, Android SDK, NDK `27.3.13750724`, Go (for the Xray proxy 
 .\gradlew.bat --console=plain -PGO_EXECUTABLE=C:\Go\bin\go.exe exportDiagnosticApks
 ```
 
-> **Release signing**: reads `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
+### Maintainer release flow
+
+Official releases are built once as a signed candidate and then promoted without rebuilding:
+
+```powershell
+# Builds on GitHub and downloads the signed candidate into app/build/outputs/apk/release/
+.\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.32
+
+# After installing and accepting that exact APK, publish the same bytes
+.\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.32
+```
+
+See [SIGNING.md](SIGNING.md) for the immutable artifact, certificate, digest, and recovery contracts. Tag pushes alone do not build a release.
 
 > **Project identity**: App name `SurfSave`, applicationId `com.surfsave.browser`, Kotlin namespace `com.myAllVideoBrowser`.
 

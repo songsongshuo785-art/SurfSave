@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- Replaced tag-triggered release rebuilds with a build-once signed candidate flow. Maintainers now test the exact APK bytes later promoted to GitHub Releases, with source-run provenance, certificate, version, file-size, and SHA-256 verification before and after upload.
+
 ## [0.8.31] - 2026-08-27
 
 ### Added

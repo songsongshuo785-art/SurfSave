@@ -9,14 +9,41 @@ SHA-256: c33027eef9607dcf592ac7f8fefe47961e728c349541c3fa23c99355e2edbcc1
 Application ID: com.surfsave.browser
 ```
 
-The private key and its passwords must never be committed to this repository. GitHub tag builds read the encrypted keystore and credentials from these Actions Secrets:
+The private key and its passwords must never be committed to this repository. The manually dispatched signed-candidate workflow reads the encrypted keystore and credentials from these Actions Secrets:
 
 - `KEYSTORE_BASE64`
 - `KEYSTORE_PASSWORD`
 - `KEY_ALIAS`
 - `KEY_PASSWORD`
 
-The release workflow validates the keystore alias and certificate before installing the NDK/Go toolchain. After building, every APK is checked again with `apksigner`; a missing secret, unsigned APK, unexpected APK count, or certificate mismatch blocks publication.
+The candidate workflow validates the keystore alias and certificate before installing the NDK/Go toolchain. After building, every APK is checked again with `apksigner`; a missing secret, unsigned APK, unexpected APK count, or certificate mismatch blocks candidate creation.
+
+## Build once, test, and promote
+
+SurfSave releases use immutable artifact promotion. A tag push does not build or publish APKs.
+
+1. Commit the release version and push the exact source to `main`.
+2. Build and download one formally signed candidate:
+
+   ```powershell
+   .\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.32
+   ```
+
+3. Install and test the APK already placed at:
+
+   ```text
+   app/build/outputs/apk/release/app-arm64-v8a-release.apk
+   ```
+
+4. After acceptance, promote that exact candidate:
+
+   ```powershell
+   .\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.32
+   ```
+
+The candidate workflow performs the only Gradle, Go/Xray, packaging, and signing build. It stores five APKs plus `release-candidate-manifest.json` as an immutable GitHub Actions artifact for 30 days. The local helper downloads those files into the existing Gradle release output directory and verifies the workflow run, source commit, tag, certificate, file sizes, and SHA-256 values.
+
+Promotion downloads the artifact by its recorded workflow run ID. It does not invoke Gradle, Go, packaging, or signing. Before publication it independently checks source ancestry, APK signatures and versions, then compares every draft Release asset digest with the tested candidate manifest. A public Release is never overwritten; an interrupted draft may be resumed with the same verified candidate.
 
 ## Verify a downloaded APK
 

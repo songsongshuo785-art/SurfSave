@@ -2,6 +2,8 @@
 .gradle
 .gradle-user-home/
 .kotlin/
+__pycache__/
+*.py[cod]
 .idea
 .claude/
 *.iml
