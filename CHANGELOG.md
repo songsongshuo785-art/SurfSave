@@ -2,8 +2,13 @@
 
 ## [Unreleased]
 
+## [0.8.32] - 2026-08-28
+
 ### Changed
 - Replaced tag-triggered release rebuilds with a build-once signed candidate flow. Maintainers now test the exact APK bytes later promoted to GitHub Releases, with source-run provenance, certificate, version, file-size, and SHA-256 verification before and after upload.
+
+### Fixed
+- Prevented webpage media from continuing underneath detected-video playback by waiting for the WebView pause acknowledgement, suppressing page-initiated replay while another player is in front, and letting Media3 manage audio focus automatically.
 
 ## [0.8.31] - 2026-08-27
 

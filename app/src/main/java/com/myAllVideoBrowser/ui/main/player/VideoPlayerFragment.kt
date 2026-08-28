@@ -21,6 +21,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -306,6 +307,7 @@ class VideoPlayerFragment : BaseFragment() {
             .setRenderersFactory(createRenderFactory())
             .setMediaSourceFactory(mediaFactory)
             .setTrackSelector(trackSelector)
+            .setAudioAttributes(AudioAttributes.DEFAULT, true)
             .setSeekBackIncrementMs(SEEK_INCREMENT_MS)
             .setSeekForwardIncrementMs(SEEK_INCREMENT_MS)
             .build()

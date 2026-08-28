@@ -1156,6 +1156,7 @@ class WebTabFragment : BaseWebTabFragment() {
     private lateinit var telegramImportSession: TelegramImportSession
     private var thumbnailTransitionInProgress = false
     private var tabCloseCaptureInProgress = false
+    private var playbackLaunchPending = false
     private var mediaProbeScriptHandler: ScriptHandler? = null
     private val mediaProbeBridge = MediaProbeBridge()
     private val translationBridge = TranslationBridge()
@@ -1818,8 +1819,6 @@ class WebTabFragment : BaseWebTabFragment() {
         request: BrowserPlaybackRequest,
         sharedView: View?
     ) {
-        // 开播前暂停网页内所有 <video>/<audio>，避免和目标播放器双声道。
-        WebViewMediaController.pause(webTab.getWebView())
         val intent = Intent(requireContext(), VideoPlayerActivity::class.java).apply {
             putExtra(VideoPlayerFragment.VIDEO_NAME, request.title)
             putExtra(VideoPlayerFragment.VIDEO_SOURCE, VideoPlayerFragment.SOURCE_BROWSER)
@@ -1838,14 +1837,16 @@ class WebTabFragment : BaseWebTabFragment() {
             )
             putExtra(VideoPlayerFragment.VIDEO_EXTRACTED_AT, request.extractedAt)
         }
-        // 共享元素过渡：检测视频 sheet 缩略图 → 播放器变形（与 VideoFragment 列表共用 "surf_video_thumb"）
-        val options = sharedView?.let { view ->
-            view.transitionName = "surf_video_thumb"
-            ActivityOptions.makeSceneTransitionAnimation(
-                requireActivity(), view, "surf_video_thumb"
-            ).toBundle()
+        suspendWebMediaThen {
+            // 共享元素过渡：检测视频 sheet 缩略图 → 播放器变形（与 VideoFragment 列表共用 "surf_video_thumb"）
+            val options = sharedView?.takeIf { it.isAttachedToWindow }?.let { view ->
+                view.transitionName = "surf_video_thumb"
+                ActivityOptions.makeSceneTransitionAnimation(
+                    requireActivity(), view, "surf_video_thumb"
+                ).toBundle()
+            }
+            startActivity(intent, options)
         }
-        startActivity(intent, options)
     }
 
     private fun showPlaybackTargetMenu(
@@ -1920,23 +1921,24 @@ class WebTabFragment : BaseWebTabFragment() {
             targetIntent,
             getString(R.string.player_target_choose)
         )
-        WebViewMediaController.pause(webTab.getWebView())
-        try {
-            startActivity(chooserIntent)
-        } catch (error: ActivityNotFoundException) {
-            AppLogger.w("No activity could handle the system player chooser", error)
-            Toast.makeText(
-                requireContext(),
-                R.string.player_target_no_compatible_app,
-                Toast.LENGTH_SHORT
-            ).show()
-        } catch (error: SecurityException) {
-            AppLogger.w("System player chooser was blocked", error)
-            Toast.makeText(
-                requireContext(),
-                R.string.player_target_no_compatible_app,
-                Toast.LENGTH_SHORT
-            ).show()
+        suspendWebMediaThen {
+            try {
+                startActivity(chooserIntent)
+            } catch (error: ActivityNotFoundException) {
+                AppLogger.w("No activity could handle the system player chooser", error)
+                Toast.makeText(
+                    requireContext(),
+                    R.string.player_target_no_compatible_app,
+                    Toast.LENGTH_SHORT
+                ).show()
+            } catch (error: SecurityException) {
+                AppLogger.w("System player chooser was blocked", error)
+                Toast.makeText(
+                    requireContext(),
+                    R.string.player_target_no_compatible_app,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
@@ -1951,13 +1953,27 @@ class WebTabFragment : BaseWebTabFragment() {
             request.title,
             componentName
         )
-        WebViewMediaController.pause(webTab.getWebView())
-        try {
-            startActivity(intent)
-        } catch (error: ActivityNotFoundException) {
-            fallbackFromUnavailableExternalPlayer(request, target, sharedView, error)
-        } catch (error: SecurityException) {
-            fallbackFromUnavailableExternalPlayer(request, target, sharedView, error)
+        suspendWebMediaThen {
+            try {
+                startActivity(intent)
+            } catch (error: ActivityNotFoundException) {
+                fallbackFromUnavailableExternalPlayer(request, target, sharedView, error)
+            } catch (error: SecurityException) {
+                fallbackFromUnavailableExternalPlayer(request, target, sharedView, error)
+            }
+        }
+    }
+
+    private fun suspendWebMediaThen(action: () -> Unit) {
+        if (playbackLaunchPending) {
+            return
+        }
+        playbackLaunchPending = true
+        WebViewMediaController.pauseBeforeExternalPlayback(webTab.getWebView()) {
+            playbackLaunchPending = false
+            if (isAdded) {
+                action()
+            }
         }
     }
 
