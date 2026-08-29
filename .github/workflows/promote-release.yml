@@ -186,6 +186,7 @@ jobs:
           fi
 
       - name: Create or resume a safe draft Release
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
@@ -194,9 +195,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          releases_json="$RUNNER_TEMP/releases-pages.json"
           release_json="$RUNNER_TEMP/release-before.json"
-          if release_lookup="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" 2>&1)"; then
-            printf '%s' "$release_lookup" > "$release_json"
+          refresh_release_lookup() {
+            gh api --paginate --slurp \
+              "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_json"
+            release_count="$(
+              jq -r --arg tag "$RELEASE_TAG" \
+                '[.[][] | select(.tag_name == $tag)] | length' \
+                "$releases_json"
+            )"
+            release_id="$(
+              jq -r --arg tag "$RELEASE_TAG" \
+                '[.[][] | select(.tag_name == $tag)] | first | .id // empty' \
+                "$releases_json"
+            )"
+          }
+
+          refresh_release_lookup
+          if [[ "$release_count" == "1" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$release_json"
             if [[ "$(jq -r '.draft' "$release_json")" != "true" ]]; then
               echo "::error::Public Release $RELEASE_TAG already exists and will not be overwritten"
               exit 1
@@ -204,7 +222,7 @@ jobs:
             while IFS= read -r asset_id; do
               gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
             done < <(jq -r '.assets[].id' "$release_json")
-          elif [[ "$release_lookup" == *"HTTP 404"* ]]; then
+          elif [[ "$release_count" == "0" ]]; then
             notes="$RUNNER_TEMP/release-notes.md"
             {
               echo "SurfSave open-source release build."
@@ -219,11 +237,23 @@ jobs:
               --draft \
               --title "$RELEASE_TAG" \
               --notes-file "$notes"
+            refresh_release_lookup
+            if [[ "$release_count" != "1" ]]; then
+              echo "::error::Unable to resolve the newly created draft Release $RELEASE_TAG"
+              exit 1
+            fi
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$release_json"
           else
-            echo "::error::Unable to inspect existing Release $RELEASE_TAG"
-            printf '%s\n' "$release_lookup"
+            echo "::error::Found multiple Releases for tag $RELEASE_TAG"
             exit 1
           fi
+          if [[ ! "$release_id" =~ ^[1-9][0-9]*$ ||
+                "$(jq -r '.tag_name' "$release_json")" != "$RELEASE_TAG" ||
+                "$(jq -r '.draft' "$release_json")" != "true" ]]; then
+            echo "::error::Draft Release identity is invalid"
+            exit 1
+          fi
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
 
       - name: Upload the tested APK bytes to the draft
         env:
@@ -242,11 +272,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
         shell: bash
         run: |
           set -euo pipefail
+          if [[ ! "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Draft Release ID is invalid"
+            exit 1
+          fi
           draft_json="$RUNNER_TEMP/release-draft.json"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$draft_json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$draft_json"
           if [[ "$(jq -r '.draft' "$draft_json")" != "true" ]]; then
             echo "::error::Release unexpectedly became public before digest verification"
             exit 1

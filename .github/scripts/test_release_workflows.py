@@ -42,6 +42,14 @@ class ReleaseWorkflowContractTest(unittest.TestCase):
         self.assertIn("run-id: ${{ inputs.candidate_run_id }}", promotion)
         self.assertIn("verify-release", promotion)
 
+    def test_draft_release_is_verified_by_id_before_publication(self) -> None:
+        promotion = self.read(".github/workflows/promote-release.yml")
+        self.assertIn("id: release", promotion)
+        self.assertIn("releases?per_page=100", promotion)
+        self.assertIn("RELEASE_ID: ${{ steps.release.outputs.release_id }}", promotion)
+        self.assertIn('releases/$RELEASE_ID', promotion)
+        self.assertEqual(promotion.count('releases/tags/$RELEASE_TAG'), 1)
+
     def test_local_helpers_keep_the_existing_release_output(self) -> None:
         build = self.read("scripts/Build-ReleaseCandidate.ps1")
         publish = self.read("scripts/Publish-ReleaseCandidate.ps1")
