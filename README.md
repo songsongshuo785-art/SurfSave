@@ -161,6 +161,8 @@ Thanks to the maintainers and contributors of **youtube-dl-android**, **yt-dlp**
 
 Special thanks to [alexch33/super-video-downloader](https://github.com/alexch33/super-video-downloader) for providing the open-source foundation and reference that SurfSave builds upon.
 
+Thanks to the [LINUX DO](https://linux.do/) community for providing open-source developers with a place for discussion and feedback.
+
 Inspired by [cuongpm/youtube-dl-android](https://github.com/cuongpm/youtube-dl-android), [yausername/youtubedl-android](https://github.com/yausername/youtubedl-android), and [JunkFood02/Seal](https://github.com/JunkFood02/Seal).
 
 ## License

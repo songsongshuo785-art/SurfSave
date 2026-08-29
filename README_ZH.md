@@ -164,6 +164,8 @@ SurfSave也是我Vibe Coding尝试的一个项目。当前各方各面略显粗�
 
 特别感谢 [alexch33/super-video-downloader](https://github.com/alexch33/super-video-downloader) 提供 SurfSave 延续开发所依托的开源基础与参考。
 
+感谢 [LINUX DO](https://linux.do/) 社区为开源开发者提供交流与反馈平台。
+
 参考项目：[cuongpm/youtube-dl-android](https://github.com/cuongpm/youtube-dl-android)、[yausername/youtubedl-android](https://github.com/yausername/youtubedl-android)、[JunkFood02/Seal](https://github.com/JunkFood02/Seal)。
 
 ## 许可证
