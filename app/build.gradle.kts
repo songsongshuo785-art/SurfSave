@@ -56,20 +56,33 @@ val abiFilterList = (project.findProperty("ABI_FILTERS") as? String ?: "").split
 val baseVersionCode = 1_788_000_000
 val baseVersionName = "0.8.32"
 val exportStamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-// diagnostic versionCode 默认用秒级时间戳递增：每次构建版本号不同，覆盖安装（同
-// applicationId+签名）能识别为新版并保留数据，无需卸载重装。秒时间戳 2026 年 ~1.78e9 < 2.1e9 上限。
-val testBuildVersionCode = ((project.findProperty("TEST_BUILD_CODE")?.toString()
-    ?: System.getenv("TEST_BUILD_CODE"))?.toIntOrNull()
-    ?: (System.currentTimeMillis() / 1000).toInt())
-val testVersionName = (project.findProperty("TEST_VERSION_NAME")?.toString()
-    ?: System.getenv("TEST_VERSION_NAME"))
-    ?: baseVersionName
 val abiCodes = mapOf(
     "armeabi-v7a" to 1,
     "arm64-v8a" to 2,
     "x86" to 3,
     "x86_64" to 4
 )
+val androidVersionCodeLimit = 2_100_000_000L
+val maxAbiVersionCodeOffset = abiCodes.values.maxOrNull()?.toLong() ?: 0L
+val highestReleaseVersionCode = baseVersionCode.toLong() + maxAbiVersionCodeOffset
+val diagnosticVersionCodeFloor = highestReleaseVersionCode + 1L
+val requestedTestBuildVersionCode = (project.findProperty("TEST_BUILD_CODE")?.toString()
+    ?: System.getenv("TEST_BUILD_CODE"))?.toLongOrNull()
+    ?: (System.currentTimeMillis() / 1000)
+// Diagnostic 默认继续使用秒级时间戳；若当前 Release 使用了领先于时间戳的固定
+// versionCode，则至少从全部 Release 分包的最高值之后开始，避免 Android 判定为降级。
+val testBuildVersionCodeLong = maxOf(requestedTestBuildVersionCode, diagnosticVersionCodeFloor)
+require(highestReleaseVersionCode <= androidVersionCodeLimit) {
+    "Release versionCode $highestReleaseVersionCode exceeds Android limit $androidVersionCodeLimit"
+}
+require(testBuildVersionCodeLong + maxAbiVersionCodeOffset <= androidVersionCodeLimit) {
+    "Diagnostic versionCode ${testBuildVersionCodeLong + maxAbiVersionCodeOffset} " +
+        "exceeds Android limit $androidVersionCodeLimit"
+}
+val testBuildVersionCode = testBuildVersionCodeLong.toInt()
+val testVersionName = (project.findProperty("TEST_VERSION_NAME")?.toString()
+    ?: System.getenv("TEST_VERSION_NAME"))
+    ?: baseVersionName
 
 // =========================================================================
 // ANDROID CONFIGURATION
@@ -248,6 +261,34 @@ android {
             jniLibs.srcDir("src/main/jniLibs")
         }
     }
+}
+
+val verifyDiagnosticVersionCodePolicy = tasks.register("verifyDiagnosticVersionCodePolicy") {
+    group = "verification"
+    description = "Verifies that every Diagnostic APK can upgrade every current Release split."
+
+    doLast {
+        val lowestDiagnosticVersionCode = testBuildVersionCode.toLong()
+        val highestDiagnosticVersionCode = lowestDiagnosticVersionCode + maxAbiVersionCodeOffset
+
+        check(lowestDiagnosticVersionCode > highestReleaseVersionCode) {
+            "Lowest Diagnostic versionCode $lowestDiagnosticVersionCode must be greater than " +
+                "highest Release versionCode $highestReleaseVersionCode"
+        }
+        check(highestDiagnosticVersionCode <= androidVersionCodeLimit) {
+            "Highest Diagnostic versionCode $highestDiagnosticVersionCode exceeds " +
+                "Android limit $androidVersionCodeLimit"
+        }
+
+        logger.lifecycle(
+            "Version code policy verified: releaseMax=$highestReleaseVersionCode " +
+                "diagnosticBase=$lowestDiagnosticVersionCode diagnosticMax=$highestDiagnosticVersionCode"
+        )
+    }
+}
+
+tasks.matching { it.name == "preDiagnosticBuild" }.configureEach {
+    dependsOn(verifyDiagnosticVersionCodePolicy)
 }
 
 tasks.register("exportDiagnosticApks") {
