@@ -7,6 +7,9 @@ object BrowserMediaClassifier {
     private val videoExtensions = setOf("mp4", "m4v", "webm", "mov", "flv", "3gp", "mkv")
     private val audioExtensions = setOf("mp3", "m4a", "aac", "ogg", "opus", "wav", "flac")
     private val segmentExtensions = setOf("m4s", "ts")
+    private val playbackSupportExtensions = segmentExtensions + setOf(
+        "m3u8", "mpd", "cmfv", "cmfa", "ismv", "isma", "vtt", "srt", "ttml", "dfxp"
+    )
 
     fun classify(
         url: String,
@@ -34,6 +37,25 @@ object BrowserMediaClassifier {
     }
 
     fun isTextPlaylistCandidate(url: String): Boolean = pathExtension(url) == "txt"
+
+    /** Safety boundary used by request filters; it is intentionally broader than detection. */
+    fun isLikelyPlaybackResource(url: String, acceptHeader: String = ""): Boolean {
+        val normalizedUrl = url.trim()
+        if (
+            normalizedUrl.startsWith("blob:", ignoreCase = true) ||
+            normalizedUrl.startsWith("data:", ignoreCase = true)
+        ) {
+            return true
+        }
+        if (classify(normalizedUrl, acceptHeader) != ContentType.OTHER) return true
+        if (pathExtension(normalizedUrl) in playbackSupportExtensions) return true
+
+        val normalizedAccept = acceptHeader.lowercase(Locale.US)
+        return normalizedAccept.contains("mpegurl") ||
+            normalizedAccept.contains("dash+xml") ||
+            normalizedAccept.contains("video/") ||
+            normalizedAccept.contains("audio/")
+    }
 
     private fun pathExtension(url: String): String {
         val path = url.substringBefore('#').substringBefore('?').trim().lowercase(Locale.US)

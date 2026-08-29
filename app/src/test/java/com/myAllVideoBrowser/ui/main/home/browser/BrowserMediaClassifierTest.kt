@@ -1,6 +1,8 @@
 package com.myAllVideoBrowser.ui.main.home.browser
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrowserMediaClassifierTest {
@@ -51,6 +53,24 @@ class BrowserMediaClassifierTest {
         assertEquals(
             ContentType.OTHER,
             BrowserMediaClassifier.classify("blob:https://example.com/id", "video/mp4")
+        )
+    }
+
+    @Test
+    fun playbackSafety_isBroaderThanDetectionClassification() {
+        assertTrue(BrowserMediaClassifier.isLikelyPlaybackResource("https://cdn.example/5.ts"))
+        assertTrue(BrowserMediaClassifier.isLikelyPlaybackResource("https://cdn.example/5.m4s"))
+        assertTrue(
+            BrowserMediaClassifier.isLikelyPlaybackResource(
+                "https://cdn.example/play?id=1",
+                "audio/aac,*/*"
+            )
+        )
+        assertFalse(
+            BrowserMediaClassifier.isLikelyPlaybackResource(
+                "https://cdn.example/app.js",
+                "application/javascript"
+            )
         )
     }
 }

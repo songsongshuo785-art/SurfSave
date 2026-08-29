@@ -9,6 +9,11 @@ enum class ContentType {
     OTHER
 }
 
+enum class BrowserRequestSource {
+    WEB_VIEW,
+    SERVICE_WORKER
+}
+
 data class BrowserRequestInspection(
     val url: String,
     val pageUrl: String,
@@ -18,7 +23,8 @@ data class BrowserRequestInspection(
     val shouldCheckRegular: Boolean,
     val shouldCheckAudio: Boolean,
     val shouldCheckVideo: Boolean,
-    val shouldInterruptResource: Boolean
+    val shouldInterruptResource: Boolean,
+    val shouldBlockAd: Boolean
 ) {
     val shouldInspectMedia: Boolean = shouldCheckStream || shouldCheckRegular
     val isM3u8: Boolean = contentType == ContentType.M3U8
@@ -29,13 +35,15 @@ data class BrowserRequestInspection(
 }
 
 class BrowserRequestInspector(
-    private val settingsModel: SettingsViewModel
+    private val settingsModel: SettingsViewModel,
+    private val adFilter: BrowserAdFilter = BrowserAdFilter.empty()
 ) {
-    @Suppress("UNUSED_PARAMETER")
     fun inspect(
         url: String,
         pageUrl: String,
-        isMainFrame: Boolean
+        isMainFrame: Boolean,
+        requestHeaders: Map<String, String> = emptyMap(),
+        requestSource: BrowserRequestSource = BrowserRequestSource.WEB_VIEW
     ): BrowserRequestInspection {
         val normalizedUrl = url.trim()
         val contentType = BrowserMediaClassifier.classify(normalizedUrl)
@@ -59,7 +67,15 @@ class BrowserRequestInspector(
             shouldCheckRegular = shouldCheckRegular,
             shouldCheckAudio = shouldCheckAudio,
             shouldCheckVideo = shouldCheckMp4,
-            shouldInterruptResource = settingsModel.isInterruptIntreceptedResources.get()
+            shouldInterruptResource = settingsModel.isInterruptIntreceptedResources.get(),
+            shouldBlockAd = settingsModel.isAdBlockingEnabled.get() && adFilter.shouldBlock(
+                url = normalizedUrl,
+                pageUrl = pageUrl,
+                isMainFrame = isMainFrame,
+                contentType = contentType,
+                requestHeaders = requestHeaders,
+                requestSource = requestSource
+            )
         )
     }
 

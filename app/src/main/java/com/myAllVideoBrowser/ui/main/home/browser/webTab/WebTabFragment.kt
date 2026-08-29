@@ -67,6 +67,7 @@ import com.myAllVideoBrowser.ui.component.adapter.TabSuggestionAdapter
 import com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener
 import com.myAllVideoBrowser.ui.main.home.browser.BaseWebTabFragment
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserBackPolicy
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserAdFilterRuleProvider
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserFragment
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserMediaClassifier
 import com.myAllVideoBrowser.ui.main.home.browser.ContentType
@@ -1100,6 +1101,9 @@ class WebTabFragment : BaseWebTabFragment() {
     @Inject
     lateinit var telegramPostResolver: TelegramPostResolver
 
+    @Inject
+    lateinit var adFilterRuleProvider: BrowserAdFilterRuleProvider
+
     private lateinit var dataBinding: FragmentWebTabBinding
 
     private lateinit var tabManagerProvider: TabManagerProvider
@@ -2082,6 +2086,7 @@ class WebTabFragment : BaseWebTabFragment() {
             tabManagerProvider.getUpdateTabEvent(),
             pageTabProvider,
             proxyController,
+            adFilterRuleProvider.filter,
             onNavigationStateChanged = {
                 updateNavigationButtons()
             },

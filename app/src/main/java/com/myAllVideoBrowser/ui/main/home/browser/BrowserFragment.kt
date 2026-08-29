@@ -177,6 +177,9 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     @Inject
     lateinit var okHttpProxyClient: OkHttpProxyClient
 
+    @Inject
+    lateinit var adFilterRuleProvider: BrowserAdFilterRuleProvider
+
     @VisibleForTesting
     internal lateinit var dataBinding: FragmentBrowserBinding
 
@@ -227,10 +230,18 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     private val serviceWorkerClient = object : ServiceWorkerClient() {
         override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
             val url = request.url.toString()
+            val inspection = requestInspector.inspect(
+                url,
+                "",
+                request.isForMainFrame,
+                request.requestHeaders,
+                BrowserRequestSource.SERVICE_WORKER
+            )
+            if (inspection.shouldBlockAd) {
+                return CustomWebViewClient.emptyResponse()
+            }
             val activeContext = videoDetectionModel.currentServiceWorkerContext()
                 ?: return super.shouldInterceptRequest(request)
-            val pageUrl = activeContext.pageUrl
-            val inspection = requestInspector.inspect(url, pageUrl, request.isForMainFrame)
             val detectionContext = videoDetectionModel.serviceWorkerContextForRequest(
                 request.requestHeaders,
                 allowHeaderlessMedia = inspection.shouldInspectMedia
@@ -381,7 +392,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         videoDetectionModel.settingsModel = mainActivity.settingsViewModel
         browserViewModel.settingsModel = mainActivity.settingsViewModel
         settingsModel = mainActivity.settingsViewModel
-        requestInspector = BrowserRequestInspector(settingsModel)
+        requestInspector = BrowserRequestInspector(settingsModel, adFilterRuleProvider.filter)
 
         mainActivity.mainViewModel.browserServicesProvider = this
 

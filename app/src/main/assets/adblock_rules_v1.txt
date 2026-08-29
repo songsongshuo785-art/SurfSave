@@ -1,0 +1,58 @@
+# SurfSave network ad-filter rules v1
+# UTF-8 format: action|kind|value|page-domain[,page-domain]|flags
+# Supported actions: block, allow
+# Supported kinds: domain, path, page (page is allow-only)
+# Supported flags: third-party, soft, request-domain=<domain>
+#
+# Site-specific rules remain data, not WebView branches. Example syntax:
+# block|domain|ads.cdn.example|example.com|third-party
+# block|path|/vast/||request-domain=ads.cdn.example
+# block|path|/possible-ad/||third-party,soft
+# allow|path|/required-player-bootstrap/|example.com|
+# allow|page|example.com||
+
+# High-confidence advertising networks. These context-free rules are safe for
+# both normal WebView and ServiceWorker subresource interception.
+block|domain|doubleclick.net||
+block|domain|googlesyndication.com||
+block|domain|googleadservices.com||
+block|domain|googletagservices.com||
+block|domain|amazon-adsystem.com||
+block|domain|adnxs.com||
+block|domain|adsrvr.org||
+block|domain|adform.net||
+block|domain|advertising.com||
+block|domain|rubiconproject.com||
+block|domain|openx.net||
+block|domain|pubmatic.com||
+block|domain|criteo.com||
+block|domain|criteo.net||
+block|domain|taboola.com||
+block|domain|outbrain.com||
+block|domain|casalemedia.com||
+block|domain|sharethrough.com||
+block|domain|yieldmo.com||
+block|domain|lijit.com||
+block|domain|media.net||
+block|domain|moatads.com||
+block|domain|serving-sys.com||
+block|domain|smartadserver.com||
+block|domain|bidswitch.net||
+block|domain|contextweb.com||
+block|domain|exoclick.com||
+block|domain|juicyads.com||
+block|domain|popads.net||
+block|domain|popcash.net||
+block|domain|propellerads.com||
+block|domain|revcontent.com||
+block|domain|mgid.com||
+block|domain|trafficjunky.com||
+
+# Conservative path signals are soft WebView-only heuristics. Query strings are
+# never matched, and likely playback resources remain protected.
+block|path|/pagead/||third-party,soft
+block|path|/adsbygoogle.||third-party,soft
+block|path|/adserver/||third-party,soft
+block|path|/advertising/||third-party,soft
+block|path|/prebid/||third-party,soft
+block|path|/gampad/ads||third-party,soft

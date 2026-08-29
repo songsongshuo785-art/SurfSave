@@ -63,6 +63,7 @@ class SharedPrefHelper @Inject constructor(
         private const val SHORT_VIDEO_FILTER_DURATION_SECONDS =
             "SHORT_VIDEO_FILTER_DURATION_SECONDS"
         private const val IS_AUTO_TRANSLATE_PAGES = "IS_AUTO_TRANSLATE_PAGES"
+        private const val IS_AD_BLOCKING_ENABLED = "IS_AD_BLOCKING_ENABLED"
         private const val BROWSER_SESSION_TABS = "BROWSER_SESSION_TABS"
         private const val BROWSER_SESSION_CURRENT_INDEX = "BROWSER_SESSION_CURRENT_INDEX"
         private const val VIDEO_DETECTION_BUTTON_X_RATIO = "VIDEO_DETECTION_BUTTON_X_RATIO"
@@ -142,6 +143,16 @@ class SharedPrefHelper @Inject constructor(
 
     fun isAutoTranslatePages(): Boolean {
         return sharedPreferences.getBoolean(IS_AUTO_TRANSLATE_PAGES, false)
+    }
+
+    fun setIsAdBlockingEnabled(isEnabled: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_AD_BLOCKING_ENABLED, isEnabled)
+        }
+    }
+
+    fun isAdBlockingEnabled(): Boolean {
+        return sharedPreferences.getBoolean(IS_AD_BLOCKING_ENABLED, false)
     }
 
     fun saveIsCheck(isCheck: Boolean) {

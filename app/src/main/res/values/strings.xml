@@ -116,6 +116,8 @@
   <string name="open">Open</string>
   <string name="translate_page">Translate Page</string>
   <string name="auto_translate_pages">Auto translate pages</string>
+  <string name="ad_filter_title">Block ads and tracking requests</string>
+  <string name="ad_filter_summary">Uses lightweight network rules. High-confidence ad requests are blocked while unmatched playback resources remain allowed.</string>
   <string name="translate_page_unavailable">This page cannot be translated</string>
   <string name="translate_page_running">Translation is already running</string>
   <string name="translate_page_extracting">Reading page text…</string>

@@ -77,4 +77,94 @@ class BrowserRequestInspectorTest {
         assertTrue(inspection.shouldProbeAsM3u8)
         assertTrue(inspection.shouldBlockStreamRequest)
     }
+
+    @Test
+    fun inspect_adFilterEnabledBlocksOrdinaryAdRequest() {
+        settings.isAdBlockingEnabled.set(true)
+        val filter = BrowserAdFilter.fromLines(
+            sequenceOf("block|domain|ads.example.net||third-party")
+        )
+        val adInspector = BrowserRequestInspector(settings, filter)
+
+        val inspection = adInspector.inspect(
+            "https://ads.example.net/banner.js",
+            "https://example.org/watch",
+            false,
+            mapOf("Accept" to "application/javascript")
+        )
+
+        assertTrue(inspection.shouldBlockAd)
+        assertFalse(inspection.shouldInspectMedia)
+    }
+
+    @Test
+    fun inspect_adFilterAllowsMainFrameButBlocksHardRuleMedia() {
+        settings.isAdBlockingEnabled.set(true)
+        val filter = BrowserAdFilter.fromLines(
+            sequenceOf("block|domain|ads.example.net||")
+        )
+        val adInspector = BrowserRequestInspector(settings, filter)
+
+        assertFalse(
+            adInspector.inspect(
+                "https://ads.example.net/landing",
+                "https://example.org/",
+                true
+            ).shouldBlockAd
+        )
+        assertTrue(
+            adInspector.inspect(
+                "https://ads.example.net/segment.ts",
+                "https://example.org/watch",
+                false
+            ).shouldBlockAd
+        )
+    }
+
+    @Test
+    fun inspect_unmatchedMediaRemainsAllowed() {
+        settings.isAdBlockingEnabled.set(true)
+        val filter = BrowserAdFilter.fromLines(
+            sequenceOf("block|domain|ads.example.net||")
+        )
+        val adInspector = BrowserRequestInspector(settings, filter)
+
+        assertFalse(
+            adInspector.inspect(
+                "https://media.example.org/segment.ts",
+                "https://example.org/watch",
+                false
+            ).shouldBlockAd
+        )
+    }
+
+    @Test
+    fun inspect_serviceWorkerDoesNotBorrowPageContext() {
+        settings.isAdBlockingEnabled.set(true)
+        val filter = BrowserAdFilter.fromLines(
+            sequenceOf(
+                "block|domain|global-ads.example.net||",
+                "block|domain|scoped-ads.example.net|video.example.org|",
+                "allow|page|video.example.org||"
+            )
+        )
+        val adInspector = BrowserRequestInspector(settings, filter)
+
+        assertTrue(
+            adInspector.inspect(
+                "https://global-ads.example.net/banner.js",
+                "https://video.example.org/watch",
+                false,
+                requestSource = BrowserRequestSource.SERVICE_WORKER
+            ).shouldBlockAd
+        )
+        assertFalse(
+            adInspector.inspect(
+                "https://scoped-ads.example.net/banner.js",
+                "https://video.example.org/watch",
+                false,
+                requestSource = BrowserRequestSource.SERVICE_WORKER
+            ).shouldBlockAd
+        )
+    }
 }

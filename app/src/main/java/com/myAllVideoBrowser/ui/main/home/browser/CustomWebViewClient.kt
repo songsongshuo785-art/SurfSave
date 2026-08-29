@@ -37,6 +37,7 @@ class CustomWebViewClient(
     private val updateTabEvent: SingleLiveEvent<WebTab>,
     private val pageTabProvider: PageTabProvider,
     private val proxyController: CustomProxyController,
+    adFilter: BrowserAdFilter = BrowserAdFilter.empty(),
     private val onNavigationStateChanged: () -> Unit = {},
     private val onRenderProcessLost: (WebView?, Boolean) -> Unit = { _, _ -> },
     private val onPageContextStarted: (String, String) -> Unit = { _, _ -> },
@@ -50,7 +51,7 @@ class CustomWebViewClient(
     @Volatile
     private var currentPageUrl: String = ""
     private val regularJobsStorage = java.util.concurrent.ConcurrentHashMap<String, List<Disposable>>()
-    private val requestInspector = BrowserRequestInspector(settingsModel)
+    private val requestInspector = BrowserRequestInspector(settingsModel, adFilter)
 
     companion object {
         fun emptyResponse(): WebResourceResponse {
@@ -122,7 +123,17 @@ class CustomWebViewClient(
 
         val url = request.url.toString()
         val pageUrl = currentPageUrl.ifBlank { url }
-        val inspection = requestInspector.inspect(url, pageUrl, request.isForMainFrame)
+        val inspection = requestInspector.inspect(
+            url,
+            pageUrl,
+            request.isForMainFrame,
+            request.requestHeaders,
+            BrowserRequestSource.WEB_VIEW
+        )
+
+        if (inspection.shouldBlockAd) {
+            return emptyResponse()
+        }
 
         if (inspection.shouldInspectMedia) {
             val requestWithCookies = try {

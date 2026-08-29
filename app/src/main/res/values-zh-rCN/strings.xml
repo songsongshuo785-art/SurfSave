@@ -56,6 +56,8 @@
     <string name="open_link_new_window">在新窗口打开</string>
     <string name="translate_page">翻译网页</string>
     <string name="auto_translate_pages">自动翻译网页</string>
+    <string name="ad_filter_title">拦截广告和跟踪请求</string>
+    <string name="ad_filter_summary">使用轻量网络规则；高置信广告请求会被拦截，未命中规则的视频播放资源仍会放行。</string>
     <string name="translate_page_unavailable">当前页面无法翻译</string>
     <string name="desktop_mode">桌面模式</string>
     <string name="searchbar_hint">搜索</string>

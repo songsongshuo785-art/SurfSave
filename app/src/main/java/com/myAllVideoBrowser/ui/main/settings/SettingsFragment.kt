@@ -374,6 +374,12 @@ class SettingsFragment : BaseFragment() {
             "dns"
         )
         val autoTranslate = generalSection || matches(getString(R.string.auto_translate_pages))
+        val adFilter = generalSection || matches(
+            getString(R.string.ad_filter_title),
+            getString(R.string.ad_filter_summary),
+            "ad block",
+            "tracking"
+        )
         setVisible(dataBinding.layoutClearCookie, clearCookies)
         setVisible(dataBinding.dividerAfterClearCookie, clearCookies)
         setVisible(dataBinding.isAutoThemeCheckBox, autoTheme)
@@ -383,6 +389,7 @@ class SettingsFragment : BaseFragment() {
         setVisible(dataBinding.drmEnabledCheckBox, drm)
         setVisible(dataBinding.layoutSearchEngine, searchEngine)
         setVisible(dataBinding.layoutProxySettings, proxySettings)
+        setVisible(dataBinding.adFilterContainer, adFilter)
         setVisible(dataBinding.autoTranslatePagesCheckBox, autoTranslate)
 
         val detectionSection = matches(
@@ -540,6 +547,7 @@ class SettingsFragment : BaseFragment() {
             dataBinding.drmEnabledCheckBox,
             dataBinding.layoutSearchEngine,
             dataBinding.layoutProxySettings,
+            dataBinding.adFilterContainer,
             dataBinding.autoTranslatePagesCheckBox,
             dataBinding.showVideoAlertCheckBox,
             dataBinding.showVideoActionButtonCheckBox,

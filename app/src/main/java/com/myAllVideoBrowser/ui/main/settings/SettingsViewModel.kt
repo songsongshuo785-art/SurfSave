@@ -64,6 +64,7 @@ class SettingsViewModel @Inject constructor(
     val ytdlpUpdateStatus = ObservableField("")
     val isYtdlpUpdating = ObservableBoolean(false)
     val isAutoTranslatePages = ObservableBoolean(false)
+    val isAdBlockingEnabled = ObservableBoolean(false)
     val shortVideoFilterDurationSeconds = ObservableInt(40)
     private val isShowVideoActionButton = ObservableBoolean(true)
     private val isShowVideoAlert = ObservableBoolean(true)
@@ -89,6 +90,7 @@ class SettingsViewModel @Inject constructor(
             isFilterShortVideos.set(sharedPrefHelper.isFilterShortVideos())
             shortVideoFilterDurationSeconds.set(sharedPrefHelper.getShortVideoFilterDurationSeconds())
             isAutoTranslatePages.set(sharedPrefHelper.isAutoTranslatePages())
+            isAdBlockingEnabled.set(sharedPrefHelper.isAdBlockingEnabled())
             searchEngine.set(sharedPrefHelper.getSearchEngine())
             filenameTemplate.set(sharedPrefHelper.getDownloadFilenameTemplate())
             refreshCookieProfileSummary()
@@ -297,6 +299,13 @@ class SettingsViewModel @Inject constructor(
         isAutoTranslatePages.set(isAutoTranslate)
         viewModelScope.launch(Dispatchers.IO) {
             sharedPrefHelper.saveIsAutoTranslatePages(isAutoTranslate)
+        }
+    }
+
+    fun setIsAdBlockingEnabled(isEnabled: Boolean) {
+        isAdBlockingEnabled.set(isEnabled)
+        viewModelScope.launch(Dispatchers.IO) {
+            sharedPrefHelper.setIsAdBlockingEnabled(isEnabled)
         }
     }
 

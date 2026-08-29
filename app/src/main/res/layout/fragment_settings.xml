@@ -303,6 +303,30 @@
                             app:layout_constraintTop_toBottomOf="@id/tv_proxy_settings" />
                     </androidx.constraintlayout.widget.ConstraintLayout>
 
+                    <LinearLayout
+                        android:id="@+id/ad_filter_container"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                            android:id="@+id/ad_blocking_enabled_check_box"
+                            android:layout_width="match_parent"
+                            android:layout_height="56dp"
+                            android:checked="@{viewModel.isAdBlockingEnabled}"
+                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsAdBlockingEnabled(isChecked)}"
+                            android:text="@string/ad_filter_title"
+                            android:textColor="@color/sxTextPrimary" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="@dimen/padding_small"
+                            android:text="@string/ad_filter_summary"
+                            android:textColor="@color/sxTextSecondary"
+                            android:textSize="@dimen/text_small" />
+                    </LinearLayout>
+
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/auto_translate_pages_check_box"
                         android:layout_width="match_parent"
