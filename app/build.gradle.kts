@@ -1,6 +1,8 @@
 import com.android.build.api.variant.FilterConfiguration
 import org.gradle.kotlin.dsl.support.serviceOf
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
+import java.security.MessageDigest
 import java.util.Date
 import java.util.Locale
 import java.util.Properties
@@ -17,6 +19,21 @@ plugins {
     kotlin("kapt")
     id("jacoco")
 }
+
+// Keep normal artifacts in app/build. Review/CI callers may opt into an isolated directory
+// inside the repository when a previously shared APK is still held open by Windows.
+providers.gradleProperty("SURFSAVE_APP_BUILD_DIR").orNull
+    ?.trim()
+    ?.takeIf(String::isNotEmpty)
+    ?.let { configuredPath ->
+        val repositoryRoot = rootProject.projectDir.canonicalFile.toPath()
+        val allowedRoot = repositoryRoot.resolve("build").normalize()
+        val candidate = rootProject.file(configuredPath).canonicalFile.toPath()
+        require(candidate.startsWith(allowedRoot) && candidate != allowedRoot) {
+            "SURFSAVE_APP_BUILD_DIR must be a child of the repository build directory"
+        }
+        layout.buildDirectory.set(candidate.toFile())
+    }
 
 // =========================================================================
 // KOTLIN & DEPENDENCY CONFIGURATIONS
@@ -51,10 +68,10 @@ val skipGoBuild = (project.findProperty("SKIP_GO_BUILD")?.toString()
 val abiFilterList = (project.findProperty("ABI_FILTERS") as? String ?: "").split(';')
 // Release version codes share the epoch-second range used by diagnostic builds. Before
 // publishing a tag, this value must be greater than every APK distributed so far; ABI
-// split offsets 0..4 are added below. v0.8.32 remains above all previously
+// split offsets 0..4 are added below. v0.8.33 remains above all previously
 // distributed builds and the release commit timestamp checked by CI.
-val baseVersionCode = 1_788_000_000
-val baseVersionName = "0.8.32"
+val baseVersionCode = 1_789_000_000
+val baseVersionName = "0.8.33"
 val exportStamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
 val abiCodes = mapOf(
     "armeabi-v7a" to 1,
@@ -91,6 +108,7 @@ val testVersionName = (project.findProperty("TEST_VERSION_NAME")?.toString()
 android {
     namespace = "com.myAllVideoBrowser"
     compileSdk = libs.versions.targetSdk.get().toInt()
+    testBuildType = "diagnostic"
     ndkVersion = libs.versions.ndk.get()
 
     // Compile Options
@@ -150,6 +168,7 @@ android {
         applicationId = "com.surfsave.browser"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = baseVersionCode
         versionName = baseVersionName
         buildConfigField("String", "MIGRATION_ROLE", "\"new_identity\"")
@@ -259,6 +278,8 @@ android {
     sourceSets {
         getByName("main") {
             jniLibs.srcDir("src/main/jniLibs")
+            jniLibs.srcDir(layout.buildDirectory.dir("generated/contentblock/jniLibs"))
+            assets.srcDir(layout.buildDirectory.dir("generated/contentblock/assets"))
         }
     }
 }
@@ -293,7 +314,7 @@ tasks.matching { it.name == "preDiagnosticBuild" }.configureEach {
 
 tasks.register("exportDiagnosticApks") {
     group = "distribution"
-    description = "Builds diagnostic APKs and exports uniquely named files for phone testing."
+    description = "Exports INTERNAL diagnostic APKs. These are not release-candidate test artifacts."
     dependsOn("assembleDiagnostic")
 
     val exportRoot = layout.buildDirectory.dir("outputs/share-apks")
@@ -336,11 +357,19 @@ tasks.register("exportDiagnosticApks") {
                 "armeabi-v7a" -> "armv7"
                 else -> abi
             }
-            val exportName = "SurfSave-$testVersionName-$shortAbi.apk"
+            val exportName = "SurfSave-$testVersionName-$shortAbi-INTERNAL-DIAGNOSTIC.apk"
             val requiredEntries = when (abi) {
-                "universal" -> abiCodes.keys.map { "lib/$it/libgojni.so" }
+                "universal" -> abiCodes.keys.flatMap {
+                    listOf(
+                        "lib/$it/libgojni.so",
+                        "lib/$it/libsurfsave_content_block.so"
+                    )
+                }
                 "unknown" -> emptyList()
-                else -> listOf("lib/$abi/libgojni.so")
+                else -> listOf(
+                    "lib/$abi/libgojni.so",
+                    "lib/$abi/libsurfsave_content_block.so"
+                )
             }
 
             if (requiredEntries.isEmpty()) {
@@ -359,8 +388,10 @@ tasks.register("exportDiagnosticApks") {
             apkFile.copyTo(exportDir.resolve(exportName), overwrite = true)
         }
 
-        logger.lifecycle("Exported phone-test APKs to: ${exportDir.absolutePath}")
-        logger.lifecycle("Phone-test versionName=$testVersionName baseVersionCode=$testBuildVersionCode")
+        logger.lifecycle("Exported INTERNAL diagnostic APKs to: ${exportDir.absolutePath}")
+        logger.lifecycle("Do not use these APKs for release acceptance or user distribution.")
+        logger.lifecycle("Use scripts/Build-ReleaseCandidate.ps1 to obtain the signed user-test APK.")
+        logger.lifecycle("Diagnostic versionName=$testVersionName baseVersionCode=$testBuildVersionCode")
     }
 }
 
@@ -606,6 +637,339 @@ val archConfigs = listOf(
     ArchConfig("x86_64", "amd64", "x86_64-linux-android"),
     ArchConfig("x86", "386", "i686-linux-android")
 )
+
+// =========================================================================
+// RUST CONTENT BLOCKING ENGINE (adblock-rust JNI)
+// =========================================================================
+
+data class RustArchConfig(
+    val abi: String,
+    val rustTarget: String,
+    val clangTarget: String
+)
+
+val rustArchConfigs = listOf(
+    RustArchConfig("arm64-v8a", "aarch64-linux-android", "aarch64-linux-android"),
+    RustArchConfig("armeabi-v7a", "armv7-linux-androideabi", "armv7a-linux-androideabi"),
+    RustArchConfig("x86", "i686-linux-android", "i686-linux-android"),
+    RustArchConfig("x86_64", "x86_64-linux-android", "x86_64-linux-android")
+)
+
+val rustCrateDir = file("src/main/rust/contentblock")
+val rustGeneratedJniDir = layout.buildDirectory.dir("generated/contentblock/jniLibs")
+val rustGeneratedAssetsDir = layout.buildDirectory.dir("generated/contentblock/assets")
+val rustCargoTargetDir = layout.buildDirectory.dir("rust-contentblock-target")
+val cargoExecutable = run {
+    val configured = project.findProperty("CARGO_EXECUTABLE")?.toString()
+        ?: System.getenv("CARGO_EXECUTABLE")
+    if (!configured.isNullOrBlank()) {
+        configured
+    } else {
+        val executableName = if (System.getProperty("os.name").startsWith("Windows")) {
+            "cargo.exe"
+        } else {
+            "cargo"
+        }
+        val userCargo = file("${System.getProperty("user.home")}/.cargo/bin/$executableName")
+        if (userCargo.isFile) userCargo.absolutePath else executableName
+    }
+}
+
+val testRustContentBlock = tasks.register("testRustContentBlock") {
+    group = "verification"
+    description = "Runs host unit tests for the adblock-rust JNI wrapper."
+
+    inputs.file(rustCrateDir.resolve("Cargo.toml"))
+    inputs.file(rustCrateDir.resolve("Cargo.lock"))
+    inputs.dir(rustCrateDir.resolve("src"))
+
+    doLast {
+        execOps.exec {
+            workingDir(rustCrateDir)
+            environment("CARGO_TARGET_DIR", layout.buildDirectory.dir("rust-contentblock-host").get().asFile)
+            commandLine(cargoExecutable, "test", "--locked")
+        }
+    }
+}
+
+val buildRustContentBlock = tasks.register("buildRustContentBlock") {
+    group = "Rust Build"
+    description = "Builds the adblock-rust JNI library for all Android ABIs."
+
+    inputs.file(rustCrateDir.resolve("Cargo.toml"))
+    inputs.file(rustCrateDir.resolve("Cargo.lock"))
+    inputs.dir(rustCrateDir.resolve("src"))
+    inputs.property("rustTargets", rustArchConfigs.joinToString { it.rustTarget })
+    inputs.property("androidNdkVersion", libs.versions.ndk.get())
+    outputs.dir(rustGeneratedJniDir)
+
+    doLast {
+        val ndkPath = findNdkPath().replace("\\", "/")
+        val prebuiltFolder = validateNdkPath(ndkPath)
+        val toolchainBin = file("$ndkPath/toolchains/llvm/prebuilt/$prebuiltFolder/bin")
+        val generatedDir = rustGeneratedJniDir.get().asFile
+        val cargoTargetDir = rustCargoTargetDir.get().asFile
+        val isWindows = System.getProperty("os.name").startsWith("Windows")
+        val commandSuffix = if (isWindows) ".cmd" else ""
+        val apiLevel = libs.versions.minSdk.get()
+
+        project.delete(generatedDir)
+        generatedDir.mkdirs()
+
+        rustArchConfigs.forEach { arch ->
+            val linker = toolchainBin.resolve("${arch.clangTarget}$apiLevel-clang$commandSuffix")
+            val archiver = toolchainBin.resolve(if (isWindows) "llvm-ar.exe" else "llvm-ar")
+            if (!linker.isFile || !archiver.isFile) {
+                throw GradleException(
+                    "Rust NDK toolchain missing for ${arch.abi}: linker=${linker.absolutePath} " +
+                        "archiver=${archiver.absolutePath}"
+                )
+            }
+
+            val targetEnvKey = arch.rustTarget.replace('-', '_').uppercase(Locale.US)
+            execOps.exec {
+                workingDir(rustCrateDir)
+                environment("CARGO_TARGET_DIR", cargoTargetDir)
+                environment("CARGO_TARGET_${targetEnvKey}_LINKER", linker.absolutePath)
+                environment("CC_${arch.rustTarget.replace('-', '_')}", linker.absolutePath)
+                environment("AR_${arch.rustTarget.replace('-', '_')}", archiver.absolutePath)
+                environment(
+                    "CARGO_ENCODED_RUSTFLAGS",
+                    "-Clink-arg=-Wl,-z,max-page-size=16384"
+                )
+                commandLine(
+                    cargoExecutable,
+                    "build",
+                    "--locked",
+                    "--release",
+                    "--target",
+                    arch.rustTarget
+                )
+            }
+
+            val sourceLibrary = cargoTargetDir.resolve(
+                "${arch.rustTarget}/release/libsurfsave_content_block.so"
+            )
+            if (!sourceLibrary.isFile) {
+                throw GradleException(
+                    "Rust build did not produce ${sourceLibrary.absolutePath} for ${arch.abi}"
+                )
+            }
+            val destinationDir = generatedDir.resolve(arch.abi).apply { mkdirs() }
+            sourceLibrary.copyTo(
+                destinationDir.resolve("libsurfsave_content_block.so"),
+                overwrite = true
+            )
+        }
+    }
+}
+
+val verifyRustContentBlock = tasks.register("verifyRustContentBlock") {
+    group = "verification"
+    description = "Runs Rust tests and verifies every Android ABI native library."
+    dependsOn(testRustContentBlock, buildRustContentBlock)
+
+    doLast {
+        val generatedDir = rustGeneratedJniDir.get().asFile
+        rustArchConfigs.forEach { arch ->
+            val library = generatedDir.resolve("${arch.abi}/libsurfsave_content_block.so")
+            if (!library.isFile || library.length() < 64 * 1024) {
+                throw GradleException(
+                    "Invalid Rust content-block library for ${arch.abi}: ${library.absolutePath}"
+                )
+            }
+            library.inputStream().use { input ->
+                val magic = ByteArray(4)
+                if (input.read(magic) != magic.size || !magic.contentEquals(
+                        byteArrayOf(0x7f, 'E'.code.toByte(), 'L'.code.toByte(), 'F'.code.toByte())
+                    )
+                ) {
+                    throw GradleException("Rust library is not ELF: ${library.absolutePath}")
+                }
+            }
+        }
+    }
+}
+
+val compileContentBlockRules = tasks.register("compileContentBlockRules") {
+    group = "Rust Build"
+    description = "Compiles bundled filter subscriptions into full and context-free engines."
+
+    val bundledRules = listOf(
+        file("src/main/assets/contentblock/easylist.txt"),
+        file("src/main/assets/contentblock/easyprivacy.txt"),
+        file("src/main/assets/contentblock/surfsave.txt")
+    )
+    val sourceManifest = file("src/main/assets/contentblock/manifest.json")
+    inputs.file(rustCrateDir.resolve("Cargo.toml"))
+    inputs.file(rustCrateDir.resolve("Cargo.lock"))
+    inputs.dir(rustCrateDir.resolve("src"))
+    inputs.files(bundledRules)
+    inputs.file(sourceManifest)
+    outputs.dir(rustGeneratedAssetsDir)
+
+    doLast {
+        val generatedContentBlockDir = rustGeneratedAssetsDir.get().asFile
+            .resolve("contentblock")
+        project.delete(generatedContentBlockDir)
+        generatedContentBlockDir.mkdirs()
+
+        fun compileSnapshot(fileName: String, mode: String): File {
+            val output = generatedContentBlockDir.resolve(fileName)
+            execOps.exec {
+                workingDir(rustCrateDir)
+                environment(
+                    "CARGO_TARGET_DIR",
+                    layout.buildDirectory.dir("rust-contentblock-host").get().asFile
+                )
+                commandLine(
+                    cargoExecutable,
+                    "run",
+                    "--locked",
+                    "--release",
+                    "--bin",
+                    "compile_rules",
+                    "--",
+                    output.absolutePath,
+                    mode,
+                    *bundledRules.map { it.absolutePath }.toTypedArray()
+                )
+            }
+            if (!output.isFile || output.length() < 64 * 1024) {
+                throw GradleException(
+                    "Compiled content-block snapshot is invalid: ${output.absolutePath}"
+                )
+            }
+            return output
+        }
+
+        fun sha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            return digest.digest().joinToString("") { "%02X".format(it) }
+        }
+
+        fun sha256Text(value: String): String {
+            return MessageDigest.getInstance("SHA-256")
+                .digest(value.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02X".format(it) }
+        }
+
+        val full = compileSnapshot("engine-full.dat", "full")
+        val contextFree = compileSnapshot("engine-context-free.dat", "context-free")
+        val sourceManifestHash = sha256(sourceManifest)
+        val sourceManifestJson = groovy.json.JsonSlurper().parse(sourceManifest) as? Map<*, *>
+            ?: throw GradleException("Bundled content-block manifest is not a JSON object")
+        val sourceEntries = sourceManifestJson["sources"] as? List<*>
+            ?: throw GradleException("Bundled content-block manifest has no source list")
+        val orderedSources = sourceEntries.joinToString(",") { value ->
+            val source = value as? Map<*, *>
+                ?: throw GradleException("Bundled content-block source is not an object")
+            val id = source["id"]?.toString()?.takeIf { it.isNotBlank() }
+                ?: throw GradleException("Bundled content-block source id is missing")
+            val hash = source["sha256"]?.toString()?.uppercase(Locale.US)
+                ?.takeIf { it.matches(Regex("[0-9A-F]{64}")) }
+                ?: throw GradleException("Bundled content-block source hash is invalid: $id")
+            "$id:$hash"
+        }
+        val cacheKey = sha256Text(
+            "schema=1\n" +
+                "engine=adblock-rust-0.13.3\n" +
+                "sources=$orderedSources"
+        )
+        val engineManifest = """
+            {
+              "schemaVersion": 1,
+              "engineVersion": "adblock-rust-0.13.3",
+              "sourceManifestSha256": "$sourceManifestHash",
+              "cacheKey": "$cacheKey",
+              "full": {
+                "asset": "contentblock/engine-full.dat",
+                "sha256": "${sha256(full)}",
+                "bytes": ${full.length()}
+              },
+              "contextFree": {
+                "asset": "contentblock/engine-context-free.dat",
+                "sha256": "${sha256(contextFree)}",
+                "bytes": ${contextFree.length()}
+              }
+            }
+        """.trimIndent() + "\n"
+        generatedContentBlockDir.resolve("engine-manifest.json")
+            .writeText(engineManifest, Charsets.UTF_8)
+    }
+}
+
+tasks.matching {
+    it.name.startsWith("merge") && it.name.endsWith("JniLibFolders")
+}.configureEach {
+    dependsOn(buildRustContentBlock)
+}
+
+tasks.matching {
+    it.name.startsWith("merge") && it.name.endsWith("Assets")
+}.configureEach {
+    dependsOn(compileContentBlockRules)
+}
+
+// Android lint tasks consume the generated main assets directly instead of going through
+// merge<Variant>Assets, so the whole lint task family needs the producer dependency. Without
+// this edge a clean lint build can race compileContentBlockRules and Gradle rejects the
+// implicit input (both model generation and analysis read the directory).
+tasks.matching {
+    it.name.contains("lint", ignoreCase = true)
+}.configureEach {
+    dependsOn(compileContentBlockRules)
+}
+
+val benchmarkRustContentBlock = tasks.register("benchmarkRustContentBlock") {
+    group = "verification"
+    description = "Measures the release-mode content-block matcher against the bundled rules."
+    dependsOn(compileContentBlockRules)
+
+    val reportFile = layout.buildDirectory.file("reports/contentblock/rust-hot-path.json")
+    inputs.file(rustCrateDir.resolve("src/bin/benchmark_engine.rs"))
+    inputs.file(rustGeneratedAssetsDir.map { it.file("contentblock/engine-full.dat") })
+    outputs.file(reportFile)
+
+    doLast {
+        val snapshot = rustGeneratedAssetsDir.get().file("contentblock/engine-full.dat").asFile
+        val capturedOutput = ByteArrayOutputStream()
+        execOps.exec {
+            workingDir(rustCrateDir)
+            environment(
+                "CARGO_TARGET_DIR",
+                layout.buildDirectory.dir("rust-contentblock-host").get().asFile
+            )
+            commandLine(
+                cargoExecutable,
+                "run",
+                "--locked",
+                "--release",
+                "--bin",
+                "benchmark_engine",
+                "--",
+                snapshot.absolutePath
+            )
+            standardOutput = capturedOutput
+        }
+        val report = reportFile.get().asFile
+        report.parentFile.mkdirs()
+        report.writeText(capturedOutput.toString(Charsets.UTF_8), Charsets.UTF_8)
+        println("Content-block benchmark: ${report.readText(Charsets.UTF_8).trim()}")
+    }
+}
+
+verifyRustContentBlock.configure {
+    dependsOn(benchmarkRustContentBlock)
+}
 
 // =========================================================================
 // GO BUILD HELPER FUNCTIONS

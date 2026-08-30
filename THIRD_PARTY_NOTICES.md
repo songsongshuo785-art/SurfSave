@@ -17,6 +17,14 @@ Primary dependencies include:
 - jsoup.
 - Google ML Kit Translate and Language ID.
 - TimeAgo.
+- Brave `adblock-rust` 0.13.3 (MPL-2.0) provides the embedded ABP/uBO-compatible
+  network and cosmetic rule engine used by SurfSave's content blocker:
+  https://github.com/brave/adblock-rust
+- Bundled EasyList and EasyPrivacy snapshots are obtained from the official
+  EasyList project and retain their upstream GPL-3.0-only / CC-BY-SA-3.0 terms.
+  Exact source URLs, versions, byte sizes, and SHA-256 values are recorded in
+  `app/src/main/assets/contentblock/manifest.json`:
+  https://easylist.to/
 - JUnit, Mockito, AndroidX Test, Espresso, Jacoco, and Coveralls for tests and quality tooling.
 
 See `gradle/libs.versions.toml`, `app/build.gradle.kts`, and `app/src/main/go/builder/go.mod` for the exact dependency coordinates and versions used by a given commit.

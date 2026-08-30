@@ -325,6 +325,51 @@
                             android:text="@string/ad_filter_summary"
                             android:textColor="@color/sxTextSecondary"
                             android:textSize="@dimen/text_small" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/content_block_status"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/content_block_status_initializing"
+                            android:textColor="@color/sxTextPrimary"
+                            android:textSize="@dimen/text_small"
+                            android:textStyle="bold" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/content_block_metadata"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/padding_tiny"
+                            android:text="@string/content_block_rules_not_ready"
+                            android:textColor="@color/sxTextSecondary"
+                            android:textSize="@dimen/text_small" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/content_block_count"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/padding_tiny"
+                            android:text="@string/content_block_blocked_count_zero"
+                            android:textColor="@color/sxTextSecondary"
+                            android:textSize="@dimen/text_small" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/content_block_error"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/padding_tiny"
+                            android:textColor="@color/colorError"
+                            android:textSize="@dimen/text_small"
+                            android:visibility="gone" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/button_update_content_block_rules"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="end"
+                            android:layout_marginTop="@dimen/padding_small"
+                            android:text="@string/content_block_update_rules" />
                     </LinearLayout>
 
                     <com.google.android.material.switchmaterial.SwitchMaterial

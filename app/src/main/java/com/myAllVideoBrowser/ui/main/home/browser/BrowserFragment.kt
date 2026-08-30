@@ -36,6 +36,11 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.contentblock.BrowserResourceTypeResolver
+import com.myAllVideoBrowser.contentblock.ContentBlockCoordinator
+import com.myAllVideoBrowser.contentblock.ContentBlockDecision
+import com.myAllVideoBrowser.contentblock.ContentBlockRequest
+import com.myAllVideoBrowser.contentblock.ContentBlockRequestSource
 import com.myAllVideoBrowser.databinding.FragmentBrowserBinding
 import com.myAllVideoBrowser.ui.component.adapter.dispatchListDiff
 import com.myAllVideoBrowser.ui.component.adapter.WebTabsAdapter
@@ -178,7 +183,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     lateinit var okHttpProxyClient: OkHttpProxyClient
 
     @Inject
-    lateinit var adFilterRuleProvider: BrowserAdFilterRuleProvider
+    lateinit var contentBlockCoordinator: ContentBlockCoordinator
 
     @VisibleForTesting
     internal lateinit var dataBinding: FragmentBrowserBinding
@@ -200,7 +205,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     private var visibleUndoSnapshotId: String? = null
     private val hideTabUndoRunnable = Runnable { hideClosedTabUndo() }
 
-    private lateinit var requestInspector: BrowserRequestInspector
+    private lateinit var requestInspector: MediaRequestInspector
 
     private val buttonStateCallback = object :
         Observable.OnPropertyChangedCallback() {
@@ -230,16 +235,27 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     private val serviceWorkerClient = object : ServiceWorkerClient() {
         override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
             val url = request.url.toString()
-            val inspection = requestInspector.inspect(
-                url,
-                "",
-                request.isForMainFrame,
-                request.requestHeaders,
-                BrowserRequestSource.SERVICE_WORKER
+            val blockDecision = contentBlockCoordinator.evaluate(
+                ContentBlockRequest(
+                    url = url,
+                    documentUrl = null,
+                    method = request.method,
+                    resourceType = BrowserResourceTypeResolver.resolve(
+                        url,
+                        request.requestHeaders,
+                        request.isForMainFrame
+                    ),
+                    isMainFrame = request.isForMainFrame,
+                    source = ContentBlockRequestSource.SERVICE_WORKER
+                )
             )
-            if (inspection.shouldBlockAd) {
+            if (blockDecision is ContentBlockDecision.Block) {
                 return CustomWebViewClient.emptyResponse()
             }
+            val inspection = requestInspector.inspect(
+                url,
+                ""
+            )
             val activeContext = videoDetectionModel.currentServiceWorkerContext()
                 ?: return super.shouldInterceptRequest(request)
             val detectionContext = videoDetectionModel.serviceWorkerContextForRequest(
@@ -392,7 +408,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         videoDetectionModel.settingsModel = mainActivity.settingsViewModel
         browserViewModel.settingsModel = mainActivity.settingsViewModel
         settingsModel = mainActivity.settingsViewModel
-        requestInspector = BrowserRequestInspector(settingsModel, adFilterRuleProvider.filter)
+        requestInspector = MediaRequestInspector(settingsModel)
 
         mainActivity.mainViewModel.browserServicesProvider = this
 

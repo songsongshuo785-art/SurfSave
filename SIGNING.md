@@ -45,6 +45,12 @@ The candidate workflow performs the only Gradle, Go/Xray, packaging, and signing
 
 Promotion downloads the artifact by its recorded workflow run ID. It does not invoke Gradle, Go, packaging, or signing. Before publication it independently checks source ancestry, APK signatures and versions, then compares every draft Release asset digest with the tested candidate manifest. A public Release is never overwritten; an interrupted draft may be resumed with the same verified candidate.
 
+`app/build/outputs/apk/release/app-arm64-v8a-release.apk` is the only standard phone-test
+package. `assembleDiagnostic` and `exportDiagnosticApks` remain internal engineering tools;
+their outputs are debuggable and must never be used for user installation acceptance or
+GitHub Release promotion. Exported diagnostic filenames contain `INTERNAL-DIAGNOSTIC` to make
+this boundary visible.
+
 ## Verify a downloaded APK
 
 Use `apksigner` from Android SDK Build Tools:

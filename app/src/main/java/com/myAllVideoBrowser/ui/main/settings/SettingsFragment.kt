@@ -18,8 +18,14 @@ import androidx.databinding.Observable
 import androidx.fragment.app.FragmentContainerView
 import androidx.fragment.app.FragmentTransaction
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.Lifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.contentblock.ContentBlockEngineStatus
+import com.myAllVideoBrowser.contentblock.ContentBlockManager
+import com.myAllVideoBrowser.contentblock.ContentBlockState
 import com.myAllVideoBrowser.databinding.FragmentSettingsBinding
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.ui.main.home.MainActivity
@@ -32,7 +38,10 @@ import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.SystemUtil
 import com.myAllVideoBrowser.util.VideoDetectionThresholdSlider
 import java.util.Locale
+import java.text.DateFormat
+import java.util.Date
 import javax.inject.Inject
+import kotlinx.coroutines.launch
 
 class SettingsFragment : BaseFragment() {
 
@@ -54,6 +63,9 @@ class SettingsFragment : BaseFragment() {
 
     @Inject
     lateinit var viewModelFactory: ViewModelProvider.Factory
+
+    @Inject
+    lateinit var contentBlockManager: ContentBlockManager
 
     private lateinit var dataBinding: FragmentSettingsBinding
     private lateinit var settingsViewModel: SettingsViewModel
@@ -133,6 +145,12 @@ class SettingsFragment : BaseFragment() {
         }
     }
 
+    private val contentBlockEnabledCallback = object : Observable.OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            contentBlockManager.onEnabledChanged(settingsViewModel.isAdBlockingEnabled.get())
+        }
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -156,6 +174,7 @@ class SettingsFragment : BaseFragment() {
         setupSecondTierSettings()
         setupTextUpdateCallbacks()
         handleUIEvents()
+        setupContentBlockStatus()
         dataBinding.layoutSearchEngine.setOnClickListener {
             showSearchEngineDialog()
         }
@@ -173,7 +192,71 @@ class SettingsFragment : BaseFragment() {
         settingsViewModel.start()
     }
 
+    private fun setupContentBlockStatus() {
+        settingsViewModel.isAdBlockingEnabled.addOnPropertyChangedCallback(
+            contentBlockEnabledCallback
+        )
+        contentBlockEnabledCallback.onPropertyChanged(null, 0)
+        dataBinding.buttonUpdateContentBlockRules.setOnClickListener {
+            if (!contentBlockManager.state.value.isUpdating) {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    contentBlockManager.updateRules()
+                }
+            }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                contentBlockManager.state.collect(::renderContentBlockState)
+            }
+        }
+    }
+
+    private fun renderContentBlockState(state: ContentBlockState) {
+        dataBinding.contentBlockStatus.setText(
+            when (state.status) {
+                ContentBlockEngineStatus.DISABLED -> R.string.content_block_status_disabled
+                ContentBlockEngineStatus.INITIALIZING -> R.string.content_block_status_initializing
+                ContentBlockEngineStatus.UPDATING -> R.string.content_block_status_updating
+                ContentBlockEngineStatus.BUNDLED -> R.string.content_block_status_bundled
+                ContentBlockEngineStatus.UP_TO_DATE -> R.string.content_block_status_up_to_date
+                ContentBlockEngineStatus.STALE -> R.string.content_block_status_stale
+                ContentBlockEngineStatus.UPDATE_FAILED -> R.string.content_block_status_update_failed
+                ContentBlockEngineStatus.ENGINE_FAILED -> R.string.content_block_status_engine_failed
+                ContentBlockEngineStatus.FALLBACK -> R.string.content_block_status_fallback
+            }
+        )
+        dataBinding.contentBlockMetadata.text = when {
+            state.rulesVersion.isBlank() -> getString(R.string.content_block_rules_not_ready)
+            state.updatedAtEpochMillis > 0L -> getString(
+                R.string.content_block_rules_metadata,
+                state.rulesVersion,
+                DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                    .format(Date(state.updatedAtEpochMillis))
+            )
+            else -> getString(R.string.content_block_rules_version, state.rulesVersion)
+        }
+        dataBinding.contentBlockCount.text = getString(
+            R.string.content_block_blocked_count,
+            state.blockedRequests
+        )
+        dataBinding.contentBlockError.text = state.lastError?.let {
+            getString(R.string.content_block_last_error, it)
+        }.orEmpty()
+        dataBinding.contentBlockError.isVisible = !state.lastError.isNullOrBlank()
+        dataBinding.buttonUpdateContentBlockRules.isEnabled = !state.isUpdating
+        dataBinding.buttonUpdateContentBlockRules.setText(
+            if (state.isUpdating) {
+                R.string.content_block_updating_rules
+            } else {
+                R.string.content_block_update_rules
+            }
+        )
+    }
+
     override fun onDestroyView() {
+        settingsViewModel.isAdBlockingEnabled.removeOnPropertyChangedCallback(
+            contentBlockEnabledCallback
+        )
         settingsViewModel.stop()
         thresholdCallback.let {
             settingsViewModel.videoDetectionThreshold.removeOnPropertyChangedCallback(
@@ -513,7 +596,8 @@ class SettingsFragment : BaseFragment() {
         )
         setVisible(
             dataBinding.settingsGeneralCard,
-            clearCookies || autoTheme || darkMode || desktopMode || lockOrientation || drm || searchEngine || proxySettings || autoTranslate
+            clearCookies || autoTheme || darkMode || desktopMode || lockOrientation || drm ||
+                searchEngine || proxySettings || autoTranslate || adFilter
         )
         setVisible(
             dataBinding.settingsDetectionCard,

@@ -17,11 +17,14 @@ Fast verification for most Kotlin/UI work:
 .\gradlew.bat --console=plain -PSKIP_GO_BUILD=true testDiagnosticUnitTest assembleDiagnostic lintDiagnostic
 ```
 
-Full diagnostic APK export with native proxy libraries:
+Internal diagnostic APK export with native proxy libraries:
 
 ```powershell
 .\gradlew.bat --console=plain exportDiagnosticApks
 ```
+
+These exported diagnostic APKs are debuggable engineering artifacts. User acceptance testing
+must use the signed release candidate produced by `scripts/Build-ReleaseCandidate.ps1`.
 
 ## Project Boundaries
 

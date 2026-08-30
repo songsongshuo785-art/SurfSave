@@ -23,6 +23,18 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: Set up pinned Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal --component rustfmt
+          rustup target add --toolchain 1.98.0 \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            i686-linux-android \
+            x86_64-linux-android
+          rustc --version
+          cargo --version
+
       - name: Set up Android NDK
         uses: nttld/setup-ndk@v1
         with:
@@ -36,6 +48,12 @@ jobs:
 
       - name: Test, build diagnostic APK, and lint
         run: ./gradlew --console=plain -PSKIP_GO_BUILD=true testDiagnosticUnitTest assembleDiagnostic lintDiagnostic
+
+      - name: Verify native libraries in diagnostic APKs
+        run: >-
+          python3 .github/scripts/verify_native_libs.py
+          --apk-dir app/build/outputs/apk/diagnostic
+          --variant diagnostic
 
       - name: Upload diagnostic APKs
         uses: actions/upload-artifact@v4

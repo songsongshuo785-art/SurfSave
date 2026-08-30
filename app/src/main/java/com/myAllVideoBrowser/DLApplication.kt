@@ -6,6 +6,7 @@ import android.os.Build
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.myAllVideoBrowser.di.component.DaggerAppComponent
+import com.myAllVideoBrowser.contentblock.ContentBlockUpdateWorker
 import com.myAllVideoBrowser.migration.MigrationManager
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ContextUtils
@@ -78,6 +79,7 @@ open class DLApplication : DaggerApplication() {
         WorkManager.initialize(
             ctx, Configuration.Builder().setWorkerFactory(workerFactory).build()
         )
+        ContentBlockUpdateWorker.schedule(ctx)
 
         RxJavaPlugins.setErrorHandler { error: Throwable? ->
             AppLogger.e("RxJavaError unhandled $error")

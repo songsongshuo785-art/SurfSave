@@ -128,7 +128,7 @@ Prerequisites: JDK 21, Android SDK, NDK `27.3.13750724`, Go (for the Xray proxy 
 # Fast diagnostic build (skips Go/Xray rebuild)
 .\gradlew.bat --console=plain -PSKIP_GO_BUILD=true testDiagnosticUnitTest assembleDiagnostic lintDiagnostic
 
-# Export diagnostic APKs with bundled native proxy library (for testing, not a signed release)
+# Export internal diagnostic APKs with bundled native proxy library (engineering only)
 .\gradlew.bat --console=plain exportDiagnosticApks
 
 # If go is not on PATH
@@ -141,11 +141,15 @@ Official releases are built once as a signed candidate and then promoted without
 
 ```powershell
 # Builds on GitHub and downloads the signed candidate into app/build/outputs/apk/release/
-.\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.32
+.\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.33
 
 # After installing and accepting that exact APK, publish the same bytes
-.\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.32
+.\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.33
 ```
+
+The only standard phone-test package is
+`app/build/outputs/apk/release/app-arm64-v8a-release.apk`. Do not use the debuggable APK
+produced by `assembleDiagnostic` for user acceptance testing; the two are not interchangeable.
 
 See [SIGNING.md](SIGNING.md) for the immutable artifact, certificate, digest, and recovery contracts. Tag pushes alone do not build a release.
 

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
+import com.myAllVideoBrowser.contentblock.ContentBlockManager
+import com.myAllVideoBrowser.contentblock.ContentBlockUpdateWorker
 import com.myAllVideoBrowser.data.repository.ProgressRepository
 import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.NotificationsHelper
@@ -25,12 +27,19 @@ class DaggerWorkerFactory @Inject constructor(
     private val okHttpProxyClient: OkHttpProxyClient,
     private val sharedPrefHelper: SharedPrefHelper,
     private val downloadQueueManager: DownloadQueueManager,
-    private val downloadTaskLogger: DownloadTaskLogger
+    private val downloadTaskLogger: DownloadTaskLogger,
+    private val contentBlockManager: ContentBlockManager
 ) : WorkerFactory() {
 
     override fun createWorker(
         appContext: Context, workerClassName: String, workerParameters: WorkerParameters
     ): CoroutineWorker? {
+
+        if (workerClassName == ContentBlockUpdateWorker::class.java.name) {
+            return ContentBlockUpdateWorker(appContext, workerParameters).apply {
+                manager = contentBlockManager
+            }
+        }
 
         val workerKlass =
             Class.forName(workerClassName).asSubclass(GenericDownloadWorker::class.java)

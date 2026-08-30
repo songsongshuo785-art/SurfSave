@@ -32,12 +32,12 @@ class SharedPrefHelperAdFilterTest {
     }
 
     @Test
-    fun adFiltering_defaultsOffAndPersistsOptIn() {
-        assertFalse(helper.isAdBlockingEnabled())
-
-        helper.setIsAdBlockingEnabled(true)
-
+    fun adFiltering_defaultsOnAndPersistsExplicitOptOut() {
         assertTrue(helper.isAdBlockingEnabled())
+
+        helper.setIsAdBlockingEnabled(false)
+
+        assertFalse(helper.isAdBlockingEnabled())
     }
 
     private fun preferences() = context.getSharedPreferences(

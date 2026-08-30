@@ -183,6 +183,19 @@
             app:iconGravity="textStart"
             app:iconTint="@color/sxTextSecondary" />
 
+            <com.google.android.material.button.MaterialButton
+            android:id="@+id/action_content_block_site"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/content_block_pause_site"
+            android:textAlignment="viewStart"
+            android:textColor="@color/sxTextPrimary"
+            app:icon="@drawable/shield_24px"
+            app:iconGravity="textStart"
+            app:iconTint="@color/sxTextSecondary" />
+
             <com.google.android.material.textview.MaterialTextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

@@ -1,0 +1,4 @@
+# UTF-8: domain|name|argument
+# Only this APK-owned file may request a scriptlet. Remote EasyList/EasyPrivacy +js rules are stripped.
+# Supported names: remove-cookie, set-local-storage
+# example.org|remove-cookie|ad_session

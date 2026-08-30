@@ -13,6 +13,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.contentblock.ContentBlockCoordinator
+import com.myAllVideoBrowser.contentblock.ContentBlockDecision
 import com.myAllVideoBrowser.databinding.FragmentWebTabBinding
 import com.myAllVideoBrowser.ui.main.home.MainActivity
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTab
@@ -30,6 +32,7 @@ class CustomWebChromeClient(
     private val dataBinding: FragmentWebTabBinding,
     private val appUtil: AppUtil,
     private val mainActivity: MainActivity,
+    private val contentBlockCoordinator: ContentBlockCoordinator,
     private val onProtectedMediaRequested: () -> Unit = {}
 ) : WebChromeClient() {
     private var fullscreenView: View? = null
@@ -83,9 +86,19 @@ class CustomWebChromeClient(
             return false
         }
 
+        if (contentBlockCoordinator.evaluatePopup(
+                targetUrl = null,
+                documentUrl = view.url,
+                hasUserGesture = isUserGesture
+            ) is ContentBlockDecision.Block
+        ) {
+            AppLogger.d("ON_CREATE_WINDOW: Blocked popup without exposing its URL.")
+            return false
+        }
+
         val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
         val popupWebView = WebView(view.context)
-        configurePopupRedirectWebView(view, popupWebView)
+        configurePopupRedirectWebView(view, popupWebView, isUserGesture)
 
         transport.webView = popupWebView
         resultMsg.sendToTarget()
@@ -94,7 +107,11 @@ class CustomWebChromeClient(
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun configurePopupRedirectWebView(parentWebView: WebView, popupWebView: WebView) {
+    private fun configurePopupRedirectWebView(
+        parentWebView: WebView,
+        popupWebView: WebView,
+        hasUserGesture: Boolean
+    ) {
         var navigationConsumed = false
         val redirectOnce: (String) -> Boolean = { url ->
             when {
@@ -102,7 +119,7 @@ class CustomWebChromeClient(
                 navigationConsumed -> true
                 else -> {
                     navigationConsumed = true
-                    redirectPopupUrl(parentWebView, popupWebView, url)
+                    redirectPopupUrl(parentWebView, popupWebView, url, hasUserGesture)
                 }
             }
         }
@@ -147,20 +164,31 @@ class CustomWebChromeClient(
     private fun redirectPopupUrl(
         parentWebView: WebView,
         popupWebView: WebView,
-        url: String
+        url: String,
+        hasUserGesture: Boolean
     ): Boolean {
         if (url.isBlank() || url == "about:blank") {
             return false
         }
 
         if (url.startsWith("http://") || url.startsWith("https://")) {
-            AppLogger.d("ON_CREATE_WINDOW: Redirecting popup URL into current tab: $url")
+            if (contentBlockCoordinator.evaluatePopup(
+                    targetUrl = url,
+                    documentUrl = parentWebView.url,
+                    hasUserGesture = hasUserGesture
+                ) is ContentBlockDecision.Block
+            ) {
+                AppLogger.d("ON_CREATE_WINDOW: Blocked matched popup without logging its URL.")
+                destroyPopupWindow(popupWebView)
+                return true
+            }
+            AppLogger.d("ON_CREATE_WINDOW: Redirecting an allowed popup into the current tab.")
             parentWebView.post { parentWebView.loadUrl(url) }
             destroyPopupWindow(popupWebView)
             return true
         }
 
-        AppLogger.d("ON_CREATE_WINDOW: Consuming unsupported popup URL: $url")
+        AppLogger.d("ON_CREATE_WINDOW: Consuming an unsupported popup scheme.")
         destroyPopupWindow(popupWebView)
         return true
     }

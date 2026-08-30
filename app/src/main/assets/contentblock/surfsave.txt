@@ -1,0 +1,49 @@
+[Adblock Plus 2.0]
+! Title: SurfSave compatibility and high-confidence media ad rules
+! Version: 20260829
+! License: GPL-3.0-only
+! Homepage: https://github.com/songsongshuo785-art/SurfSave
+! Site-specific fixes belong in this data file, never in Kotlin host branches.
+
+||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||googletagservices.com^
+||amazon-adsystem.com^
+||adnxs.com^
+||adsrvr.org^
+||adform.net^
+||advertising.com^
+||rubiconproject.com^
+||openx.net^
+||pubmatic.com^
+||criteo.com^
+||criteo.net^
+||taboola.com^
+||outbrain.com^
+||casalemedia.com^
+||sharethrough.com^
+||yieldmo.com^
+||lijit.com^
+||media.net^
+||moatads.com^
+||serving-sys.com^
+||smartadserver.com^
+||bidswitch.net^
+||contextweb.com^
+||exoclick.com^
+||juicyads.com^
+||popads.net^
+||popcash.net^
+||propellerads.com^
+||revcontent.com^
+||mgid.com^
+||trafficjunky.com^
+
+! High-confidence ad endpoints may block media when the request host/path proves ad intent.
+||trafficjunky.com^$media
+||doubleclick.net^$media
+
+! Compatibility examples stay explicit and scoped. Add real unbreak exceptions only after regression proof.
+! @@||required-player.example/player.js$domain=video.example
+

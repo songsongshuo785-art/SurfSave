@@ -10,6 +10,11 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.lifecycle.viewModelScope
 import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
+import com.myAllVideoBrowser.contentblock.BrowserResourceTypeResolver
+import com.myAllVideoBrowser.contentblock.ContentBlockCoordinator
+import com.myAllVideoBrowser.contentblock.ContentBlockDecision
+import com.myAllVideoBrowser.contentblock.ContentBlockRequest
+import com.myAllVideoBrowser.contentblock.ContentBlockRequestSource
 import com.myAllVideoBrowser.ui.main.history.HistoryViewModel
 import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
 import com.myAllVideoBrowser.util.FaviconUtils
@@ -37,7 +42,7 @@ class CustomWebViewClient(
     private val updateTabEvent: SingleLiveEvent<WebTab>,
     private val pageTabProvider: PageTabProvider,
     private val proxyController: CustomProxyController,
-    adFilter: BrowserAdFilter = BrowserAdFilter.empty(),
+    private val contentBlockCoordinator: ContentBlockCoordinator,
     private val onNavigationStateChanged: () -> Unit = {},
     private val onRenderProcessLost: (WebView?, Boolean) -> Unit = { _, _ -> },
     private val onPageContextStarted: (String, String) -> Unit = { _, _ -> },
@@ -51,7 +56,7 @@ class CustomWebViewClient(
     @Volatile
     private var currentPageUrl: String = ""
     private val regularJobsStorage = java.util.concurrent.ConcurrentHashMap<String, List<Disposable>>()
-    private val requestInspector = BrowserRequestInspector(settingsModel, adFilter)
+    private val requestInspector = MediaRequestInspector(settingsModel)
 
     companion object {
         fun emptyResponse(): WebResourceResponse {
@@ -123,17 +128,27 @@ class CustomWebViewClient(
 
         val url = request.url.toString()
         val pageUrl = currentPageUrl.ifBlank { url }
-        val inspection = requestInspector.inspect(
-            url,
-            pageUrl,
-            request.isForMainFrame,
-            request.requestHeaders,
-            BrowserRequestSource.WEB_VIEW
+        val blockDecision = contentBlockCoordinator.evaluate(
+            ContentBlockRequest(
+                url = url,
+                documentUrl = pageUrl,
+                method = request.method,
+                resourceType = BrowserResourceTypeResolver.resolve(
+                    url,
+                    request.requestHeaders,
+                    request.isForMainFrame
+                ),
+                isMainFrame = request.isForMainFrame,
+                source = ContentBlockRequestSource.WEB_VIEW
+            )
         )
-
-        if (inspection.shouldBlockAd) {
+        if (blockDecision is ContentBlockDecision.Block) {
             return emptyResponse()
         }
+        val inspection = requestInspector.inspect(
+            url,
+            pageUrl
+        )
 
         if (inspection.shouldInspectMedia) {
             val requestWithCookies = try {

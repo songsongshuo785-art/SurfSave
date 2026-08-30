@@ -1,6 +1,7 @@
 package com.myAllVideoBrowser.di.module
 
 import androidx.work.WorkerFactory
+import com.myAllVideoBrowser.contentblock.ContentBlockManager
 import com.myAllVideoBrowser.data.repository.ProgressRepository
 import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.NotificationsHelper
@@ -26,7 +27,8 @@ class MyWorkerModule {
         okHttpProxyClient: OkHttpProxyClient,
         sharedPrefHelper: SharedPrefHelper,
         downloadQueueManager: DownloadQueueManager,
-        downloadTaskLogger: DownloadTaskLogger
+        downloadTaskLogger: DownloadTaskLogger,
+        contentBlockManager: ContentBlockManager
     ): WorkerFactory {
         return DaggerWorkerFactory(
             progressRepository,
@@ -36,7 +38,8 @@ class MyWorkerModule {
             okHttpProxyClient,
             sharedPrefHelper,
             downloadQueueManager,
-            downloadTaskLogger
+            downloadTaskLogger,
+            contentBlockManager
         )
     }
 }

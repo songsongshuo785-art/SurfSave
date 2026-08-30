@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+- Prepared the next release identity as `0.8.33` with a monotonically higher version code.
+- Made the signed arm64 APK in the canonical release-candidate directory the only standard phone-test package; diagnostic outputs can no longer be presented as equivalent test artifacts.
+- Relabeled diagnostic exports as internal engineering artifacts so they are not mistaken for user acceptance packages.
+
+### Fixed
+- Rejected debuggable or V2-unsigned APKs during release-candidate verification, preventing diagnostic builds from being delivered as formally testable packages.
+
 ## [0.8.32] - 2026-08-28
 
 ### Changed

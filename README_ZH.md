@@ -131,7 +131,7 @@ SurfSave也是我Vibe Coding尝试的一个项目。当前各方各面略显粗�
 # 快速诊断构建（跳过 Go/Xray 重新编译）
 .\gradlew.bat --console=plain -PSKIP_GO_BUILD=true testDiagnosticUnitTest assembleDiagnostic lintDiagnostic
 
-# 完整导出 diagnostic APK（含内置原生代理库；用于测试，非正式签名发布包）
+# 完整导出内部 diagnostic APK（含内置原生代理库；仅供开发诊断，不作为用户测试包）
 .\gradlew.bat --console=plain exportDiagnosticApks
 
 # 若 go 不在 PATH 中
@@ -144,11 +144,15 @@ SurfSave也是我Vibe Coding尝试的一个项目。当前各方各面略显粗�
 
 ```powershell
 # 在 GitHub 构建，并把正式签名候选下载到 app/build/outputs/apk/release/
-.\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.32
+.\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.33
 
 # 安装并确认该候选包后，将同一批字节发布到 GitHub Release
-.\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.32
+.\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.33
 ```
+
+唯一的标准手机测试包是
+`app/build/outputs/apk/release/app-arm64-v8a-release.apk`。不要直接把
+`assembleDiagnostic` 生成的 debuggable APK 当作用户测试包；二者不能混用。
 
 不可变制品、签名证书、SHA-256 校验和密钥恢复合同详见 [SIGNING.md](SIGNING.md)。单独推送标签不会再构建正式版本。
 

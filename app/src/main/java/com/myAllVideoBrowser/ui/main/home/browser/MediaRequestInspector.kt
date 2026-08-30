@@ -14,7 +14,7 @@ enum class BrowserRequestSource {
     SERVICE_WORKER
 }
 
-data class BrowserRequestInspection(
+data class MediaRequestInspection(
     val url: String,
     val pageUrl: String,
     val contentType: ContentType,
@@ -23,8 +23,7 @@ data class BrowserRequestInspection(
     val shouldCheckRegular: Boolean,
     val shouldCheckAudio: Boolean,
     val shouldCheckVideo: Boolean,
-    val shouldInterruptResource: Boolean,
-    val shouldBlockAd: Boolean
+    val shouldInterruptResource: Boolean
 ) {
     val shouldInspectMedia: Boolean = shouldCheckStream || shouldCheckRegular
     val isM3u8: Boolean = contentType == ContentType.M3U8
@@ -34,17 +33,14 @@ data class BrowserRequestInspection(
         shouldCheckStream && shouldInterruptResource && isM3u8
 }
 
-class BrowserRequestInspector(
-    private val settingsModel: SettingsViewModel,
-    private val adFilter: BrowserAdFilter = BrowserAdFilter.empty()
+/** Media-only stage that runs after content blocking has allowed the request. */
+class MediaRequestInspector(
+    private val settingsModel: SettingsViewModel
 ) {
     fun inspect(
         url: String,
-        pageUrl: String,
-        isMainFrame: Boolean,
-        requestHeaders: Map<String, String> = emptyMap(),
-        requestSource: BrowserRequestSource = BrowserRequestSource.WEB_VIEW
-    ): BrowserRequestInspection {
+        pageUrl: String
+    ): MediaRequestInspection {
         val normalizedUrl = url.trim()
         val contentType = BrowserMediaClassifier.classify(normalizedUrl)
         val isTxtHlsCandidate = BrowserMediaClassifier.isTextPlaylistCandidate(normalizedUrl)
@@ -58,7 +54,7 @@ class BrowserRequestInspector(
         val shouldCheckRegular = (contentType == ContentType.VIDEO && shouldCheckMp4) ||
             (contentType == ContentType.AUDIO && shouldCheckAudio)
 
-        return BrowserRequestInspection(
+        return MediaRequestInspection(
             url = normalizedUrl,
             pageUrl = pageUrl,
             contentType = contentType,
@@ -67,15 +63,7 @@ class BrowserRequestInspector(
             shouldCheckRegular = shouldCheckRegular,
             shouldCheckAudio = shouldCheckAudio,
             shouldCheckVideo = shouldCheckMp4,
-            shouldInterruptResource = settingsModel.isInterruptIntreceptedResources.get(),
-            shouldBlockAd = settingsModel.isAdBlockingEnabled.get() && adFilter.shouldBlock(
-                url = normalizedUrl,
-                pageUrl = pageUrl,
-                isMainFrame = isMainFrame,
-                contentType = contentType,
-                requestHeaders = requestHeaders,
-                requestSource = requestSource
-            )
+            shouldInterruptResource = settingsModel.isInterruptIntreceptedResources.get()
         )
     }
 

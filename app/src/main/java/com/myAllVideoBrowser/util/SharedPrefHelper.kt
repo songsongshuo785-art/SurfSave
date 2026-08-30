@@ -152,7 +152,7 @@ class SharedPrefHelper @Inject constructor(
     }
 
     fun isAdBlockingEnabled(): Boolean {
-        return sharedPreferences.getBoolean(IS_AD_BLOCKING_ENABLED, false)
+        return sharedPreferences.getBoolean(IS_AD_BLOCKING_ENABLED, true)
     }
 
     fun saveIsCheck(isCheck: Boolean) {

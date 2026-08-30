@@ -25,6 +25,7 @@ import com.myAllVideoBrowser.DLApplication
 import com.myAllVideoBrowser.BuildConfig
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.ActivityMainBinding
+import com.myAllVideoBrowser.contentblock.ContentBlockManager
 import com.myAllVideoBrowser.migration.MigrationStage
 import com.myAllVideoBrowser.migration.MigrationStateStore
 import com.myAllVideoBrowser.ui.component.adapter.MainAdapter
@@ -74,6 +75,9 @@ class MainActivity : BaseActivity() {
     @Inject
     lateinit var playlistExtractor: PlaylistExtractor
 
+    @Inject
+    lateinit var contentBlockManager: ContentBlockManager
+
     lateinit var mainViewModel: MainViewModel
 
     lateinit var progressViewModel: ProgressViewModel
@@ -102,6 +106,12 @@ class MainActivity : BaseActivity() {
 
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
         super.onCreate(savedInstanceState)
+
+        if (sharedPrefHelper.isAdBlockingEnabled()) {
+            contentBlockManager.initializeAsync()
+        } else {
+            contentBlockManager.onEnabledChanged(false)
+        }
 
         if (sharedPrefHelper.getIsProxyOn() || sharedPrefHelper.getIsDohOn()) {
             (applicationContext as? DLApplication)?.startProxyService()

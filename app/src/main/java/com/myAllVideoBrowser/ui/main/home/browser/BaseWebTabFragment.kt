@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.contentblock.ContentBlockManager
 import com.myAllVideoBrowser.databinding.SheetBrowserActionsBinding
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.ui.main.bookmarks.BookmarksFragment
@@ -38,6 +39,9 @@ abstract class BaseWebTabFragment : BaseFragment() {
 
     @Inject
     lateinit var sharedPrefHelper: SharedPrefHelper
+
+    @Inject
+    lateinit var contentBlockManager: ContentBlockManager
 
     private var actionSheet: BottomSheetDialog? = null
     private var browserMenuAnchor: View? = null
@@ -59,6 +63,10 @@ abstract class BaseWebTabFragment : BaseFragment() {
     open fun refreshVideoDetection() {}
 
     open fun repairPagePlayer() {}
+
+    open fun currentPageUrlForContentBlocking(): String? = null
+
+    open fun reloadCurrentPageAfterContentBlockChange() {}
 
     open fun openNewTabPage() {
         mainActivity.mainViewModel.currentItem.set(HOME_TAB_INDEX)
@@ -140,6 +148,16 @@ abstract class BaseWebTabFragment : BaseFragment() {
         binding.actionTranslate.visibility = pageActionVisibility
         binding.actionRefreshVideoDetection.visibility = pageActionVisibility
         binding.actionRepairPagePlayer.visibility = pageActionVisibility
+        binding.actionContentBlockSite.visibility = pageActionVisibility
+        val currentPageUrl = currentPageUrlForContentBlocking()
+        val contentBlockPaused = currentPageUrl?.let(contentBlockManager::isSiteDisabled) == true
+        binding.actionContentBlockSite.setText(
+            if (contentBlockPaused) {
+                R.string.content_block_resume_site
+            } else {
+                R.string.content_block_pause_site
+            }
+        )
         binding.actionForward.isEnabled = !browserMenuIsHomeTab && canNavigateForwardInCurrentPage()
         binding.actionForward.alpha = if (binding.actionForward.isEnabled) 1f else 0.45f
 
@@ -162,6 +180,24 @@ abstract class BaseWebTabFragment : BaseFragment() {
         binding.actionTranslate.setOnClickListener { runAndDismiss { translateCurrentPage() } }
         binding.actionRefreshVideoDetection.setOnClickListener { runAndDismiss { refreshVideoDetection() } }
         binding.actionRepairPagePlayer.setOnClickListener { runAndDismiss { repairPagePlayer() } }
+        binding.actionContentBlockSite.setOnClickListener {
+            runAndDismiss {
+                val url = currentPageUrlForContentBlocking() ?: return@runAndDismiss
+                val paused = contentBlockManager.isSiteDisabled(url)
+                if (contentBlockManager.setSiteDisabled(url, !paused)) {
+                    Toast.makeText(
+                        requireContext(),
+                        if (paused) {
+                            R.string.content_block_site_resumed
+                        } else {
+                            R.string.content_block_site_paused
+                        },
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    reloadCurrentPageAfterContentBlockChange()
+                }
+            }
+        }
         binding.actionHistory.setOnClickListener { runAndDismiss { navigateToHistory() } }
         binding.actionBookmarks.setOnClickListener { runAndDismiss { navigateToBookMarks() } }
         binding.actionDesktop.setOnClickListener {

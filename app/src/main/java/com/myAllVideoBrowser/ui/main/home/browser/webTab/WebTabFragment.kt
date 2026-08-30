@@ -58,6 +58,8 @@ import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.contentblock.ContentBlockCoordinator
+import com.myAllVideoBrowser.contentblock.web.ContentBlockWebController
 import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
 import com.myAllVideoBrowser.data.local.room.entity.VideFormatEntityList
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
@@ -67,7 +69,6 @@ import com.myAllVideoBrowser.ui.component.adapter.TabSuggestionAdapter
 import com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener
 import com.myAllVideoBrowser.ui.main.home.browser.BaseWebTabFragment
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserBackPolicy
-import com.myAllVideoBrowser.ui.main.home.browser.BrowserAdFilterRuleProvider
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserFragment
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserMediaClassifier
 import com.myAllVideoBrowser.ui.main.home.browser.ContentType
@@ -1102,7 +1103,10 @@ class WebTabFragment : BaseWebTabFragment() {
     lateinit var telegramPostResolver: TelegramPostResolver
 
     @Inject
-    lateinit var adFilterRuleProvider: BrowserAdFilterRuleProvider
+    lateinit var contentBlockCoordinator: ContentBlockCoordinator
+
+    @Inject
+    lateinit var contentBlockWebController: ContentBlockWebController
 
     private lateinit var dataBinding: FragmentWebTabBinding
 
@@ -1459,6 +1463,14 @@ class WebTabFragment : BaseWebTabFragment() {
         }
     }
 
+    override fun currentPageUrlForContentBlocking(): String? {
+        return webTab.getWebView()?.url ?: webTab.getUrl()
+    }
+
+    override fun reloadCurrentPageAfterContentBlockChange() {
+        webTab.getWebView()?.reload()
+    }
+
     override fun bookmarkCurrentUrl() {
         val webview = webTab.getWebView()
         val url = webview?.url
@@ -1635,6 +1647,7 @@ class WebTabFragment : BaseWebTabFragment() {
         dataBinding.fab.animate().cancel()
         dataBinding.fabProgressRing?.animate()?.cancel()
         customWebChromeClient?.dispose()
+        contentBlockWebController.detach()
         webTab.saveWebViewState()
         webTab.getWebView()?.let { detachWebView(it) }
         customWebChromeClient = null
@@ -2086,7 +2099,7 @@ class WebTabFragment : BaseWebTabFragment() {
             tabManagerProvider.getUpdateTabEvent(),
             pageTabProvider,
             proxyController,
-            adFilterRuleProvider.filter,
+            contentBlockCoordinator,
             onNavigationStateChanged = {
                 updateNavigationButtons()
             },
@@ -2094,6 +2107,7 @@ class WebTabFragment : BaseWebTabFragment() {
                 handleRenderProcessLost(lostWebView, didCrash)
             },
             onPageContextStarted = { tabId, pageUrl ->
+                contentBlockWebController.injectCurrentDocument(currentWebView)
                 onTranslationNavigationStarted()
                 mediaPageGeneration = videoDetectionTabViewModel.beginPageContext(pageUrl)
                 onTelegramNavigationStarted(pageUrl)
@@ -2115,6 +2129,7 @@ class WebTabFragment : BaseWebTabFragment() {
             fragmentWebTabBinding,
             appUtil,
             mainActivity,
+            contentBlockCoordinator,
             onProtectedMediaRequested = {
                 videoDetectionTabViewModel.markProtectedMedia(mediaPageGeneration)
             }
@@ -2125,6 +2140,7 @@ class WebTabFragment : BaseWebTabFragment() {
         currentWebView?.webViewClient = webViewClient
         currentWebView?.addJavascriptInterface(mediaProbeBridge, MEDIA_PROBE_BRIDGE_NAME)
         currentWebView?.addJavascriptInterface(translationBridge, TRANSLATION_BRIDGE_NAME)
+        currentWebView?.let(contentBlockWebController::attach)
         installDocumentStartMediaProbe(currentWebView)
         updateNavigationButtons()
 
@@ -2173,8 +2189,10 @@ class WebTabFragment : BaseWebTabFragment() {
             webTab.getUrl()
         ).firstOrNull { it?.startsWith("http") == true }.orEmpty()
         val targetTitle = lostWebView?.title ?: webTab.getWebView()?.title ?: webTab.getTitle()
-        AppLogger.e("WebView render process lost. didCrash=$didCrash url=$targetUrl")
+        val targetHost = runCatching { Uri.parse(targetUrl).host.orEmpty() }.getOrDefault("")
+        AppLogger.e("WebView render process lost. didCrash=$didCrash host=$targetHost")
 
+        contentBlockWebController.detach()
         destroyLostWebView(lostWebView ?: webTab.getWebView())
         webTab.setWebView(null)
         webTab.clearSavedState()
@@ -2224,7 +2242,7 @@ class WebTabFragment : BaseWebTabFragment() {
             webView.webViewClient = WebViewClient()
             webView.destroy()
         }.onFailure {
-            AppLogger.e("Failed to destroy lost WebView: ${it.message}")
+            AppLogger.e("Failed to destroy lost WebView: ${it.javaClass.simpleName}")
         }
     }
 
@@ -2452,6 +2470,7 @@ class WebTabFragment : BaseWebTabFragment() {
 
     private fun injectPageScripts(webView: WebView?) {
         injectMediaProbe(webView)
+        contentBlockWebController.injectCurrentDocument(webView)
         recoverKvsPlayerIfNeededSoon(webView)
         webView?.evaluateJavascript(INSTALL_TRANSLATION_OBSERVER_SCRIPT, null)
         maybeAutoTranslatePage(webView)
