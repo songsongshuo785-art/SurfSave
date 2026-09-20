@@ -4,6 +4,9 @@ import android.app.Activity
 import android.app.ActivityOptions
 import android.content.Intent
 import android.os.Bundle
+import androidx.core.widget.doAfterTextChanged
+import androidx.databinding.Observable
+import androidx.recyclerview.widget.GridLayoutManager
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -72,6 +75,39 @@ class VideoFragment : BaseFragment() {
     private lateinit var videoViewModel: VideoViewModel
 
     private lateinit var videoAdapter: VideoAdapter
+    private var libraryQuery = ""
+    private var libraryFilter = R.id.library_all
+    private val libraryCallback = object : Observable.OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) { renderLibrary() }
+    }
+
+    private fun renderLibrary() {
+        val all = videoViewModel.localVideos.get().orEmpty()
+        val filtered = MediaLibraryPresentation.filter(all, libraryQuery, when (libraryFilter) {
+            R.id.library_audio -> LibraryMediaType.AUDIO
+            R.id.library_video -> LibraryMediaType.VIDEO
+            else -> LibraryMediaType.ALL
+        })
+        videoAdapter.setData(filtered)
+        dataBinding.librarySubtitle.text = getString(R.string.surf_library_count, all.size)
+        dataBinding.layoutEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+        val filtering = libraryQuery.isNotBlank() || libraryFilter != R.id.library_all
+        dataBinding.tvEmptyText.setText(if (filtering) R.string.surf_no_results else R.string.empty_video_title)
+        dataBinding.tvEmptySubtitle.setText(if (filtering) R.string.surf_no_results_hint else R.string.empty_video_subtitle)
+        dataBinding.emptyActionButton.setText(if (filtering) R.string.surf_clear_filters else R.string.empty_action_browse)
+        dataBinding.emptyActionButton.setOnClickListener {
+            if (filtering) {
+                dataBinding.searchLibrary.text?.clear()
+                dataBinding.libraryFilters.check(R.id.library_all)
+            } else mainActivity.mainViewModel.currentItem.set(0)
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("library_query", libraryQuery)
+        outState.putInt("library_filter", libraryFilter)
+        super.onSaveInstanceState(outState)
+    }
 
     /** 删除公共目录视频时，由系统弹 createDeleteRequest 授权确认（Android 11+）；授权后列表由轮询自动刷新。 */
     private val deleteAuthLauncher: ActivityResultLauncher<IntentSenderRequest> =
@@ -92,7 +128,7 @@ class VideoFragment : BaseFragment() {
 
         dataBinding = FragmentVideoBinding.inflate(inflater, container, false).apply {
             val managerL =
-                WrapContentLinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
+                GridLayoutManager(context, if (resources.configuration.fontScale > 1.3f) 1 else (resources.configuration.screenWidthDp / 180).coerceIn(1, 4))
 
             this.viewModel = videoViewModel
             this.mainViewModel = mainActivity.mainViewModel
@@ -133,6 +169,20 @@ class VideoFragment : BaseFragment() {
             ).show()
         }
 
+        libraryQuery = savedInstanceState?.getString("library_query") ?: libraryQuery
+        libraryFilter = savedInstanceState?.getInt("library_filter") ?: libraryFilter
+        dataBinding.searchLibrary.setText(libraryQuery)
+        dataBinding.libraryFilters.check(libraryFilter)
+        dataBinding.searchLibrary.doAfterTextChanged {
+            libraryQuery = it?.toString().orEmpty()
+            renderLibrary()
+        }
+        dataBinding.libraryFilters.setOnCheckedStateChangeListener { _, ids ->
+            libraryFilter = ids.firstOrNull() ?: R.id.library_all
+            renderLibrary()
+        }
+        videoViewModel.localVideos.addOnPropertyChangedCallback(libraryCallback)
+        renderLibrary()
         return dataBinding.root
     }
 
@@ -141,6 +191,15 @@ class VideoFragment : BaseFragment() {
         videoViewModel.start()
         handleUIEvents()
         handleIfStartedFromNotification()
+    }
+
+    override fun onDestroyView() {
+        videoViewModel.localVideos.removeOnPropertyChangedCallback(libraryCallback)
+        dataBinding.rvVideo.adapter = null
+        videoViewModel.stop()
+        disposable?.dispose()
+        disposable = null
+        super.onDestroyView()
     }
 
     private fun handleUIEvents() {

@@ -155,7 +155,7 @@ class MpdDownloader(
         segmentsCompleted.set((alreadyDownloadedVideo.size + alreadyDownloadedAudio.size).toLong())
 
         // Download remaining segments
-        val segmentDownloader = SegmentDownloader(httpClient, headers, controller)
+        val segmentDownloader = SegmentDownloader(httpClient, headers, controller, task.url)
         val dispatcher = Dispatchers.IO.limitedParallelism(threadCount)
         val downloadJobs = mutableListOf<Job>()
 
@@ -301,6 +301,7 @@ class MpdDownloader(
                     urls,
                     videoTempFile,
                     headers,
+                    task.url,
                     controller
                 ) { downloaded, total ->
                     launch {
@@ -326,6 +327,7 @@ class MpdDownloader(
                     urls,
                     audioTempFile,
                     headers,
+                    task.url,
                     controller
                 ) { downloaded, total ->
                     launch {
@@ -397,6 +399,7 @@ class MpdDownloader(
         urls: List<String>,
         outputFile: File,
         headers: Map<String, String>,
+        credentialOriginUrl: String,
         controller: FileBasedDownloadController,
         onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit
     ) = suspendCancellableCoroutine { continuation ->
@@ -430,7 +433,8 @@ class MpdDownloader(
             headers,
             httpClient,
             listener,
-            false
+            false,
+            credentialOriginUrl
         )
         downloader.download()
 

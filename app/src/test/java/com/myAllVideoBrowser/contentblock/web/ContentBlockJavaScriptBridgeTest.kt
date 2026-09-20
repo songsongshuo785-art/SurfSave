@@ -26,6 +26,35 @@ class ContentBlockJavaScriptBridgeTest {
         assertTrue(script.contains("work.operations < 4096"))
         assertTrue(script.contains("performance.now() + 12"))
         assertTrue(script.contains("state.proceduralRuns >= 24"))
+        assertTrue(script.contains("state.selectorScanRuns >= 24"))
+        assertTrue(script.contains("performance.now() + 4"))
+        assertTrue(script.contains("requestAnimationFrame(runClassificationFrame)"))
+        assertTrue(script.contains("state.pending.length >= 1000"))
+    }
+
+    @Test
+    fun selectorCosmeticPreservesGeometryUntilDomClassifierAllowsCollapse() {
+        val script = ContentBlockWebController.BOOTSTRAP_SCRIPT
+
+        assertTrue(
+            script.contains(
+                "{visibility:hidden!important;pointer-events:none!important;}"
+            )
+        )
+        assertTrue(script.contains(":not([data-surfsave-content-block-protected=\"1\"])"))
+        assertFalse(script.contains("visibility:visible!important"))
+        assertTrue(script.contains("if (selector.includes('::')) {"))
+        assertFalse(script.contains("return guarded + '{display:none!important;}'"))
+        assertTrue(script.contains("const classifyElement = (element) =>"))
+        assertTrue(script.contains("style.position === 'sticky' || style.position === 'fixed'"))
+        assertTrue(script.contains("'table-row', 'table-cell'"))
+        assertTrue(script.contains("directInteractiveCount(current) >= 2"))
+        assertTrue(script.contains("enqueueHide(element)"))
+        assertTrue(script.contains("applyHideDecision(element)"))
+        assertTrue(script.contains("const isSafeCompactContainer = (element) =>"))
+        assertTrue(script.contains("const compactAdContainer = (element) =>"))
+        assertTrue(script.contains("data-surfsave-content-block-compacted"))
+        assertTrue(script.contains("hasVisibleSafeContent(element)"))
     }
 
     @Test
@@ -239,10 +268,12 @@ class ContentBlockJavaScriptBridgeTest {
 
         assertTrue(script.contains("bridge.bootstrap(pageUrl, documentToken)"))
         assertTrue(script.contains("state.documentToken"))
-        assertTrue(script.contains("if (isProtectedStructure(element)) return"))
+        assertTrue(script.contains("const classifyElement = (element) =>"))
+        assertTrue(script.contains("decision === 'protected'"))
         assertTrue(script.contains("CSS.supports('selector(:is(*))')"))
         assertTrue(script.contains("[role=\"navigation\"]"))
-        assertTrue(script.contains("element.querySelectorAll('a[href],button,[role=\"tab\"]')"))
+        assertTrue(script.contains("[role=\"toolbar\"]"))
+        assertTrue(script.contains("element.querySelectorAll(interactiveSelector).length >= 3"))
     }
 
     private fun bridge(

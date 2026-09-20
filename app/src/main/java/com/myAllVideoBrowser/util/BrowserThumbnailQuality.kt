@@ -11,11 +11,14 @@ object BrowserThumbnailQuality {
     private const val NEAR_BLACK_LUMINANCE = 24.0
     private const val NEAR_WHITE_LUMINANCE = 246.0
 
-    fun isUsable(bitmap: Bitmap?): Boolean {
+    fun isUsable(bitmap: Bitmap?): Boolean = isUsable(bitmap, true)
+
+    fun isUsable(bitmap: Bitmap?, requireCaptureSize: Boolean): Boolean {
         if (
             bitmap == null ||
-            bitmap.width < MIN_NON_EMPTY_WIDTH ||
-            bitmap.height < MIN_NON_EMPTY_HEIGHT
+            bitmap.isRecycled ||
+            (requireCaptureSize && (minOf(bitmap.width, bitmap.height) < MIN_NON_EMPTY_WIDTH ||
+                maxOf(bitmap.width, bitmap.height) < MIN_NON_EMPTY_HEIGHT))
         ) {
             return false
         }

@@ -31,12 +31,12 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.contentblock.BrowserResourceTypeResolver
+import com.myAllVideoBrowser.contentblock.BlockedResourceResponseFactory
 import com.myAllVideoBrowser.contentblock.ContentBlockCoordinator
 import com.myAllVideoBrowser.contentblock.ContentBlockDecision
 import com.myAllVideoBrowser.contentblock.ContentBlockRequest
@@ -235,22 +235,23 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     private val serviceWorkerClient = object : ServiceWorkerClient() {
         override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
             val url = request.url.toString()
+            val resourceType = BrowserResourceTypeResolver.resolve(
+                url,
+                request.requestHeaders,
+                request.isForMainFrame
+            )
             val blockDecision = contentBlockCoordinator.evaluate(
                 ContentBlockRequest(
                     url = url,
                     documentUrl = null,
                     method = request.method,
-                    resourceType = BrowserResourceTypeResolver.resolve(
-                        url,
-                        request.requestHeaders,
-                        request.isForMainFrame
-                    ),
+                    resourceType = resourceType,
                     isMainFrame = request.isForMainFrame,
                     source = ContentBlockRequestSource.SERVICE_WORKER
                 )
             )
             if (blockDecision is ContentBlockDecision.Block) {
-                return CustomWebViewClient.emptyResponse()
+                return BlockedResourceResponseFactory.create(resourceType)
             }
             val inspection = requestInspector.inspect(
                 url,
@@ -418,10 +419,10 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
         drawerAdapter = WebTabsAdapter(emptyList(), tabsListener)
 
-        val webTabsManagerLayout = GridLayoutManager(
-            context,
-            if (resources.configuration.screenWidthDp >= 600) 3 else 2
-        )
+        val webTabsManagerLayout = androidx.recyclerview.widget.StaggeredGridLayoutManager(
+            if (resources.configuration.screenWidthDp >= 600) 3 else 2,
+            androidx.recyclerview.widget.StaggeredGridLayoutManager.VERTICAL
+        ).apply { gapStrategy = androidx.recyclerview.widget.StaggeredGridLayoutManager.GAP_HANDLING_NONE }
 
         val color = getThemeBackgroundColor()
 
@@ -432,6 +433,11 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
             this.viewPager.isUserInputEnabled = false
             this.tabsList.layoutManager = webTabsManagerLayout
             this.tabsList.adapter = drawerAdapter
+            this.tabsList.itemAnimator = null
+            this.tabsList.addItemDecoration(com.myAllVideoBrowser.ui.component.adapter.TabGridSpacingDecoration())
+            this.tabsList.setItemViewCacheSize(4)
+            this.tabsList.overScrollMode = View.OVER_SCROLL_NEVER
+            this.tabsToolbar.setNavigationOnClickListener { this.drawerLayout.close() }
             this.newTabButton.setOnClickListener {
                 openNewTabPage()
             }
@@ -518,6 +524,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         videoDetectionModel.activateServiceWorkerContext("", "")
         videoDetectionModel.downloadButtonState.removeOnPropertyChangedCallback(buttonStateCallback)
         browserViewModel.currentTab.removeOnPropertyChangedCallback(currentTabCallback)
+        dataBinding.tabsList.adapter = null
         super.onDestroyView()
         browserViewModel.stop()
         videoDetectionModel.stop()
@@ -575,6 +582,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         updatedTab.markActive()
 
         tabs[currentIndex] = updatedTab
+        persistTabThumbnail(updatedTab)
         browserViewModel.tabs.set(tabs)
         updatedTab.getWebView()?.loadUrl(updatedTab.getUrl())
         syncBrowserTabsUi()
@@ -644,11 +652,15 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
             } else {
                 currentTabs
             }
-            val newList = tabsBeforeAdd.plus(webTab)
+            val newList = tabsBeforeAdd.toMutableList()
+            val insertionIndex = BrowserTabIndexPolicy.newTabInsertionIndex(
+                currentIndex = browserViewModel.currentTab.get(),
+                currentTabCount = newList.size
+            )
+            newList.add(insertionIndex, webTab)
             browserViewModel.tabs.set(newList)
             if (switchToNewTab) {
-                val index = newList.indexOf(webTab)
-                browserViewModel.currentTab.set(index.coerceAtLeast(0))
+                browserViewModel.currentTab.set(insertionIndex)
             }
             syncBrowserTabsUi()
             browserViewModel.persistSession()
@@ -739,26 +751,15 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
             .toMutableList()
         val selectedTabId = tabs.getOrNull(browserViewModel.currentTab.get())?.id
         val restoredId = UUID.randomUUID().toString()
-        val restoredThumbnail = snapshot.tab.getPageThumbnail()
-            ?.takeIf(BrowserThumbnailQuality::isUsable)
-            ?: BrowserThumbnailStore.load(snapshot.tab.getPageThumbnailPath())
-        val restoredThumbnailPath = BrowserThumbnailStore.save(restoredId, restoredThumbnail)
-            ?: snapshot.tab.getPageThumbnailPath()
-        if (restoredThumbnailPath != snapshot.tab.getPageThumbnailPath()) {
-            BrowserThumbnailStore.delete(snapshot.tab.getPageThumbnailPath())
-        }
-        val restoredTab = snapshot.tab.copyWith(
-            pageThumbnail = restoredThumbnail,
-            pageThumbnailPath = restoredThumbnailPath,
-            webview = null,
-            id = restoredId
-        )
+        // Ownership of this immutable preview transfers with the undo snapshot; no decode/copy is needed.
+        val restoredTab = snapshot.tab.copyWith(webview = null, id = restoredId)
         val restoredIndex = BrowserTabIndexPolicy.restoredInsertionIndex(
             originalIndex = snapshot.originalIndex,
             currentTabCount = tabs.size
         )
         tabs.add(restoredIndex, restoredTab)
         browserViewModel.tabs.set(tabs)
+        persistTabThumbnail(restoredTab)
 
         val targetIndex = if (snapshot.wasSelected) {
             restoredIndex
@@ -823,12 +824,28 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
             if (updateIndex != null && updateIndex in tabs.indices) {
                 tabs[updateIndex] = webTab
+                if (webTab.getPageThumbnail() !== tabToUpdate?.getPageThumbnail()) persistTabThumbnail(webTab)
             }
 
             browserViewModel.tabs.set(tabs ?: emptyList())
             syncBrowserTabsUi()
             browserViewModel.persistSession()
         }
+    }
+
+    private fun persistTabThumbnail(tab: WebTab) {
+        BrowserThumbnailPersistence.persist(lifecycleScope, tab,
+            current = { browserViewModel.tabs.get().orEmpty().find { it.id == tab.id } },
+            publish = { updated ->
+                val tabs = browserViewModel.tabs.get().orEmpty().toMutableList()
+                val index = tabs.indexOfFirst { it.id == updated.id }
+                if (index >= 0) {
+                    tabs[index] = updated
+                    browserViewModel.tabs.set(tabs)
+                    browserViewModel.persistSession()
+                    if (view != null) syncBrowserTabsUi()
+                }
+            })
     }
 
     private fun captureCurrentTabThumbnail(sourceTabs: List<WebTab>? = null): List<WebTab> {
@@ -848,16 +865,15 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
         val webView = currentTab.getWebView() ?: return tabs
         val bitmap = WebTabThumbnailCapture.capture(webView) ?: return tabs
-        val thumbnailPath = BrowserThumbnailStore.save(currentTab.id, bitmap)
         val updatedTab = currentTab.copyWith(
             url = webView.url ?: currentTab.getUrl(),
             title = webView.title ?: currentTab.getTitle(),
             iconBytes = webView.favicon ?: currentTab.getFavicon(),
             pageThumbnail = bitmap,
-            pageThumbnailPath = thumbnailPath ?: currentTab.getPageThumbnailPath(),
             webview = webView
         )
         tabs[currentIndex] = updatedTab
+        persistTabThumbnail(updatedTab)
 
         if (sourceTabs == null && ::dataBinding.isInitialized) {
             browserViewModel.tabs.set(tabs)
@@ -868,8 +884,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     }
 
     private fun resolveThumbnailBitmap(tab: WebTab): android.graphics.Bitmap? {
-        return tab.getPageThumbnail()?.takeIf(BrowserThumbnailQuality::isUsable)
-            ?: BrowserThumbnailStore.load(tab.getPageThumbnailPath())
+        return tab.getPageThumbnail()
     }
 
     private fun syncBrowserTabsUi() {
@@ -899,15 +914,6 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         val webTabsCount = tabs.count { !it.isHome() }.coerceAtMost(MAX_WEB_TABS)
         browserViewModel.updateTabsBadgeText(webTabsCount)
         dataBinding.tabsToolbar.title = getString(R.string.tabs_with_count_title, webTabsCount)
-        dataBinding.tabsSubtitle.text = getString(
-            R.string.tabs_subtitle_with_count,
-            webTabsCount,
-            MAX_WEB_TABS
-        )
-        dataBinding.tabsSubtitle.contentDescription = getString(
-            R.string.tabs_button_content_description,
-            webTabsCount
-        )
         val currentIndex = browserViewModel.currentTab.get().coerceIn(HOME_TAB_INDEX, tabs.lastIndex)
         updateActivePageUrlForInspection(tabs, currentIndex)
         dataBinding.viewPager.post {
@@ -1051,8 +1057,10 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
             if (isOpened) {
                 dataBinding.drawerLayout.close()
             } else {
+                // Capture the WebView itself before the drawer can cover the window.
+                // JPEG persistence is asynchronous; there is no post-open PixelCopy race.
                 captureCurrentTabThumbnail()
-                syncBrowserTabsUi()
+                syncBrowserTabsUiNow()
                 dataBinding.drawerLayout.open()
             }
         }

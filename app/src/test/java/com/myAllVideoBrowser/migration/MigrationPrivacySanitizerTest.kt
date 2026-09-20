@@ -3,11 +3,15 @@ package com.myAllVideoBrowser.migration
 import com.google.gson.Gson
 import com.myAllVideoBrowser.data.local.model.Proxy
 import com.myAllVideoBrowser.data.local.room.entity.DownloadRequestData
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownloadStatus
+import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.local.room.entity.VideFormatEntityList
 import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.util.CookieProfileStore
 import com.myAllVideoBrowser.util.SharedPrefHelper
+import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -93,6 +97,13 @@ class MigrationPrivacySanitizerTest {
                         httpHeaders = mapOf(
                             "Proxy-Authorization" to "Basic secret",
                             "Accept" to "video/*"
+                        ),
+                        manifestRequestUrl =
+                            "https://origin.example/entry.m3u8?token=secret&id=7",
+                        manifestRequestHeaders = mapOf(
+                            "Cookie" to "session=secret",
+                            "Authorization" to "Bearer secret",
+                            "User-Agent" to "SurfSave-Test"
                         )
                     )
                 )
@@ -115,6 +126,14 @@ class MigrationPrivacySanitizerTest {
         assertEquals(
             mapOf("Accept" to "video/*"),
             sanitized.formats.formats.single().httpHeaders
+        )
+        assertEquals(
+            "https://origin.example/entry.m3u8?id=7",
+            sanitized.formats.formats.single().manifestRequestUrl
+        )
+        assertEquals(
+            mapOf("User-Agent" to "SurfSave-Test"),
+            sanitized.formats.formats.single().manifestRequestHeaders
         )
     }
 
@@ -178,5 +197,36 @@ class MigrationPrivacySanitizerTest {
         assertEquals(1, sanitizedSession.currentIndex)
         assertEquals("https://example.com/watch?id=7", sanitizedSession.tabs.single().url)
         assertNull(sanitizedSession.tabs.single().thumbnailPath)
+    }
+
+    @Test
+    fun deviceSpecificDownloadBindingsAreRemovedFromExport() {
+        val progress = ProgressInfo(
+            id = "progress-1",
+            videoInfo = VideoInfo(id = "video-1"),
+            downloadStatus = VideoTaskState.SUCCESS,
+            finalMediaUri = "content://media/external/video/media/99",
+            mediaBindingTrusted = true
+        )
+        val attachment = BrowserFileDownload(
+            id = 7,
+            downloadManagerId = 99,
+            url = "https://download.example/file.pdf",
+            fileName = "file.pdf",
+            relativePath = "SurfSave/Files/file.pdf",
+            status = BrowserFileDownloadStatus.RUNNING,
+            localUri = "content://downloads/all_downloads/99",
+            systemBindingTrusted = true
+        )
+
+        val sanitizedProgress = sanitizer.sanitizeProgress(listOf(progress)).single()
+        val sanitizedAttachment = sanitizer.sanitizeBrowserFileDownloads(listOf(attachment)).single()
+
+        assertEquals("", sanitizedProgress.finalMediaUri)
+        assertFalse(sanitizedProgress.mediaBindingTrusted)
+        assertEquals(-1L, sanitizedAttachment.downloadManagerId)
+        assertEquals(BrowserFileDownloadStatus.MISSING, sanitizedAttachment.status)
+        assertEquals("", sanitizedAttachment.localUri)
+        assertFalse(sanitizedAttachment.systemBindingTrusted)
     }
 }

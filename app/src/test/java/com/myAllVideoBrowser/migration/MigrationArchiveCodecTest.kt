@@ -3,11 +3,14 @@ package com.myAllVideoBrowser.migration
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownloadStatus
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.util.CookieProfileStore
 import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -37,6 +40,120 @@ class MigrationArchiveCodecTest {
         assertEquals(8, validated.archive.manifest.payloads.size)
         assertTrue(validated.archive.bookmarks.isEmpty())
         assertTrue(validated.archive.browserSession.tabs.isEmpty())
+        assertTrue(validated.archive.browserFileDownloads.isEmpty())
+        assertTrue(validated.archive.playbackPositionPrefs.isEmpty())
+    }
+
+    @Test
+    fun v3RoundTrip_includesAttachmentRecordsAndPlaybackPositions() {
+        val file = temporaryFolder.newFile("v3.zip")
+        val attachment = BrowserFileDownload(
+            downloadManagerId = 41L,
+            url = "https://download.example/file.pdf",
+            sourcePageUrl = "https://download.example",
+            userAgent = "SurfSave test",
+            fileName = "file.pdf",
+            mimeType = "application/pdf",
+            relativePath = "SurfSave/Files/file.pdf"
+        )
+        val archive = emptyArchive().copy(
+            playbackPositionPrefs = listOf(
+                PreferenceEntry("entry_hash", "string", stringValue = "{\"positionMs\":1200}")
+            ),
+            browserFileDownloads = listOf(attachment)
+        )
+
+        val validated = MigrationArchiveCodec(gson).writeV3(file, archive, emptyMap())
+
+        assertEquals(MigrationArchiveCodec.SCHEMA_V3, validated.archive.manifest.schemaVersion)
+        assertEquals(10, validated.archive.manifest.payloads.size)
+        assertEquals(1, validated.archive.manifest.browserFileDownloadCount)
+        assertEquals(1, validated.archive.manifest.playbackPositionCount)
+        val importedAttachment = validated.archive.browserFileDownloads.single()
+        assertEquals(-1L, importedAttachment.downloadManagerId)
+        assertEquals(BrowserFileDownloadStatus.MISSING, importedAttachment.status)
+        assertEquals("", importedAttachment.localUri)
+        assertFalse(importedAttachment.systemBindingTrusted)
+        assertEquals(attachment.fileName, importedAttachment.fileName)
+        assertEquals(attachment.relativePath, importedAttachment.relativePath)
+        assertEquals("entry_hash", validated.archive.playbackPositionPrefs.single().key)
+    }
+
+    @Test
+    fun v3Reader_rejectsAttachmentDestinationsOutsideManagedDirectory() {
+        val unsafeDestinations = listOf(
+            "../outside.pdf" to "outside.pdf",
+            "C:/outside.pdf" to "outside.pdf",
+            "SurfSave\\Files\\outside.pdf" to "outside.pdf",
+            "SurfSave/Files/nested/outside.pdf" to "outside.pdf"
+        )
+
+        unsafeDestinations.forEachIndexed { index, (relativePath, fileName) ->
+            val file = temporaryFolder.newFile("unsafe-attachment-$index.zip")
+            val attachment = BrowserFileDownload(
+                downloadManagerId = 41L,
+                url = "https://download.example/$fileName",
+                fileName = fileName,
+                relativePath = relativePath
+            )
+
+            assertThrows(IllegalArgumentException::class.java) {
+                MigrationArchiveCodec(gson).writeV3(
+                    file,
+                    emptyArchive().copy(browserFileDownloads = listOf(attachment)),
+                    emptyMap()
+                )
+            }
+        }
+    }
+
+    @Test
+    fun v3Reader_clearsImportedMediaStoreUriAndTrust() {
+        val file = temporaryFolder.newFile("device-media-uri.zip")
+        val progress = ProgressInfo(
+            id = "progress-1",
+            videoInfo = VideoInfo(id = "video-1"),
+            downloadStatus = VideoTaskState.SUCCESS,
+            finalMediaUri = "content://media/external/video/media/41",
+            mediaBindingTrusted = true
+        )
+
+        val validated = MigrationArchiveCodec(gson).writeV3(
+            file,
+            emptyArchive().copy(progress = listOf(progress)),
+            emptyMap()
+        )
+
+        val importedProgress = validated.archive.progress.single()
+        assertEquals("", importedProgress.finalMediaUri)
+        assertFalse(importedProgress.mediaBindingTrusted)
+    }
+
+    @Test
+    fun v3Reader_rejectsDuplicateAttachmentDatabasePrimaryKeys() {
+        val file = temporaryFolder.newFile("duplicate-attachment-primary-key.zip")
+        val first = BrowserFileDownload(
+            id = 7,
+            downloadManagerId = 41,
+            url = "https://download.example/first.pdf",
+            fileName = "first.pdf",
+            relativePath = "SurfSave/Files/first.pdf"
+        )
+        val second = BrowserFileDownload(
+            id = 7,
+            downloadManagerId = 42,
+            url = "https://download.example/second.pdf",
+            fileName = "second.pdf",
+            relativePath = "SurfSave/Files/second.pdf"
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            MigrationArchiveCodec(gson).writeV3(
+                file,
+                emptyArchive().copy(browserFileDownloads = listOf(first, second)),
+                emptyMap()
+            )
+        }
     }
 
     @Test

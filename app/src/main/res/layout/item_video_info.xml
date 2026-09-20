@@ -1,65 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layout xmlns:android="http://schemas.android.com/apk/res/android"
+<layout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools">
-
     <data>
-
-        <variable
-            name="videoInfo"
-            type="com.myAllVideoBrowser.data.local.room.entity.VideoInfo" />
-
-        <variable
-            name="dialogListener"
-            type="com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener" />
-
-        <variable
-            name="viewModel"
-            type="com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel" />
-
+        <variable name="videoInfo" type="com.myAllVideoBrowser.data.local.room.entity.VideoInfo" />
+        <variable name="dialogListener" type="com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener" />
+        <variable name="viewModel" type="com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel" />
     </data>
-
-    <com.google.android.material.card.MaterialCardView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="@dimen/padding_normal"
-        app:cardBackgroundColor="@color/sxSurfaceRaised"
-        app:cardCornerRadius="@dimen/corner_md"
-        app:cardElevation="@dimen/elev_resting"
-        app:strokeColor="@color/sxOutline"
-        app:strokeWidth="0dp">
-
+        android:layout_marginBottom="16dp"
+        android:orientation="vertical">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="@dimen/padding_normal">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:baselineAligned="false"
-                android:orientation="horizontal">
-
+            android:padding="12dp">
+            <androidx.constraintlayout.widget.ConstraintLayout android:layout_width="match_parent" android:layout_height="wrap_content">
                 <com.google.android.material.card.MaterialCardView
-                    android:layout_width="112dp"
-                    android:layout_height="80dp"
-                    android:layout_marginEnd="@dimen/padding_normal"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_marginEnd="0dp"
                     android:clickable="true"
                     android:contentDescription="@string/dialog_preview_video"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
-                    android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
+                    android:onClick="@{() -&gt; dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
                     app:cardBackgroundColor="@color/sxSurfaceSoft"
                     app:cardCornerRadius="@dimen/corner_thumbnail"
                     app:cardElevation="0dp"
                     app:strokeColor="@color/sxOutline"
-                    app:strokeWidth="0dp">
-
-                    <FrameLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent">
-
+                    app:strokeWidth="0dp"
+                    app:layout_constraintDimensionRatio="H,16:9"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent">
                         <com.google.android.material.imageview.ShapeableImageView
                             android:id="@+id/video_thumbnail"
                             android:layout_width="match_parent"
@@ -69,8 +48,6 @@
                             android:importantForAccessibility="no"
                             android:scaleType="centerCrop"
                             app:imageUrl="@{videoInfo.thumbnail}" />
-
-                        <!-- 播放视觉提示：缩略图中央半透明播放角标，提示可点击播放（装饰节点，不进无障碍树） -->
                         <ImageView
                             android:layout_width="32dp"
                             android:layout_height="32dp"
@@ -84,102 +61,93 @@
                             app:tint="@color/white" />
                     </FrameLayout>
                 </com.google.android.material.card.MaterialCardView>
-
-                <LinearLayout
+            </androidx.constraintlayout.widget.ConstraintLayout>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="top"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/video_title_edit"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:minHeight="80dp"
-                    android:orientation="vertical">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/video_title_edit"
-                            android:layout_width="0dp"
-                            android:layout_height="44dp"
-                            android:layout_weight="1"
-                            android:background="@drawable/sx_search_background"
-                            android:hint="@string/video_title_edit"
-                            android:imeOptions="actionDone"
-                            android:inputType="text"
-                            android:maxLines="1"
-                            android:minHeight="44dp"
-                            android:paddingStart="@dimen/padding_normal"
-                            android:paddingEnd="@dimen/padding_small"
-                            android:singleLine="true"
-                            android:textColor="@color/sxTextPrimary"
-                            android:textColorHint="@color/sxTextSecondary"
-                            android:textSize="@dimen/text_medium" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/video_title_rename_button"
-                            style="@style/Widget.MaterialComponents.Button.TextButton"
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
-                            android:layout_marginStart="@dimen/padding_tiny"
-                            android:contentDescription="@string/video_menu_rename"
-                            android:insetLeft="0dp"
-                            android:insetTop="0dp"
-                            android:insetRight="0dp"
-                            android:insetBottom="0dp"
-                            android:minWidth="0dp"
-                            android:padding="0dp"
-                            android:text=""
-                            app:icon="@drawable/edit_24px"
-                            app:iconGravity="textStart"
-                            app:iconPadding="0dp"
-                            app:iconTint="@color/colorPrimary" />
-                    </LinearLayout>
-
-                    <com.google.android.material.textview.MaterialTextView
-                        android:id="@+id/typeTextView"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/padding_small"
-                        android:background="@drawable/sx_chip_background"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:paddingStart="10dp"
-                        android:paddingTop="3dp"
-                        android:paddingEnd="10dp"
-                        android:paddingBottom="3dp"
-                        android:textColor="@color/sxTextSecondary"
-                        android:textSize="@dimen/text_tiny"
-                        android:textStyle="bold"
-                        tools:text="视频文件" />
-
-                    <com.google.android.material.textview.MaterialTextView
-                        android:id="@+id/sizeTextView"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/padding_tiny"
-                        android:ellipsize="end"
-                        android:fontFeatureSettings="tnum"
-                        android:maxLines="1"
-                        android:textColor="@color/sxTextSecondary"
-                        android:textSize="@dimen/text_small"
-                        tools:text="Download Size: 26.4 MB" />
-                </LinearLayout>
+                    android:background="@android:color/transparent"
+                    android:hint="@string/video_title_edit"
+                    android:imeOptions="actionDone"
+                    android:inputType="textCapSentences"
+                    android:maxLines="2"
+                    android:minHeight="48dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:singleLine="false"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textColorHint="@color/sxTextSecondary"
+                    android:textSize="18sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp"
+                    android:focusable="false"
+                    android:focusableInTouchMode="false" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/video_title_rename_button"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="@dimen/padding_tiny"
+                    android:contentDescription="@string/video_menu_rename"
+                    android:insetLeft="0dp"
+                    android:insetTop="0dp"
+                    android:insetRight="0dp"
+                    android:insetBottom="0dp"
+                    android:minWidth="0dp"
+                    android:padding="0dp"
+                    android:text=""
+                    app:icon="@drawable/edit_24px"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconTint="@color/colorPrimary" />
             </LinearLayout>
-
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/typeTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="0dp"
+                android:background="@android:color/transparent"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:paddingStart="0dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="0dp"
+                android:paddingBottom="3dp"
+                android:textColor="@color/colorPrimary"
+                android:textSize="@dimen/text_tiny"
+                android:textStyle="bold"
+                tools:text="视频文件" />
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/sizeTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:fontFeatureSettings="tnum"
+                android:maxLines="2"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                tools:text="Download Size: 26.4 MB" />
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/trustTextView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/padding_small"
-                android:background="@drawable/sx_section_background"
+                android:layout_marginTop="8dp"
+                android:background="@android:color/transparent"
                 android:lineSpacingExtra="2dp"
-                android:padding="@dimen/padding_small"
+                android:padding="0dp"
                 android:textColor="@color/sxTextSecondary"
-                android:textSize="@dimen/text_small"
+                android:textSize="12sp"
                 android:maxLines="2"
                 tools:text="Source: example.com&#10;Cover verified" />
-
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/urlTextView"
                 android:layout_width="match_parent"
@@ -189,14 +157,61 @@
                 android:text="@{viewModel.selectedFormatUrl}"
                 android:textSize="@dimen/text_tiny"
                 android:visibility="gone" />
-
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/min_touch_target"
-                android:layout_marginTop="@dimen/padding_small"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/surf_quality"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textSize="@dimen/text_small"
+                    android:textStyle="bold" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tv_share"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="@dimen/min_touch_target"
+                    android:layout_height="@dimen/min_touch_target"
+                    android:contentDescription="@string/share_link"
+                    android:insetLeft="0dp"
+                    android:insetTop="0dp"
+                    android:insetRight="0dp"
+                    android:insetBottom="0dp"
+                    android:minWidth="0dp"
+                    android:onClick="@{() -&gt; dialogListener.onFormatUrlShare(videoInfo, viewModel.selectedFormats.get(videoInfo.id))}"
+                    android:padding="0dp"
+                    android:text=""
+                    app:icon="@drawable/share_24px"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconTint="@color/sxTextSecondary" />
+            </LinearLayout>
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/candidatesList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipToPadding="false"
+                android:paddingTop="@dimen/padding_small"
+                android:paddingBottom="@dimen/padding_small"
+                android:nestedScrollingEnabled="false" />
+            <com.google.android.material.button.MaterialButton
+                style="@style/Widget.Surf.Button.TextButton"
+                android:id="@+id/quality_toggle"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="@string/surf_quality_more"
+                android:visibility="gone" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="52dp"
+                android:layout_marginTop="16dp"
                 android:baselineAligned="false"
                 android:orientation="horizontal">
-
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
@@ -207,17 +222,15 @@
                     app:cardElevation="0dp"
                     app:strokeColor="@color/sxOutline"
                     app:strokeWidth="@dimen/stroke_hairline">
-
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:baselineAligned="false"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
-
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/tv_preview"
-                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            style="@style/Widget.Surf.Button.TextButton"
                             android:layout_width="0dp"
                             android:layout_height="match_parent"
                             android:layout_weight="1"
@@ -225,18 +238,17 @@
                             android:insetTop="0dp"
                             android:insetBottom="0dp"
                             android:minWidth="0dp"
-                            android:onClick="@{() -> dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
-                            android:text="@string/detected_play_online"
+                            android:onClick="@{() -&gt; dialogListener.onPreviewVideo(videoInfo, videoThumbnail, viewModel.selectedFormats.get(videoInfo.id), false)}"
+                            android:text="@string/surf_play"
+                            android:paddingHorizontal="8dp"
                             android:textColor="@color/sxTextPrimary"
                             android:textSize="@dimen/text_small"
                             app:icon="@drawable/play_circle_24px"
                             app:iconTint="@color/sxTextPrimary" />
-
                         <View
                             android:layout_width="@dimen/stroke_hairline"
                             android:layout_height="24dp"
                             android:background="@color/sxOutline" />
-
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/tv_player_options"
                             style="@style/Widget.MaterialComponents.Button.TextButton"
@@ -249,7 +261,7 @@
                             android:insetRight="0dp"
                             android:insetBottom="0dp"
                             android:minWidth="0dp"
-                            android:onClick="@{() -> dialogListener.onChoosePlayer(videoInfo, videoThumbnail, tvPlayerOptions, viewModel.selectedFormats.get(videoInfo.id), false)}"
+                            android:onClick="@{() -&gt; dialogListener.onChoosePlayer(videoInfo, videoThumbnail, tvPlayerOptions, viewModel.selectedFormats.get(videoInfo.id), false)}"
                             android:padding="0dp"
                             android:text=""
                             app:icon="@drawable/ic_arrow_drop_down_24"
@@ -258,66 +270,24 @@
                             app:iconTint="@color/sxTextPrimary" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
-
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/tv_download"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="52dp"
                     android:layout_weight="1"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
-                    android:onClick="@{() -> dialogListener.onDownloadVideo(videoInfo, viewModel.selectedFormats.get(videoInfo.id), viewModel.formatsTitles.get(videoInfo.id))}"
+                    android:onClick="@{() -&gt; dialogListener.onDownloadVideo(videoInfo, viewModel.selectedFormats.get(videoInfo.id), viewModel.formatsTitles.get(videoInfo.id))}"
                     android:text="@string/detected_download"
                     android:textColor="@color/colorOnPrimary"
                     android:textSize="@dimen/text_small"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="8dp"
+                    app:iconPadding="4dp"
                     app:icon="@drawable/ic_download_24dp"
                     app:iconTint="@color/colorOnPrimary" />
             </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/min_touch_target"
-                android:layout_marginTop="@dimen/padding_small"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <com.google.android.material.textview.MaterialTextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/download_candidate_section"
-                    android:textColor="@color/sxTextPrimary"
-                    android:textSize="@dimen/text_small"
-                    android:textStyle="bold" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/tv_share"
-                    style="@style/Widget.MaterialComponents.Button.TextButton"
-                    android:layout_width="@dimen/min_touch_target"
-                    android:layout_height="@dimen/min_touch_target"
-                    android:contentDescription="@string/share_link"
-                    android:insetLeft="0dp"
-                    android:insetTop="0dp"
-                    android:insetRight="0dp"
-                    android:insetBottom="0dp"
-                    android:minWidth="0dp"
-                    android:onClick="@{() -> dialogListener.onFormatUrlShare(videoInfo, viewModel.selectedFormats.get(videoInfo.id))}"
-                    android:padding="0dp"
-                    android:text=""
-                    app:icon="@drawable/share_24px"
-                    app:iconGravity="textStart"
-                    app:iconPadding="0dp"
-                    app:iconTint="@color/sxTextSecondary" />
-            </LinearLayout>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/candidatesList"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:clipToPadding="false"
-                android:paddingTop="@dimen/padding_small"
-                android:paddingBottom="@dimen/padding_small" />
-
         </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
 </layout>

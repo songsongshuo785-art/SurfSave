@@ -200,7 +200,7 @@ sequenceDiagram
 - **测试**：运行 `testDiagnosticUnitTest` 与 `lintDiagnostic` 作为回归闸门。
 - **UI 变更**：任何布局/主题变更必须同步更新 `PROJECTWIKI.md` 设计系统章节与 `CHANGELOG.md`。
 - **深色模式**：新增颜色必须同时在 `values/colors.xml` 与 `values-night/colors.xml` 定义语义 token。
-- **Git**：Trellis / `.agents` / `.codex` / `work.md` 等本地工作系统文件默认不提交。
+- **Git**：`AGENTS.md`、`work.md`、`.playwright-cli/` 等本地辅助文件默认不提交；项目专项知识保存在 `docs/project-guidelines/`。
 
 ## 11. 术语表和缩写
 

@@ -1,12 +1,17 @@
 package com.myAllVideoBrowser.util.downloaders.custom_downloader
 
 import android.app.Application
+import com.google.gson.Gson
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -50,6 +55,7 @@ class CustomFileDownloaderTest {
         // Simulate a resumed download whose second chunk is already complete. The first chunk's
         // short final read must not overwrite any byte in the second chunk.
         outputFile.writeBytes(completePayload)
+        writeRangeLayout(3_000L, listOf(0L..1499L, 1500L..2999L))
         File(downloadDirectory, "chunk_1").writeText("1500", Charsets.UTF_8)
         server.enqueue(MockResponse().setResponseCode(200).setBody(firstChunk + secondChunk))
         server.enqueue(rangeResponse("bytes 0-0/3000", "A"))
@@ -70,6 +76,7 @@ class CustomFileDownloaderTest {
         val payload = "Z".repeat(1_499).toByteArray() + byteArrayOf('Q'.code.toByte())
         val existing = payload.copyOf().also { it[it.lastIndex] = 'X'.code.toByte() }
         outputFile.writeBytes(existing)
+        writeRangeLayout(1_500L, listOf(0L..1499L))
         File(downloadDirectory, "chunk_0").writeText("1499", Charsets.UTF_8)
         server.enqueue(MockResponse().setResponseCode(200).setBody(payload.toString(Charsets.UTF_8)))
         server.enqueue(rangeResponse("bytes 0-0/1500", "Z"))
@@ -286,6 +293,118 @@ class CustomFileDownloaderTest {
         }
     }
 
+    @Test
+    fun systemInterruption_stopsNetworkButPreservesResumeDataWithoutCancelMarker() {
+        val payload = "I".repeat(128 * 1024)
+        enqueueSlowSingleStream(payload)
+        val listener = RecordingDownloadListener()
+        val executor = Executors.newSingleThreadExecutor()
+        val downloader = createDownloader(listener, forceStream = true)
+
+        try {
+            val download = executor.submit { downloader.download() }
+            waitUntil { outputFile.exists() && outputFile.length() > 0L }
+            downloader.interruptForSystemStop()
+            download.get(10, TimeUnit.SECONDS)
+
+            assertEquals(0, listener.successCount.get())
+            assertEquals(CustomFileDownloader.SYSTEM_INTERRUPTED_ACTION, listener.failures.single().message)
+            assertTrue(downloadDirectory.isDirectory)
+            assertTrue(outputFile.exists())
+            assertFalse(File(downloadDirectory, "cancel").exists())
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun resumeAfterThreadCountChange_keepsOriginalRangesAndProducesCompleteFile() {
+        val payload = "0123456789ABCDEF".toByteArray()
+        outputFile.writeBytes(ByteArray(payload.size))
+        outputFile.outputStream().use { output ->
+            output.write(payload, 0, 2)
+            output.write(ByteArray(6))
+            output.write(payload, 8, 2)
+            output.write(ByteArray(6))
+        }
+        writeRangeLayout(16L, listOf(0L..7L, 8L..15L))
+        File(downloadDirectory, "chunk_0").writeText("2", Charsets.UTF_8)
+        File(downloadDirectory, "chunk_1").writeText("2", Charsets.UTF_8)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val range = request.getHeader("Range")
+                if (range == null) return MockResponse().setResponseCode(200).setBody(payload.toString(Charsets.UTF_8))
+                val match = Regex("bytes=(\\d+)-(\\d+)").matchEntire(range)
+                    ?: return MockResponse().setResponseCode(400)
+                val start = match.groupValues[1].toInt()
+                val end = match.groupValues[2].toInt()
+                val body = payload.copyOfRange(start, end + 1).toString(Charsets.UTF_8)
+                return rangeResponse("bytes $start-$end/${payload.size}", body)
+            }
+        }
+
+        val listener = RecordingDownloadListener()
+        createDownloader(listener, threadCount = 4).download()
+
+        assertEquals(1, listener.successCount.get())
+        assertArrayEquals(payload, outputFile.readBytes())
+        val requestedRanges = generateSequence { server.takeRequest(200, TimeUnit.MILLISECONDS) }
+            .mapNotNull { it.getHeader("Range") }
+            .toList()
+        assertTrue(requestedRanges.contains("bytes=2-7"))
+        assertTrue(requestedRanges.contains("bytes=10-15"))
+        assertTrue(requestedRanges.none { it == "bytes=2-3" || it == "bytes=6-7" })
+    }
+
+    @Test
+    fun scopedRedirect_replaysCredentialsAtOriginButStripsThemFromCrossOriginTarget() {
+        val targetServer = MockWebServer()
+        targetServer.start()
+        val payload = "redirected-complete-file"
+        try {
+            repeat(3) {
+                server.enqueue(
+                    MockResponse()
+                        .setResponseCode(302)
+                        .setHeader("Location", targetServer.url("/video.bin"))
+                )
+                targetServer.enqueue(MockResponse().setResponseCode(200).setBody(payload))
+            }
+            val listener = RecordingDownloadListener()
+            val originUrl = server.url("/authenticated/video.bin")
+            val downloader = CustomFileDownloader(
+                url = originUrl.toUrl(),
+                file = outputFile,
+                threadCount = 1,
+                headers = mapOf(
+                    "Cookie" to "session=origin",
+                    "Authorization" to "Bearer origin",
+                    "User-Agent" to "SurfSave test"
+                ),
+                client = OkHttpClient(),
+                listener = listener,
+                isForceStreamDownloadMode = true,
+                credentialOriginUrl = originUrl.toString()
+            )
+
+            downloader.download()
+
+            assertEquals(1, listener.successCount.get())
+            assertArrayEquals(payload.toByteArray(), outputFile.readBytes())
+            repeat(3) {
+                val originRequest = server.takeRequest()
+                assertEquals("session=origin", originRequest.getHeader("Cookie"))
+                assertEquals("Bearer origin", originRequest.getHeader("Authorization"))
+                val targetRequest = targetServer.takeRequest()
+                assertNull(targetRequest.getHeader("Cookie"))
+                assertNull(targetRequest.getHeader("Authorization"))
+                assertEquals("SurfSave test", targetRequest.getHeader("User-Agent"))
+            }
+        } finally {
+            targetServer.shutdown()
+        }
+    }
+
     private fun createDownloader(
         listener: DownloadListener,
         threadCount: Int = 1,
@@ -319,6 +438,21 @@ class CustomFileDownloaderTest {
             .setResponseCode(206)
             .setHeader("Content-Range", contentRange)
             .setBody(body)
+    }
+
+    private fun writeRangeLayout(totalLength: Long, ranges: List<LongRange>) {
+        val layout = mapOf(
+            "schemaVersion" to 1,
+            "resourceUrl" to server.url("/video.bin").toString(),
+            "totalLength" to totalLength,
+            "etag" to null,
+            "lastModified" to null,
+            "chunks" to ranges.mapIndexed { index, range ->
+                mapOf("index" to index, "start" to range.first, "end" to range.last)
+            }
+        )
+        File(downloadDirectory, "range_layout_v1.json")
+            .writeText(Gson().toJson(layout), Charsets.UTF_8)
     }
 
     private fun waitUntil(timeoutMillis: Long = 5_000L, condition: () -> Boolean) {

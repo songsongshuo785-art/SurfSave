@@ -5,10 +5,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.databinding.ObservableField
-import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.databinding.DownloadCandidateItemBinding
@@ -63,11 +61,37 @@ class CandidatesListRecyclerViewAdapter(
     private val downloadDialogListener: CandidateFormatListener
 ) : RecyclerView.Adapter<CandidatesListRecyclerViewAdapter.CandidatesViewHolder>() {
 
-    private var formats: List<VideoFormatEntity> = arrayListOf()
+    private var formats = VideoFormatUi.sortFormats(downloadCandidates.formats.formats)
+    private var displayedFormats: List<VideoFormatEntity> = collapsedFormats()
+    var isExpanded = false
+        private set
 
-    init {
-        val allFormats = downloadCandidates.formats.formats
-        formats = VideoFormatUi.sortFormats(allFormats)
+    fun setExpanded(value: Boolean) {
+        isExpanded = value
+        updateDisplayedFormats()
+    }
+
+    // Keep the selected quality visible even when it is outside the first three options.
+    private fun collapsedFormats(): List<VideoFormatEntity> {
+        val selected = selectedFormat.get()?.get(downloadCandidates.id)
+        val selectedIndex = formats.indexOfFirst { VideoFormatUi.selectionKey(it) == selected }
+        return if (formats.size > 3 && selectedIndex >= 3) {
+            formats.take(2) + formats[selectedIndex]
+        } else formats.take(3)
+    }
+
+    fun refreshSelection() {
+        updateDisplayedFormats()
+        notifyItemRangeChanged(0, itemCount, "selection")
+    }
+
+    private fun updateDisplayedFormats() {
+        val next = if (isExpanded) formats else collapsedFormats()
+        dispatchListDiff(
+            oldItems = displayedFormats,
+            newItems = next,
+            areItemsTheSame = { old, new -> VideoFormatUi.selectionKey(old) == VideoFormatUi.selectionKey(new) }
+        ) { displayedFormats = next }
     }
 
     class CandidatesViewHolder(val binding: DownloadCandidateItemBinding) :
@@ -81,10 +105,10 @@ class CandidatesListRecyclerViewAdapter(
 
     @SuppressLint("SetTextI18n")
     override fun onBindViewHolder(holder: CandidatesViewHolder, position: Int) {
-        val formatEntity = formats.getOrNull(position) ?: return
+        val formatEntity = displayedFormats.getOrNull(position) ?: return
         val candidate = VideoFormatUi.selectionKey(formatEntity)
         val titleText = VideoFormatUi.title(holder.binding.root.context, formatEntity, position)
-        val detailsText = VideoFormatUi.details(holder.binding.root.context, formatEntity, position)
+        val detailsText = VideoFormatUi.compactDetails(holder.binding.root.context, formatEntity)
 
         with(holder.binding) {
             val selected = selectedFormat.get()?.get(downloadCandidates.id)
@@ -99,9 +123,8 @@ class CandidatesListRecyclerViewAdapter(
                 override fun onSelectFormat(videoInfo: VideoInfo, format: String) {
                     val currentPosition = holder.bindingAdapterPosition
                     if (currentPosition != RecyclerView.NO_POSITION) {
-                        val previousSelection = selectedFormat.get()?.get(downloadCandidates.id)
                         downloadDialogListener.onSelectFormat(videoInfo, format)
-                        notifySelectionChanged(currentPosition, previousSelection, format)
+                        refreshSelection()
                     }
                 }
 
@@ -121,50 +144,10 @@ class CandidatesListRecyclerViewAdapter(
         }
     }
 
-    override fun getItemCount(): Int = formats.size
+    override fun getItemCount(): Int = displayedFormats.size
 
     fun setData(formats: List<VideoFormatEntity>) {
-        val previousFormats = this.formats
-        val newFormats = VideoFormatUi.sortFormats(formats)
-        val diffResult = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
-            override fun getOldListSize(): Int = previousFormats.size
-
-            override fun getNewListSize(): Int = newFormats.size
-
-            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
-                return VideoFormatUi.selectionKey(previousFormats[oldItemPosition]) ==
-                    VideoFormatUi.selectionKey(newFormats[newItemPosition])
-            }
-
-            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
-                return previousFormats[oldItemPosition] == newFormats[newItemPosition]
-            }
-        })
-        this.formats = newFormats
-        diffResult.dispatchUpdatesTo(this)
-    }
-
-    private fun notifySelectionChanged(
-        currentPosition: Int,
-        previousSelection: String?,
-        requestedSelection: String
-    ) {
-        val positions = linkedSetOf<Int>()
-        positions.add(currentPosition)
-        positions.add(findFormatPosition(previousSelection))
-        positions.add(findFormatPosition(selectedFormat.get()?.get(downloadCandidates.id)))
-        positions.add(findFormatPosition(requestedSelection))
-        positions
-            .filter { it != RecyclerView.NO_POSITION }
-            .forEach { notifyItemChanged(it) }
-    }
-
-    private fun findFormatPosition(selectionKey: String?): Int {
-        if (selectionKey.isNullOrBlank()) {
-            return RecyclerView.NO_POSITION
-        }
-
-        val position = formats.indexOfFirst { VideoFormatUi.selectionKey(it) == selectionKey }
-        return if (position >= 0) position else RecyclerView.NO_POSITION
+        this.formats = VideoFormatUi.sortFormats(formats)
+        updateDisplayedFormats()
     }
 }

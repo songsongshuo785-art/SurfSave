@@ -133,6 +133,8 @@ class MigrationImportJournalTest {
                 PreferenceEntry("theme", "string", stringValue = "dark")
             ),
             playbackPrefs = emptyList(),
+            playbackPositionPrefs = emptyList(),
+            browserFileDownloads = emptyList(),
             cookieProfiles = CookieProfileStore.StoreSnapshot(emptyList(), emptyMap())
         )
         val thumbnail = byteArrayOf(1, 2, 3, 4)

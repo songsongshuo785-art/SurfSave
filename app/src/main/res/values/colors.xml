@@ -1,81 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ===== Legacy tokens (kept for backward compatibility; migrate to M3 semantic tokens below) ===== -->
-
-    <!-- Brand emphasis blue (Chrome Google blue) -->
-    <color name="colorPrimary_20">#331A73E8</color>
-    <color name="colorPrimary">#1A73E8</color>
-    <color name="colorPrimaryDark">#1557B0</color>
-    <color name="colorAccent">#1A73E8</color>
-    <color name="colorAccentDark">#1557B0</color>
-
-    <!-- Chrome-like surface palette -->
-    <color name="sxSurface">#F1F3F4</color>
+    <color name="colorPrimary_20">#22006A68</color>
+    <color name="colorPrimary">#006A68</color>
+    <color name="colorPrimaryDark">#00514F</color>
+    <color name="colorAccent">#006A68</color>
+    <color name="colorAccentDark">#00514F</color>
+    <color name="sxSurface">#F4F8F7</color>
     <color name="sxSurfaceRaised">#FFFFFF</color>
-    <color name="sxSurfaceSoft">#E8EAED</color>
-    <color name="sxSurfaceSelected">#D3E3FD</color>
-    <color name="sxOutline">#DADCE0</color>
-    <color name="sxTextPrimary">#202124</color>
-    <color name="sxTextSecondary">#5F6368</color>
-
+    <color name="sxSurfaceSoft">#E8F0EE</color>
+    <color name="sxSurfaceSelected">#D4EFEB</color>
+    <color name="sxOutline">#D0DFDC</color>
+    <color name="sxTextPrimary">#152D2D</color>
+    <color name="sxTextSecondary">#536B69</color>
     <color name="colorGreen">#D91E9C55</color>
-
-    <!-- Semantic feedback colors -->
-    <color name="colorSuccess">#1E9C55</color>
-    <color name="colorError">#BA1A1A</color>
+    <color name="colorSuccess">#237346</color>
+    <color name="colorError">#B3261E</color>
     <color name="colorOnError">#FFFFFF</color>
-    <color name="colorWarning">#B45309</color>
-
-    <!-- M3 tonal extensions on primary -->
+    <color name="colorWarning">#8A5000</color>
     <color name="colorOnPrimary">#FFFFFF</color>
-    <color name="colorPrimaryContainer">#D3E3FD</color>
-    <color name="colorOnPrimaryContainer">#041E49</color>
-
-    <color name="color_gray">#5F6368</color>
-    <color name="color_gray_2">#9AA0A6</color>
-
+    <color name="colorPrimaryContainer">#D4EFEB</color>
+    <color name="colorOnPrimaryContainer">#003B38</color>
+    <color name="color_gray">#536B69</color>
+    <color name="color_gray_2">#748B87</color>
     <color name="black_15">#26000000</color>
     <color name="black_55">#8C000000</color>
     <color name="black_85">#D9000000</color>
     <color name="black">#FF000000</color>
-
     <color name="white">#FFFFFF</color>
     <color name="white_30">#4DFFFFFF</color>
-
-    <!-- ===== M3 semantic color tokens (Clean Tool design system) ===== -->
-    <color name="colorSurface">#F8F9FA</color>
+    <color name="colorSurface">#F4F8F7</color>
     <color name="colorSurfaceContainerLowest">#FFFFFF</color>
-    <color name="colorSurfaceContainerLow">#F1F3F4</color>
-    <color name="colorSurfaceContainer">#E8EAED</color>
-    <color name="colorSurfaceContainerHigh">#DADCE0</color>
-    <color name="colorSurfaceContainerHighest">#C4C7C5</color>
-
-    <color name="colorOnSurface">#202124</color>
-    <color name="colorOnSurfaceVariant">#5F6368</color>
-    <color name="colorOutline">#DADCE0</color>
-    <color name="colorOutlineVariant">#E8EAED</color>
-
-    <color name="colorSecondary">#1A73E8</color>
+    <color name="colorSurfaceContainerLow">#F0F5F3</color>
+    <color name="colorSurfaceContainer">#E8F0EE</color>
+    <color name="colorSurfaceContainerHigh">#DFEAE7</color>
+    <color name="colorSurfaceContainerHighest">#D6E3DF</color>
+    <color name="colorOnSurface">#152D2D</color>
+    <color name="colorOnSurfaceVariant">#536B69</color>
+    <color name="colorOutline">#748B87</color>
+    <color name="colorOutlineVariant">#D0DFDC</color>
+    <color name="colorSecondary">#44655E</color>
     <color name="colorOnSecondary">#FFFFFF</color>
-    <color name="colorSecondaryContainer">#D3E3FD</color>
-    <color name="colorOnSecondaryContainer">#041E49</color>
-
-    <color name="colorTertiary">#5F6368</color>
+    <color name="colorSecondaryContainer">#D8EAE3</color>
+    <color name="colorOnSecondaryContainer">#203D35</color>
+    <color name="colorTertiary">#496781</color>
     <color name="colorOnTertiary">#FFFFFF</color>
-    <color name="colorTertiaryContainer">#E8EAED</color>
-    <color name="colorOnTertiaryContainer">#202124</color>
-
+    <color name="colorTertiaryContainer">#D5E6F8</color>
+    <color name="colorOnTertiaryContainer">#17344B</color>
     <color name="colorErrorContainer">#F9DEDC</color>
-
     <color name="colorScrim">#99000000</color>
     <color name="colorShadow">#000000</color>
-
-    <!-- ===== Component-specific semantic tokens ===== -->
     <color name="colorPlayerControl">#FFFFFF</color>
     <color name="colorPlayerScrim">#66000000</color>
     <color name="colorBadgeText">@color/colorOnPrimary</color>
     <color name="colorSwitchTrackInactive">@color/colorSurfaceContainerHigh</color>
     <color name="colorSwitchTrackActive">@color/colorPrimaryContainer</color>
-    <!-- Brand glow used by empty-state art (radial gradient center) -->
-    <color name="colorBrandGlow">#301A73E8</color>
+    <color name="colorBrandGlow">#20006A68</color>
 </resources>

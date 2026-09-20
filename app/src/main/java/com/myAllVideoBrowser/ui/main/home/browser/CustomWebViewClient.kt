@@ -11,6 +11,8 @@ import android.webkit.WebViewClient
 import androidx.lifecycle.viewModelScope
 import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
 import com.myAllVideoBrowser.contentblock.BrowserResourceTypeResolver
+import com.myAllVideoBrowser.contentblock.BlockedResourceResponseFactory
+import com.myAllVideoBrowser.contentblock.BrowserResourceType
 import com.myAllVideoBrowser.contentblock.ContentBlockCoordinator
 import com.myAllVideoBrowser.contentblock.ContentBlockDecision
 import com.myAllVideoBrowser.contentblock.ContentBlockRequest
@@ -31,7 +33,6 @@ import io.reactivex.rxjava3.disposables.Disposable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
-import java.io.ByteArrayInputStream
 
 class CustomWebViewClient(
     private val tabViewModel: WebTabViewModel,
@@ -47,6 +48,8 @@ class CustomWebViewClient(
     private val onRenderProcessLost: (WebView?, Boolean) -> Unit = { _, _ -> },
     private val onPageContextStarted: (String, String) -> Unit = { _, _ -> },
     private val onPageReady: (WebView) -> Unit = {},
+    private val shouldBlockMainFrameNavigation: (String, Boolean, Boolean) -> Boolean =
+        { _, _, _ -> false },
     private val injectMediaProbe: (WebView) -> Unit = {}
 ) : WebViewClient() {
     var videoAlert: MaterialAlertDialogBuilder? = null
@@ -57,16 +60,6 @@ class CustomWebViewClient(
     private var currentPageUrl: String = ""
     private val regularJobsStorage = java.util.concurrent.ConcurrentHashMap<String, List<Disposable>>()
     private val requestInspector = MediaRequestInspector(settingsModel)
-
-    companion object {
-        fun emptyResponse(): WebResourceResponse {
-            return WebResourceResponse(
-                "text/plain",
-                "utf-8",
-                ByteArrayInputStream("".toByteArray())
-            )
-        }
-    }
 
     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
         val viewTitle = view?.title
@@ -128,22 +121,23 @@ class CustomWebViewClient(
 
         val url = request.url.toString()
         val pageUrl = currentPageUrl.ifBlank { url }
+        val resourceType = BrowserResourceTypeResolver.resolve(
+            url,
+            request.requestHeaders,
+            request.isForMainFrame
+        )
         val blockDecision = contentBlockCoordinator.evaluate(
             ContentBlockRequest(
                 url = url,
                 documentUrl = pageUrl,
                 method = request.method,
-                resourceType = BrowserResourceTypeResolver.resolve(
-                    url,
-                    request.requestHeaders,
-                    request.isForMainFrame
-                ),
+                resourceType = resourceType,
                 isMainFrame = request.isForMainFrame,
                 source = ContentBlockRequestSource.WEB_VIEW
             )
         )
         if (blockDecision is ContentBlockDecision.Block) {
-            return emptyResponse()
+            return BlockedResourceResponseFactory.create(resourceType)
         }
         val inspection = requestInspector.inspect(
             url,
@@ -170,7 +164,7 @@ class CustomWebViewClient(
                         }
                     }
                     if (inspection.shouldBlockStreamRequest) {
-                        return emptyResponse()
+                        return BlockedResourceResponseFactory.create(BrowserResourceType.MEDIA)
                     }
                 }
 
@@ -198,7 +192,7 @@ class CustomWebViewClient(
                             }
                         }
                         if (inspection.shouldInterruptResource) {
-                            return emptyResponse()
+                            return BlockedResourceResponseFactory.create(BrowserResourceType.MEDIA)
                         }
                     }
                 }
@@ -240,6 +234,12 @@ class CustomWebViewClient(
 
         return when {
             scheme == "http" || scheme == "https" -> {
+                if (shouldBlockMainFrameNavigation(target, url.hasGesture(), url.isForMainFrame)) {
+                    AppLogger.d(
+                        "Navigation: Blocked one automatic cross-site redirect after a captured download."
+                    )
+                    return true
+                }
                 if (url.isForMainFrame && !tabViewModel.isTabInputFocused.get()) {
                     tabViewModel.setTabTextInput(target)
                 }

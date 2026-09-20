@@ -1,38 +1,53 @@
 package com.myAllVideoBrowser.ui.component.widget
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.Rect
+import android.os.Build
 import android.util.AttributeSet
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup.MarginLayoutParams
+import android.view.ViewTreeObserver
+import android.view.animation.DecelerateInterpolator
 import androidx.constraintlayout.widget.ConstraintLayout
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
+/** A single media entry: tap to open, hold to drag, release to dock at a physical edge. */
 class MovableContainer @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : ConstraintLayout(context, attrs) {
     private var downRawX = 0f
     private var downRawY = 0f
-    private var dX = 0f
-    private var dY = 0f
+    private var dragOffsetX = 0f
+    private var dragOffsetY = 0f
+    private var gestureActive = false
+    private var tapCancelled = false
     private var isDragging = false
-    private var longPressTriggered = false
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var positionChangeListener: ((Float, Float) -> Unit)? = null
-    private val clickDragTolerance = max(
-        ViewConfiguration.get(context).scaledTouchSlop * 2.5f,
-        24f
-    )
+    private var topBoundaryView: View? = null
+    private var dockRight = true
+    private var heightRatio = 1f
+    private var lastBounds: MovementBounds? = null
+    private var observedTree: ViewTreeObserver? = null
+    private val visibleFrame = Rect()
+    private val parentLocation = IntArray(2)
+    private val boundaryLocation = IntArray(2)
+    private val layoutListener = ViewTreeObserver.OnGlobalLayoutListener { refreshPosition() }
 
     private val longPressRunnable = Runnable {
-        longPressTriggered = true
-        isDragging = true
-        parent?.requestDisallowInterceptTouchEvent(true)
-        showDraggingFeedback()
-        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        if (gestureActive && !tapCancelled && isEnabled && isShown) {
+            isDragging = true
+            parent?.requestDisallowInterceptTouchEvent(true)
+            animateFeedback(1.06f, 0.95f, 120)
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        }
     }
 
     init {
@@ -40,82 +55,77 @@ class MovableContainer @JvmOverloads constructor(
         isFocusable = true
     }
 
-    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean {
-        return true
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        observedTree = viewTreeObserver.also { it.addOnGlobalLayoutListener(layoutListener) }
+        refreshPosition(force = true)
     }
 
+    override fun onDetachedFromWindow() {
+        cancelGesture()
+        observedTree?.takeIf { it.isAlive }?.removeOnGlobalLayoutListener(layoutListener)
+        observedTree = null
+        lastBounds = null
+        super.onDetachedFromWindow()
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        // CoordinatorLayout can change the base left/top even when translation is unchanged.
+        refreshPosition(force = true)
+    }
+
+    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = true
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!isEnabled) {
+            cancelGesture()
+            return false
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                animate().cancel()
+                cancelGesture()
+                applySavedPosition()
                 downRawX = event.rawX
                 downRawY = event.rawY
-                dX = x - downRawX
-                dY = y - downRawY
-                isDragging = false
-                longPressTriggered = false
-                removeCallbacks(longPressRunnable)
-                showPressedFeedback()
+                dragOffsetX = x - downRawX
+                dragOffsetY = y - downRawY
+                gestureActive = true
+                tapCancelled = false
+                isPressed = true
+                animateFeedback(0.96f, 0.88f, 90)
                 postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
-                return true
             }
-
             MotionEvent.ACTION_MOVE -> {
-                val moveDX = event.rawX - downRawX
-                val moveDY = event.rawY - downRawY
-                if (!longPressTriggered && (abs(moveDX) > clickDragTolerance || abs(moveDY) > clickDragTolerance)) {
-                    removeCallbacks(longPressRunnable)
-                    clearTouchFeedback()
-                    return true
-                }
-
+                if (!gestureActive) return true
                 if (!isDragging) {
+                    if (movedBeyondSlop(event)) {
+                        // Remains cancelled even if the finger later returns to the start point.
+                        tapCancelled = true
+                        removeCallbacks(longPressRunnable)
+                        isPressed = false
+                        animateFeedback(1f, 1f, 120)
+                    }
                     return true
                 }
-
                 val bounds = movementBounds() ?: return true
-                x = (event.rawX + dX).coerceIn(bounds.minX, bounds.maxX)
-                y = (event.rawY + dY).coerceIn(bounds.minY, bounds.maxY)
-                parent?.requestDisallowInterceptTouchEvent(true)
-                return true
+                x = (event.rawX + dragOffsetX).coerceIn(bounds.minX, bounds.maxX)
+                y = (event.rawY + dragOffsetY).coerceIn(bounds.minY, bounds.maxY)
             }
-
             MotionEvent.ACTION_UP -> {
-                removeCallbacks(longPressRunnable)
-                parent?.requestDisallowInterceptTouchEvent(false)
-                val upDX = event.rawX - downRawX
-                val upDY = event.rawY - downRawY
-                val isClick = abs(upDX) < clickDragTolerance &&
-                    abs(upDY) < clickDragTolerance &&
-                    !isDragging
-
-                if (isDragging || longPressTriggered) {
-                    settleWithinBounds()
-                } else {
-                    clearTouchFeedback()
-                }
-
-                val handled = if (isClick) performClick() else true
-                isDragging = false
-                longPressTriggered = false
-                return handled
+                if (!gestureActive) return true
+                val shouldClick = !isDragging && !tapCancelled && !movedBeyondSlop(event)
+                val shouldDock = isDragging
+                endTouch()
+                if (shouldDock) dockAtNearestEdge() else animateFeedback(1f, 1f, 120)
+                if (shouldClick) performClick()
             }
-
-            MotionEvent.ACTION_CANCEL -> {
-                removeCallbacks(longPressRunnable)
-                parent?.requestDisallowInterceptTouchEvent(false)
-                if (isDragging || longPressTriggered) {
-                    settleWithinBounds()
-                } else {
-                    clearTouchFeedback()
-                }
-                isDragging = false
-                longPressTriggered = false
-                return true
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> {
+                cancelGesture()
+                applySavedPosition()
             }
         }
-
-        return super.onTouchEvent(event)
+        return true
     }
 
     override fun performClick(): Boolean {
@@ -127,89 +137,109 @@ class MovableContainer @JvmOverloads constructor(
         positionChangeListener = listener
     }
 
+    fun setTopBoundaryView(view: View?) {
+        topBoundaryView = view
+        refreshPosition(force = true)
+    }
+
     fun restorePosition(xRatio: Float, yRatio: Float) {
-        post {
-            val bounds = movementBounds() ?: return@post
-            x = bounds.minX + ((bounds.maxX - bounds.minX) * xRatio.coerceIn(0f, 1f))
-            y = bounds.minY + ((bounds.maxY - bounds.minY) * yRatio.coerceIn(0f, 1f))
-        }
+        // Existing free-position preferences remain compatible: map x to the nearest edge.
+        dockRight = !xRatio.isFinite() || xRatio >= 0.5f
+        heightRatio = if (yRatio.isFinite()) yRatio.coerceIn(0f, 1f) else 1f
+        cancelGesture()
+        refreshPosition(force = true)
     }
 
-    private fun showPressedFeedback() {
-        animate()
-            .scaleX(0.96f)
-            .scaleY(0.96f)
-            .alpha(0.88f)
-            .setDuration(90)
-            .start()
+    private fun movedBeyondSlop(event: MotionEvent): Boolean =
+        abs(event.rawX - downRawX) > touchSlop || abs(event.rawY - downRawY) > touchSlop
+
+    private fun endTouch() {
+        removeCallbacks(longPressRunnable)
+        parent?.requestDisallowInterceptTouchEvent(false)
+        gestureActive = false
+        isDragging = false
+        isPressed = false
     }
 
-    private fun showDraggingFeedback() {
-        animate()
-            .scaleX(1.06f)
-            .scaleY(1.06f)
-            .alpha(0.95f)
-            .setDuration(120)
-            .start()
+    private fun cancelGesture() {
+        endTouch()
+        tapCancelled = true
+        animate().cancel()
+        scaleX = 1f
+        scaleY = 1f
+        alpha = 1f
     }
 
-    private fun clearTouchFeedback() {
-        animate()
-            .scaleX(1f)
-            .scaleY(1f)
-            .alpha(1f)
-            .setDuration(120)
-            .start()
+    private fun animateFeedback(scale: Float, opacity: Float, duration: Long) {
+        animate().cancel()
+        animate().scaleX(scale).scaleY(scale).alpha(opacity)
+            .setDuration(animationDuration(duration)).start()
     }
 
-    private fun notifyPositionChanged() {
+    private fun animationDuration(duration: Long): Long =
+        if (Build.VERSION.SDK_INT >= 26 && !ValueAnimator.areAnimatorsEnabled()) 0 else duration
+
+    private fun dockAtNearestEdge() {
         val bounds = movementBounds() ?: return
-        positionChangeListener?.invoke(
-            ((x - bounds.minX) / (bounds.maxX - bounds.minX).coerceAtLeast(1f)).coerceIn(0f, 1f),
-            ((y - bounds.minY) / (bounds.maxY - bounds.minY).coerceAtLeast(1f)).coerceIn(0f, 1f)
-        )
+        dockRight = x >= (bounds.minX + bounds.maxX) / 2f
+        val targetY = y.coerceIn(bounds.minY, bounds.maxY)
+        if (bounds.maxY > bounds.minY) {
+            heightRatio = (targetY - bounds.minY) / (bounds.maxY - bounds.minY)
+        }
+        // Persist the intended destination now, even if another touch interrupts the animation.
+        positionChangeListener?.invoke(if (dockRight) 1f else 0f, heightRatio)
+        animate().cancel()
+        animate().x(if (dockRight) bounds.maxX else bounds.minX).y(targetY)
+            .scaleX(1f).scaleY(1f).alpha(1f)
+            .setInterpolator(DecelerateInterpolator())
+            .setDuration(animationDuration(180)).start()
     }
 
-    private fun settleWithinBounds() {
-        val bounds = movementBounds()
-        if (bounds == null) {
-            notifyPositionChanged()
-            clearTouchFeedback()
-            return
-        }
+    private fun refreshPosition(force: Boolean = false) {
+        val bounds = movementBounds() ?: return
+        val boundsChanged = bounds != lastBounds
+        lastBounds = bounds
+        if (boundsChanged) cancelGesture()
+        if ((boundsChanged || force) && !gestureActive) applySavedPosition(bounds)
+    }
 
-        val targetX = x.coerceIn(bounds.minX, bounds.maxX)
-        val targetY = y.coerceIn(bounds.minY, bounds.maxY)
-
-        animate()
-            .x(targetX)
-            .y(targetY)
-            .scaleX(1f)
-            .scaleY(1f)
-            .alpha(1f)
-            .setDuration(120)
-            .withEndAction {
-                notifyPositionChanged()
-            }
-            .start()
+    private fun applySavedPosition(bounds: MovementBounds? = movementBounds()) {
+        bounds ?: return
+        animate().cancel()
+        x = if (dockRight) bounds.maxX else bounds.minX
+        y = bounds.minY + (bounds.maxY - bounds.minY) * heightRatio
+        scaleX = 1f
+        scaleY = 1f
+        alpha = 1f
     }
 
     private fun movementBounds(): MovementBounds? {
-        val viewParent = parent as? View ?: return null
-        val layoutParams = layoutParams as? MarginLayoutParams ?: return null
-        if (viewParent.width <= 0 || viewParent.height <= 0) {
-            return null
+        val container = parent as? View ?: return null
+        val margins = layoutParams as? MarginLayoutParams ?: return null
+        if (width <= 0 || height <= 0 || container.width <= 0 || container.height <= 0) return null
+
+        var left = container.paddingLeft
+        var right = container.width - container.paddingRight
+        var top = container.paddingTop
+        var bottom = container.height - container.paddingBottom
+        container.getLocationOnScreen(parentLocation)
+        container.getWindowVisibleDisplayFrame(visibleFrame)
+        // Intersect in screen coordinates: avoids double-counting system bars / adjustResize,
+        // and also handles a keyboard which overlays or pans an otherwise unchanged parent.
+        if (!visibleFrame.isEmpty) {
+            left = max(left, visibleFrame.left - parentLocation[0])
+            right = min(right, visibleFrame.right - parentLocation[0])
+            top = max(top, visibleFrame.top - parentLocation[1])
+            bottom = min(bottom, visibleFrame.bottom - parentLocation[1])
         }
-
-        val minX = layoutParams.leftMargin.toFloat()
-        val maxX = (viewParent.width - width - layoutParams.rightMargin)
-            .coerceAtLeast(layoutParams.leftMargin)
-            .toFloat()
-        val minY = layoutParams.topMargin.toFloat()
-        val maxY = (viewParent.height - height - layoutParams.bottomMargin)
-            .coerceAtLeast(layoutParams.topMargin)
-            .toFloat()
-
+        topBoundaryView?.takeIf { it.isShown && it.height > 0 }?.let { toolbar ->
+            toolbar.getLocationOnScreen(boundaryLocation)
+            top = max(top, boundaryLocation[1] + toolbar.height - parentLocation[1])
+        }
+        val minX = (left + margins.leftMargin).toFloat()
+        val maxX = (right - width - margins.rightMargin).toFloat().coerceAtLeast(minX)
+        val minY = (top + margins.topMargin).toFloat()
+        val maxY = (bottom - height - margins.bottomMargin).toFloat().coerceAtLeast(minY)
         return MovementBounds(minX, maxX, minY, maxY)
     }
 

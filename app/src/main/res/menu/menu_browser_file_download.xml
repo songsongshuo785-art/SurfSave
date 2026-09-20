@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/item_file_open"
+        android:icon="@drawable/open_in_new_24px"
+        android:title="@string/browser_file_open" />
+    <item
+        android:id="@+id/item_file_share"
+        android:icon="@drawable/share_24px"
+        android:title="@string/browser_file_share" />
+    <item
+        android:id="@+id/item_file_location"
+        android:icon="@drawable/folder_open_24px"
+        android:title="@string/browser_file_open_location" />
+    <item
+        android:id="@+id/item_file_retry"
+        android:icon="@drawable/resume_24px"
+        android:title="@string/browser_file_retry" />
+    <item
+        android:id="@+id/item_file_cancel"
+        android:icon="@drawable/cancel_24px"
+        android:title="@string/progress_menu_cancel" />
+    <item
+        android:id="@+id/item_file_delete"
+        android:icon="@drawable/delete_forever_24px"
+        android:title="@string/browser_file_delete" />
+</menu>

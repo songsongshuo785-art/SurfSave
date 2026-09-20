@@ -82,7 +82,13 @@ data class ProgressInfo(
     var finalizationSource: String = "",
 
     @ColumnInfo(defaultValue = "")
-    var finalizationTarget: String = ""
+    var finalizationTarget: String = "",
+
+    @ColumnInfo(defaultValue = "")
+    var finalMediaUri: String = "",
+
+    @ColumnInfo(defaultValue = "1")
+    var mediaBindingTrusted: Boolean = true
 ) {
     // НЕ ТРОГАТЬ VAR!!!! иначе пиздец с миграцией
     var progress: Int = 0

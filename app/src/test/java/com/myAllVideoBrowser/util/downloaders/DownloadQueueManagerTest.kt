@@ -439,6 +439,32 @@ class DownloadQueueManagerTest {
             }
         }
 
+        override fun updateFinalMediaUri(id: String, uri: String): Int =
+            mutateIf(id, { true }) { it.copy(finalMediaUri = uri, mediaBindingTrusted = true) }
+
+        override fun updateFinalMediaUriForExecution(id: String, token: String, uri: String): Int =
+            mutateIf(id, {
+                it.executionToken == token && it.downloadStatus == VideoTaskState.SUCCESS
+            }) {
+                it.copy(finalMediaUri = uri, mediaBindingTrusted = true)
+            }
+
+        override fun replaceFinalMediaUri(oldUri: String, newUri: String): Int {
+            val matches = store.values.filter { it.finalMediaUri == oldUri }
+            matches.forEach {
+                store[it.id] = it.copy(finalMediaUri = newUri, mediaBindingTrusted = true)
+            }
+            return matches.size
+        }
+
+        override fun clearFinalMediaUri(uri: String): Int {
+            val matches = store.values.filter { it.finalMediaUri == uri }
+            matches.forEach {
+                store[it.id] = it.copy(finalMediaUri = "", mediaBindingTrusted = false)
+            }
+            return matches.size
+        }
+
         override fun updateQueuePosition(id: String, position: Long) {
             store[id]?.let { store[id] = it.copy(queuePosition = position) }
         }

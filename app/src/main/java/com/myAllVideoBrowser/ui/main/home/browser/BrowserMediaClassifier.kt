@@ -14,13 +14,26 @@ object BrowserMediaClassifier {
     fun classify(
         url: String,
         contentType: String = "",
-        manifestHint: String = ""
+        manifestHint: String = "",
+        contentDisposition: String = ""
     ): ContentType {
         val normalizedType = contentType.substringBefore(';').trim().lowercase(Locale.US)
         val normalizedHint = manifestHint.trim().lowercase(Locale.US)
-        val extension = pathExtension(url)
+        val urlExtension = pathExtension(url)
+        val dispositionExtension = BrowserContentDisposition.fileName(contentDisposition)
+            ?.let(::pathExtension)
+            .orEmpty()
+        val extension = when {
+            urlExtension in recognizedMediaExtensions -> urlExtension
+            dispositionExtension.isNotBlank() -> dispositionExtension
+            else -> urlExtension
+        }
 
-        if (extension in segmentExtensions || url.trim().startsWith("blob:", ignoreCase = true)) {
+        if (
+            urlExtension in segmentExtensions ||
+            (urlExtension !in recognizedMediaExtensions && dispositionExtension in segmentExtensions) ||
+            url.trim().startsWith("blob:", ignoreCase = true)
+        ) {
             return ContentType.OTHER
         }
         if (normalizedHint == "hls" || looksLikeHlsManifest(normalizedHint)) return ContentType.M3U8
@@ -59,7 +72,8 @@ object BrowserMediaClassifier {
 
     private fun pathExtension(url: String): String {
         val path = url.substringBefore('#').substringBefore('?').trim().lowercase(Locale.US)
-        return path.substringAfterLast('/', "").substringAfterLast('.', "")
+        val fileName = path.substringAfterLast('/', path)
+        return fileName.substringAfterLast('.', "")
     }
 
     private fun looksLikeHlsManifest(value: String): Boolean =
@@ -70,4 +84,7 @@ object BrowserMediaClassifier {
         return Regex("""<(?:[a-z0-9_-]+:)?mpd(?:\s|>)""", RegexOption.IGNORE_CASE)
             .containsMatchIn(normalized)
     }
+
+    private val recognizedMediaExtensions =
+        videoExtensions + audioExtensions + setOf("m3u8", "mpd")
 }

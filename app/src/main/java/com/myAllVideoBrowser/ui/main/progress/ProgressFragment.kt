@@ -4,7 +4,11 @@ import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.app.DownloadManager
 import android.os.Bundle
+import android.provider.DocumentsContract
+import android.os.Environment
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.view.Menu
@@ -13,6 +17,7 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.widget.PopupMenu
+import androidx.databinding.Observable
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
@@ -20,11 +25,16 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.RecyclerView.Recycler
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.snackbar.Snackbar
 import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownloadStatus
 import com.myAllVideoBrowser.databinding.FragmentProgressBinding
 import com.myAllVideoBrowser.ui.main.progress.DownloadTaskDetails
 import com.myAllVideoBrowser.ui.component.adapter.ProgressAdapter
 import com.myAllVideoBrowser.ui.component.adapter.ProgressListener
+import com.myAllVideoBrowser.ui.component.adapter.BrowserFileDownloadAdapter
+import com.myAllVideoBrowser.ui.component.adapter.BrowserFileDownloadListener
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.ui.main.home.MainActivity
 import com.myAllVideoBrowser.ui.main.home.MainViewModel
@@ -55,6 +65,26 @@ class ProgressFragment : BaseFragment() {
     private lateinit var dataBinding: FragmentProgressBinding
 
     private lateinit var progressAdapter: ProgressAdapter
+    private lateinit var fileDownloadAdapter: BrowserFileDownloadAdapter
+    private var selectedFilter = R.id.downloads_all
+
+    private val selectedSectionCallback = object : Observable.OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            if (::dataBinding.isInitialized) updateDownloadSectionUi()
+        }
+    }
+
+    private val fileDownloadsCallback = object : Observable.OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            if (::dataBinding.isInitialized) updateDownloadSectionUi()
+        }
+    }
+
+    private val mediaDownloadsCallback = object : Observable.OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            if (::dataBinding.isInitialized) updateDownloadSectionUi()
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -63,6 +93,7 @@ class ProgressFragment : BaseFragment() {
         mainViewModel = mainActivity.mainViewModel
         progressViewModel = mainActivity.progressViewModel
         progressAdapter = ProgressAdapter(emptyList(), progressListener)
+        fileDownloadAdapter = BrowserFileDownloadAdapter(emptyList(), fileDownloadListener)
 
         dataBinding = FragmentProgressBinding.inflate(inflater, container, false).apply {
             val managerL =
@@ -71,19 +102,69 @@ class ProgressFragment : BaseFragment() {
             this.viewModel = progressViewModel
             this.rvProgress.layoutManager = managerL
             this.rvProgress.adapter = progressAdapter
+            this.rvFileDownloads.layoutManager = WrapContentLinearLayoutManager(
+                context,
+                LinearLayoutManager.VERTICAL,
+                false
+            )
+            this.rvFileDownloads.adapter = fileDownloadAdapter
+            this.downloadSectionToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+                if (!isChecked) return@addOnButtonCheckedListener
+                if (checkedId == R.id.button_file_downloads) {
+                    progressViewModel.showFileDownloads()
+                } else {
+                    progressViewModel.showMediaDownloads()
+                }
+            }
             // Empty-state CTA: jump back to the browser tab
             this.emptyActionButton.setOnClickListener {
                 mainActivity.mainViewModel.currentItem.set(0)
             }
         }
 
+        selectedFilter = savedInstanceState?.getInt("download_filter") ?: selectedFilter
+        dataBinding.downloadFilters.check(selectedFilter)
+        dataBinding.downloadFilters.setOnCheckedStateChangeListener { _, ids ->
+            selectedFilter = ids.firstOrNull() ?: R.id.downloads_all
+            updateDownloadSectionUi()
+        }
         return dataBinding.root
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("download_filter", selectedFilter)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         handleDownloadVideoEvent()
         handleTaskDetailsEvent()
+        handleBrowserFileEvents()
+        progressViewModel.selectedDownloadSection.addOnPropertyChangedCallback(selectedSectionCallback)
+        progressViewModel.browserFileDownloads.addOnPropertyChangedCallback(fileDownloadsCallback)
+        progressViewModel.progressInfos.addOnPropertyChangedCallback(mediaDownloadsCallback)
+        updateDownloadSectionUi()
+        progressViewModel.refreshBrowserFileDownloads()
+    }
+
+    override fun onDestroyView() {
+        progressViewModel.selectedDownloadSection.removeOnPropertyChangedCallback(selectedSectionCallback)
+        progressViewModel.browserFileDownloads.removeOnPropertyChangedCallback(fileDownloadsCallback)
+        progressViewModel.progressInfos.removeOnPropertyChangedCallback(mediaDownloadsCallback)
+        dataBinding.rvProgress.adapter = null
+        dataBinding.rvFileDownloads.adapter = null
+        super.onDestroyView()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        progressViewModel.setDownloadScreenVisible(true)
+    }
+
+    override fun onPause() {
+        progressViewModel.setDownloadScreenVisible(false)
+        super.onPause()
     }
 
     private fun handleDownloadVideoEvent() {
@@ -95,9 +176,190 @@ class ProgressFragment : BaseFragment() {
     }
 
     private val progressListener = object : ProgressListener {
+        override fun onPrimaryAction(downloadId: Long) {
+            val item = progressViewModel.progressInfos.get().orEmpty().find { it.downloadId == downloadId } ?: return
+            when {
+                item.isActive -> progressViewModel.pauseDownload(downloadId)
+                item.downloadStatus == VideoTaskState.PENDING -> progressViewModel.markDownloadLater(downloadId)
+                item.downloadStatus in listOf(VideoTaskState.PAUSE, VideoTaskState.ERROR, VideoTaskState.ENOSPC) -> progressViewModel.resumeDownload(downloadId)
+                else -> progressViewModel.openTaskDetails(downloadId)
+            }
+        }
+
         override fun onMenuClicked(view: View, downloadId: Long, isRegular: Boolean) {
             showPopupMenu(view, downloadId)
         }
+    }
+
+    private val fileDownloadListener = object : BrowserFileDownloadListener {
+        override fun onFileOpenClicked(download: BrowserFileDownload) {
+            progressViewModel.openBrowserFile(download, share = false)
+        }
+
+        override fun onFileMenuClicked(anchor: View, download: BrowserFileDownload) {
+            showBrowserFileMenu(anchor, download)
+        }
+    }
+
+    private fun updateDownloadSectionUi() {
+        val showFiles = progressViewModel.selectedDownloadSection.get() == DownloadSection.FILES
+        val fileDownloads = progressViewModel.browserFileDownloads.get().orEmpty()
+        val mediaDownloads = progressViewModel.progressInfos.get().orEmpty()
+        dataBinding.downloadSectionToggle.check(
+            if (showFiles) R.id.button_file_downloads else R.id.button_media_downloads
+        )
+        dataBinding.rvFileDownloads.visibility = if (showFiles) View.VISIBLE else View.GONE
+        dataBinding.rvProgress.visibility = if (showFiles) View.GONE else View.VISIBLE
+        val visibleMedia = mediaDownloads.filter { item ->
+            when (selectedFilter) {
+                R.id.downloads_active -> item.isActive || item.downloadStatus in listOf(
+                    VideoTaskState.PENDING, VideoTaskState.PAUSING,
+                    VideoTaskState.CANCELING, VideoTaskState.FINALIZING
+                )
+                R.id.downloads_paused -> item.downloadStatus == VideoTaskState.PAUSE
+                R.id.downloads_failed -> item.downloadStatus == VideoTaskState.ERROR || item.downloadStatus == VideoTaskState.ENOSPC
+                else -> true
+            }
+        }
+        val visibleFiles = fileDownloads.filter { item ->
+            when (selectedFilter) {
+                R.id.downloads_active -> item.status == BrowserFileDownloadStatus.PENDING || item.status == BrowserFileDownloadStatus.RUNNING
+                R.id.downloads_paused -> item.status == BrowserFileDownloadStatus.PAUSED
+                R.id.downloads_failed -> item.status == BrowserFileDownloadStatus.FAILED || item.status == BrowserFileDownloadStatus.MISSING
+                else -> true
+            }
+        }
+        progressAdapter.setData(visibleMedia)
+        fileDownloadAdapter.setData(visibleFiles)
+        val count = if (showFiles) fileDownloads.size else mediaDownloads.size
+        val active = if (showFiles) fileDownloads.count { it.isActive } else mediaDownloads.count {
+            it.isActive || it.downloadStatus in listOf(VideoTaskState.PENDING, VideoTaskState.PAUSING, VideoTaskState.CANCELING, VideoTaskState.FINALIZING)
+        }
+        dataBinding.downloadsSubtitle.text = getString(R.string.surf_download_count, active, count)
+        val isEmpty = if (showFiles) visibleFiles.isEmpty() else visibleMedia.isEmpty()
+        dataBinding.layoutEmpty.visibility = if (isEmpty) View.VISIBLE else View.GONE
+        dataBinding.tvEmptyText.setText(
+            if (selectedFilter != R.id.downloads_all) R.string.surf_no_results else if (showFiles) R.string.empty_file_download_title else R.string.empty_progress_title
+        )
+        dataBinding.emptyActionButton.setText(if (selectedFilter != R.id.downloads_all) R.string.surf_clear_filters else R.string.empty_action_browse)
+        dataBinding.emptyActionButton.setOnClickListener {
+            if (selectedFilter != R.id.downloads_all) dataBinding.downloadFilters.check(R.id.downloads_all)
+            else mainActivity.mainViewModel.currentItem.set(0)
+        }
+        dataBinding.tvEmptySubtitle.setText(
+            if (selectedFilter != R.id.downloads_all) R.string.surf_no_results_hint else if (showFiles) R.string.empty_file_download_subtitle else R.string.empty_progress_subtitle
+        )
+    }
+
+    private fun showBrowserFileMenu(anchor: View, download: BrowserFileDownload) {
+        val popup = PopupMenu(anchor.context, anchor)
+        popup.menuInflater.inflate(R.menu.menu_browser_file_download, popup.menu)
+        popup.menu.findItem(R.id.item_file_open).isVisible = download.canOpen
+        popup.menu.findItem(R.id.item_file_share).isVisible = download.canOpen
+        popup.menu.findItem(R.id.item_file_retry).isVisible = download.canRetry
+        popup.menu.findItem(R.id.item_file_cancel).isVisible = download.isActive
+        popup.menu.findItem(R.id.item_file_delete).isVisible = !download.isActive
+        popup.setForceShowIcon(true)
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.item_file_open -> {
+                    progressViewModel.openBrowserFile(download, share = false)
+                    true
+                }
+                R.id.item_file_share -> {
+                    progressViewModel.openBrowserFile(download, share = true)
+                    true
+                }
+                R.id.item_file_location -> {
+                    openBrowserDownloadFolder()
+                    true
+                }
+                R.id.item_file_retry -> {
+                    progressViewModel.retryBrowserFile(download)
+                    true
+                }
+                R.id.item_file_cancel -> {
+                    progressViewModel.cancelBrowserFile(download)
+                    true
+                }
+                R.id.item_file_delete -> {
+                    confirmBrowserFileDelete(download)
+                    true
+                }
+                else -> false
+            }
+        }
+        popup.show()
+    }
+
+    private fun handleBrowserFileEvents() {
+        progressViewModel.browserFileLaunchEvent.observe(viewLifecycleOwner) { request ->
+            launchBrowserFile(request)
+        }
+        progressViewModel.browserFileMessageEvent.observe(viewLifecycleOwner) { messageRes ->
+            Snackbar.make(dataBinding.root, messageRes, Snackbar.LENGTH_LONG).show()
+        }
+    }
+
+    private fun launchBrowserFile(request: BrowserFileLaunchRequest) {
+        val intent = if (request.share) {
+            Intent(Intent.ACTION_SEND).apply {
+                type = request.mimeType
+                clipData = ClipData.newRawUri("browser_download", request.uri)
+                putExtra(Intent.EXTRA_STREAM, request.uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        } else {
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(request.uri, request.mimeType)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+        try {
+            startActivity(
+                if (request.share) Intent.createChooser(intent, getString(R.string.browser_file_share))
+                else intent
+            )
+        } catch (_: ActivityNotFoundException) {
+            Snackbar.make(dataBinding.root, R.string.browser_file_no_handler, Snackbar.LENGTH_LONG).show()
+        }
+    }
+
+    private fun openBrowserDownloadFolder() {
+        val documentId = "primary:${Environment.DIRECTORY_DOWNLOADS}/SurfSave/Files"
+        val folderUri = DocumentsContract.buildDocumentUri(
+            "com.android.externalstorage.documents",
+            documentId
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(folderUri, DocumentsContract.Document.MIME_TYPE_DIR)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val opened = runCatching { startActivity(intent) }.isSuccess ||
+            runCatching { startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)) }.isSuccess
+        if (!opened) {
+            Snackbar.make(dataBinding.root, R.string.browser_file_folder_unavailable, Snackbar.LENGTH_LONG).show()
+        }
+    }
+
+    private fun confirmBrowserFileDelete(download: BrowserFileDownload) {
+        val hasLocalFile = download.status == BrowserFileDownloadStatus.SUCCESSFUL
+        val builder = MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.browser_file_delete_title)
+            .setMessage(download.fileName)
+            .setNegativeButton(R.string.all_text_cancel, null)
+            .setPositiveButton(
+                if (hasLocalFile) R.string.browser_file_delete_file_and_record
+                else R.string.browser_file_delete_record
+            ) { _, _ ->
+                progressViewModel.deleteBrowserFile(download, deleteLocalFile = hasLocalFile)
+            }
+        if (hasLocalFile) {
+            builder.setNeutralButton(R.string.browser_file_delete_record) { _, _ ->
+                progressViewModel.deleteBrowserFile(download, deleteLocalFile = false)
+            }
+        }
+        builder.show()
     }
 
     private fun showPopupMenu(view: View, downloadId: Long) {

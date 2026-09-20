@@ -120,6 +120,9 @@ class ContentBlockWebController @Inject constructor(
     companion object {
         const val BRIDGE_NAME = "SurfSaveContentBlockBridge"
         private const val HIDDEN_ATTRIBUTE = "data-surfsave-content-block-hidden"
+        private const val CONCEALED_ATTRIBUTE = "data-surfsave-content-block-concealed"
+        private const val COMPACTED_ATTRIBUTE = "data-surfsave-content-block-compacted"
+        private const val PROTECTED_ATTRIBUTE = "data-surfsave-content-block-protected"
 
         internal val BOOTSTRAP_SCRIPT = """
             (() => {
@@ -159,9 +162,16 @@ class ContentBlockWebController @Inject constructor(
                 documentToken: documentToken,
                 observer: null,
                 timer: null,
+                frame: null,
                 dynamicRuns: 0,
                 proceduralRuns: 0,
                 proceduralCursor: 0,
+                selectorScanRuns: 0,
+                selectorScanRequested: true,
+                selectorBatchCursor: 0,
+                selectorBatches: [],
+                pending: [],
+                pendingSet: new WeakSet(),
                 classes: new Set(),
                 ids: new Set(),
                 undo: [],
@@ -171,6 +181,24 @@ class ContentBlockWebController @Inject constructor(
                 dispose: null
               };
               window.__surfSaveContentBlockState = state;
+              const buildSelectorBatches = (items) => {
+                const batches = [];
+                let current = [];
+                let currentLength = 0;
+                for (const selector of items) {
+                  if (typeof selector !== 'string' || selector.length === 0 ||
+                      selector.includes('::')) continue;
+                  if (current.length >= 24 || currentLength + selector.length > 8192) {
+                    if (current.length) batches.push(current.join(','));
+                    current = [];
+                    currentLength = 0;
+                  }
+                  current.push(selector);
+                  currentLength += selector.length + 1;
+                }
+                if (current.length) batches.push(current.join(','));
+                return batches;
+              };
               const ensureStyle = () => {
                 let style = document.getElementById('__surfsave_content_block_style');
                 if (!style) {
@@ -193,22 +221,39 @@ class ContentBlockWebController @Inject constructor(
                 const rules = Array.from(selectors)
                   .map((selector) => {
                     let guarded;
-                    if (selector.includes('::')) guarded = selector;
-                    else if (supportsIsSelector) guarded = ':is(' + selector + ')' + semanticExclusions;
+                    if (selector.includes('::')) {
+                      return selector +
+                        '{visibility:hidden!important;pointer-events:none!important;}';
+                    } else if (supportsIsSelector) guarded = ':is(' + selector + ')' + semanticExclusions;
                     else if (selector.includes(',')) return '';
                     else guarded = selector + semanticExclusions;
-                    return guarded + '{display:none!important;}';
+                    return guarded + ':not([$PROTECTED_ATTRIBUTE="1"])' +
+                      '{visibility:hidden!important;pointer-events:none!important;}';
                   })
                   .filter(Boolean);
+                rules.push('[$CONCEALED_ATTRIBUTE="1"]{' +
+                  'visibility:hidden!important;pointer-events:none!important;}');
                 rules.push('[$HIDDEN_ATTRIBUTE="1"]{display:none!important;}');
+                rules.push('[$COMPACTED_ATTRIBUTE="1"]{display:none!important;}');
                 style.textContent = rules.join('\n');
               };
               const applySelectors = (items) => {
                 if (!Array.isArray(items)) return;
+                let changed = false;
                 for (const selector of items) {
-                  if (typeof selector === 'string' && selector.length > 0) selectors.add(selector);
+                  if (typeof selector === 'string' && selector.length > 0 &&
+                      !selectors.has(selector)) {
+                    selectors.add(selector);
+                    changed = true;
+                  }
                 }
                 renderStyle();
+                if (changed) {
+                  state.selectorBatches = buildSelectorBatches(Array.from(selectors));
+                  state.selectorBatchCursor = 0;
+                  state.selectorScanRequested = true;
+                  if (state.scheduleClassification) state.scheduleClassification();
+                }
               };
               applySelectors(payload.selectors);
               if (!document.getElementById('__surfsave_content_block_style')) {
@@ -277,7 +322,21 @@ class ContentBlockWebController @Inject constructor(
                 return output;
               };
               const protectedSelector =
-                'html,body,main,nav,header,[role="main"],[role="navigation"],[role="tablist"]';
+                'html,body,main,nav,header,[role="main"],[role="navigation"],' +
+                '[role="tablist"],[role="toolbar"],[role="menubar"]';
+              const interactiveSelector =
+                'a[href],button,input,select,[role="button"],[role="tab"],[role="menuitem"]';
+              const structuralDisplays = new Set([
+                'table', 'inline-table', 'table-row', 'table-cell',
+                'flex', 'inline-flex', 'grid', 'inline-grid'
+              ]);
+              const layoutStyleProperties = new Set([
+                'display', 'overflow', 'overflow-x', 'overflow-y', 'position',
+                'top', 'right', 'bottom', 'left', 'width', 'height', 'min-width',
+                'min-height', 'max-width', 'max-height', 'margin', 'margin-top',
+                'margin-right', 'margin-bottom', 'margin-left', 'padding',
+                'padding-top', 'padding-right', 'padding-bottom', 'padding-left'
+              ]);
               const hasAdvertisingHint = (element) => {
                 if (!element || !element.getAttribute) return false;
                 const signals = [
@@ -286,31 +345,189 @@ class ContentBlockWebController @Inject constructor(
                   element.getAttribute('role') || '',
                   element.getAttribute('aria-label') || '',
                   element.getAttribute('data-testid') || '',
-                  element.getAttribute('data-ad') || ''
+                  element.getAttribute('data-ad') || '',
+                  element.getAttribute('data-event') || '',
+                  element.getAttribute('data-ad-slot') || '',
+                  element.getAttribute('href') || '',
+                  element.getAttribute('src') || ''
                 ].join(' ').toLowerCase();
-                return /(?:^|[^a-z0-9])(ad|ads|advert|advertisement|sponsor|sponsored|promo)(?:[^a-z0-9]|$)/
+                return /(?:^|[^a-z0-9])(ad|ads|advert|advertisement|banner|paid|preroll|sponsor|sponsored|promo|trafficjunky|doubleclick)(?:[^a-z0-9]|$)/
                   .test(signals);
               };
-              const isProtectedStructure = (element) => {
-                if (!element || element.nodeType !== Node.ELEMENT_NODE) return true;
-                if (element === document.documentElement || element === document.body ||
-                    element === document.scrollingElement) return true;
-                try { if (element.matches(protectedSelector)) return true; } catch (_) { return true; }
-                const advertisingHint = hasAdvertisingHint(element);
-                if (!advertisingHint) {
+              const hasVisibleSafeContent = (element) => {
+                if (!element || !element.querySelectorAll) return true;
+                const hidden = (node) => {
+                  if (!node || !node.getAttribute) return false;
+                  if (node.getAttribute('$HIDDEN_ATTRIBUTE') === '1' ||
+                      node.getAttribute('$CONCEALED_ATTRIBUTE') === '1' ||
+                      node.getAttribute('$COMPACTED_ATTRIBUTE') === '1') return true;
                   try {
-                    if (element.closest(
-                      'nav,header,[role="navigation"],[role="tablist"]'
-                    )) return true;
+                    const style = getComputedStyle(node);
+                    return style.display === 'none' || style.visibility === 'hidden';
                   } catch (_) { return true; }
-                  try { if (element.querySelector(protectedSelector)) return true; } catch (_) { return true; }
+                };
+                const interactiveOrMedia =
+                  'a[href],button,input,select,video,audio,canvas,iframe,' +
+                  '[role="button"],[role="tab"],[role="menuitem"]';
+                let descendants;
+                try { descendants = element.querySelectorAll('*'); } catch (_) { return true; }
+                const limit = Math.min(descendants.length, 96);
+                for (let index = 0; index < limit; index++) {
+                  const node = descendants[index];
+                  if (hidden(node)) continue;
                   try {
-                    if (element.querySelectorAll('a[href],button,[role="tab"]').length >= 3) {
-                      return true;
-                    }
+                    if (node.matches(interactiveOrMedia)) return true;
+                  } catch (_) { return true; }
+                  if (!node.children.length && node.textContent.trim().length > 0 &&
+                      !hasAdvertisingHint(node) && !hasAdvertisingHint(element)) return true;
+                }
+                return false;
+              };
+              const hasAdvertisingDescendant = (element) => {
+                if (hasAdvertisingHint(element)) return true;
+                let descendants;
+                try { descendants = element.querySelectorAll('*'); } catch (_) { return false; }
+                const limit = Math.min(descendants.length, 96);
+                for (let index = 0; index < limit; index++) {
+                  if (hasAdvertisingHint(descendants[index])) return true;
+                }
+                return false;
+              };
+              const isSafeCompactContainer = (element) => {
+                if (!element || element.nodeType !== Node.ELEMENT_NODE ||
+                    !hasAdvertisingDescendant(element) || hasVisibleSafeContent(element)) {
+                  return false;
+                }
+                try {
+                  if (element.matches(protectedSelector) ||
+                      element.matches('html,body,main,nav,header,video,audio,canvas')) return false;
+                  const style = getComputedStyle(element);
+                  if (style.position === 'fixed' || style.position === 'sticky') return false;
+                } catch (_) { return false; }
+                return true;
+              };
+              const compactAdContainer = (element) => {
+                let current = element && element.parentElement;
+                for (let depth = 0; current && depth < 3; depth++, current = current.parentElement) {
+                  if (!isSafeCompactContainer(current)) continue;
+                  updateOwnedAttribute(current, '$COMPACTED_ATTRIBUTE', '1');
+                  break;
+                }
+              };
+              const directInteractiveCount = (element) => {
+                if (!element || !element.children) return 0;
+                let count = 0;
+                const limit = Math.min(element.children.length, 32);
+                for (let index = 0; index < limit; index++) {
+                  const child = element.children[index];
+                  try {
+                    if (child.matches(interactiveSelector) ||
+                        child.querySelector(interactiveSelector)) count++;
+                  } catch (_) { return 32; }
+                }
+                return count;
+              };
+              const hasPositionedDescendant = (element) => {
+                if (!element || !element.querySelectorAll) return false;
+                let descendants;
+                try { descendants = element.querySelectorAll('*'); } catch (_) { return true; }
+                const limit = Math.min(descendants.length, 32);
+                for (let index = 0; index < limit; index++) {
+                  try {
+                    const position = getComputedStyle(descendants[index]).position;
+                    if (position === 'sticky' || position === 'fixed') return true;
                   } catch (_) { return true; }
                 }
                 return false;
+              };
+              const classifyElement = (element) => {
+                if (!element || element.nodeType !== Node.ELEMENT_NODE) return 'protected';
+                if (element === document.documentElement || element === document.body ||
+                    element === document.scrollingElement) return 'protected';
+                try { if (element.matches(protectedSelector)) return 'protected'; }
+                catch (_) { return 'protected'; }
+                const advertisingHint = hasAdvertisingHint(element);
+                if (!advertisingHint) {
+                  try { if (element.querySelector(protectedSelector)) return 'protected'; }
+                  catch (_) { return 'protected'; }
+                  try {
+                    if (element.querySelectorAll(interactiveSelector).length >= 3) {
+                      return 'protected';
+                    }
+                  } catch (_) { return 'protected'; }
+                }
+                let current = element;
+                for (let depth = 0; current && depth < 8; depth++, current = current.parentElement) {
+                  let style;
+                  try { style = getComputedStyle(current); } catch (_) { return 'preserve'; }
+                  if (style.position === 'sticky' || style.position === 'fixed') return 'preserve';
+                  if (current !== element) {
+                    try { if (current.matches(protectedSelector)) return 'preserve'; }
+                    catch (_) { return 'preserve'; }
+                  }
+                  if (structuralDisplays.has(style.display) &&
+                      directInteractiveCount(current) >= 2) return 'preserve';
+                  if (current === element && style.display === 'table-cell' &&
+                      current.parentElement && current.parentElement.children.length >= 2) {
+                    return 'preserve';
+                  }
+                }
+                if (hasPositionedDescendant(element)) return 'preserve';
+                return 'collapse';
+              };
+              const ownsAttribute = (element, name) => {
+                if (!element || !name) return false;
+                let keys = state.touched.get(element);
+                if (!keys) {
+                  keys = new Set();
+                  state.touched.set(element, keys);
+                }
+                const key = 'owned-attr:' + name;
+                if (keys.has(key)) return true;
+                if (state.undo.length >= 2000) return false;
+                const hadAttribute = element.hasAttribute(name);
+                const previous = element.getAttribute(name);
+                keys.add(key);
+                state.undo.push(() => {
+                  if (hadAttribute) element.setAttribute(name, previous || '');
+                  else element.removeAttribute(name);
+                });
+                return true;
+              };
+              const alreadyOwnsAttribute = (element, name) => {
+                const keys = element ? state.touched.get(element) : null;
+                return !!keys && keys.has('owned-attr:' + name);
+              };
+              const updateOwnedAttribute = (element, name, value) => {
+                if (value === null) {
+                  if (alreadyOwnsAttribute(element, name)) element.removeAttribute(name);
+                } else if (ownsAttribute(element, name)) {
+                  element.setAttribute(name, value);
+                }
+              };
+              const enqueueHide = (element) => {
+                if (!element || element.nodeType !== Node.ELEMENT_NODE ||
+                    state.pending.length >= 1000 || state.pendingSet.has(element)) return;
+                state.pendingSet.add(element);
+                state.pending.push(element);
+                if (state.scheduleClassification) state.scheduleClassification();
+              };
+              const applyHideDecision = (element) => {
+                const decision = classifyElement(element);
+                if (decision === 'protected') {
+                  updateOwnedAttribute(element, '$HIDDEN_ATTRIBUTE', null);
+                  updateOwnedAttribute(element, '$CONCEALED_ATTRIBUTE', null);
+                  updateOwnedAttribute(element, '$PROTECTED_ATTRIBUTE', '1');
+                } else if (decision === 'preserve') {
+                  updateOwnedAttribute(element, '$HIDDEN_ATTRIBUTE', null);
+                  updateOwnedAttribute(element, '$PROTECTED_ATTRIBUTE', null);
+                  updateOwnedAttribute(element, '$CONCEALED_ATTRIBUTE', '1');
+                } else {
+                  updateOwnedAttribute(element, '$CONCEALED_ATTRIBUTE', null);
+                  updateOwnedAttribute(element, '$PROTECTED_ATTRIBUTE', null);
+                  updateOwnedAttribute(element, '$HIDDEN_ATTRIBUTE', '1');
+                  compactAdContainer(element);
+                }
               };
               const queryDocument = (selector, work) => {
                 if (work.operations >= 4096) return [];
@@ -444,21 +661,23 @@ class ContentBlockWebController @Inject constructor(
               };
               const applyAction = (element, action) => {
                 if (!element || !action || typeof action.type !== 'string') return;
-                if (isProtectedStructure(element)) return;
                 if (action.type === 'hide') {
-                  const hadAttribute = element.hasAttribute('$HIDDEN_ATTRIBUTE');
-                  const previous = element.getAttribute('$HIDDEN_ATTRIBUTE');
-                  if (rememberUndo(element, 'hide', () => {
-                    if (hadAttribute) element.setAttribute('$HIDDEN_ATTRIBUTE', previous || '');
-                    else element.removeAttribute('$HIDDEN_ATTRIBUTE');
-                  })) element.setAttribute('$HIDDEN_ATTRIBUTE', '1');
+                  enqueueHide(element);
                   return;
                 }
+                const structure = classifyElement(element);
                 if (action.type === 'style' && Array.isArray(action.styles)) {
                   for (const declaration of action.styles) {
                     if (!declaration || typeof declaration.property !== 'string' ||
                         typeof declaration.value !== 'string') continue;
                     const property = declaration.property;
+                    if (structure !== 'collapse' && layoutStyleProperties.has(property)) {
+                      if (property === 'display' &&
+                          declaration.value.trim().toLowerCase() === 'none') {
+                        enqueueHide(element);
+                      }
+                      continue;
+                    }
                     const key = 'style:' + property;
                     const previous = element.style.getPropertyValue(property);
                     const priority = element.style.getPropertyPriority(property);
@@ -475,6 +694,7 @@ class ContentBlockWebController @Inject constructor(
                   }
                   return;
                 }
+                if (structure !== 'collapse') return;
                 if (action.type === 'remove-attr' && action.argument) {
                   const name = action.argument;
                   if (!element.hasAttribute(name)) return;
@@ -523,11 +743,66 @@ class ContentBlockWebController @Inject constructor(
                 return visited < proceduralRules.length;
               };
 
+              const requestSelectorScan = () => {
+                if (selectors.size === 0 || state.selectorScanRuns >= 24) return;
+                if (!state.selectorScanRequested) {
+                  state.selectorBatchCursor = 0;
+                  state.selectorScanRequested = true;
+                }
+                if (state.scheduleClassification) state.scheduleClassification();
+              };
+              const scanSelectorMatches = () => {
+                if (!state.selectorScanRequested || state.selectorScanRuns >= 24) return false;
+                const deadline = performance.now() + 4;
+                let visited = 0;
+                while (state.selectorBatchCursor < state.selectorBatches.length &&
+                    visited < 4 && performance.now() < deadline && state.pending.length < 1000) {
+                  const batch = state.selectorBatches[state.selectorBatchCursor++];
+                  visited++;
+                  let found;
+                  try { found = document.querySelectorAll(batch); } catch (_) { continue; }
+                  const limit = Math.min(found.length, 250);
+                  for (let index = 0; index < limit && state.pending.length < 1000; index++) {
+                    enqueueHide(found[index]);
+                  }
+                }
+                if (state.selectorBatchCursor >= state.selectorBatches.length) {
+                  state.selectorScanRequested = false;
+                  state.selectorBatchCursor = 0;
+                  state.selectorScanRuns++;
+                }
+                return state.selectorScanRequested;
+              };
+              const processPending = () => {
+                const deadline = performance.now() + 4;
+                let processed = 0;
+                while (state.pending.length > 0 && processed < 40 &&
+                    performance.now() < deadline) {
+                  const element = state.pending.shift();
+                  state.pendingSet.delete(element);
+                  if (element && element.isConnected) applyHideDecision(element);
+                  processed++;
+                }
+                return state.pending.length > 0;
+              };
+              const runClassificationFrame = () => {
+                state.frame = null;
+                if (state.disposed) return;
+                const hasMoreSelectors = scanSelectorMatches();
+                const hasMoreElements = processPending();
+                if (hasMoreSelectors || hasMoreElements) state.scheduleClassification();
+              };
+              state.scheduleClassification = () => {
+                if (state.disposed || state.frame !== null) return;
+                state.frame = requestAnimationFrame(runClassificationFrame);
+              };
+
               state.dispose = () => {
                 if (state.disposed) return;
                 state.disposed = true;
                 try { state.observer && state.observer.disconnect(); } catch (_) {}
                 try { state.timer && clearTimeout(state.timer); } catch (_) {}
+                try { state.frame !== null && cancelAnimationFrame(state.frame); } catch (_) {}
                 for (let index = state.undo.length - 1; index >= 0; index--) {
                   try { state.undo[index](); } catch (_) {}
                 }
@@ -580,6 +855,7 @@ class ContentBlockWebController @Inject constructor(
                   } catch (_) {}
                 }
                 const hasMoreProcedural = runProcedural();
+                state.scheduleClassification();
                 if (hasMoreProcedural && state.proceduralRuns < 24) schedule(50);
               };
               const schedule = (delay) => {
@@ -596,6 +872,7 @@ class ContentBlockWebController @Inject constructor(
                     for (const node of mutation.addedNodes) collectTree(node);
                   }
                 }
+                requestSelectorScan();
                 schedule();
               });
               state.observer.observe(document, {

@@ -1,62 +1,119 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
-
+<layout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
     <data>
-
         <import type="android.view.View" />
-
-        <variable
-            name="viewModel"
-            type="com.myAllVideoBrowser.ui.main.progress.ProgressViewModel" />
-
-        <variable
-            name="mainViewModel"
-            type="com.myAllVideoBrowser.ui.main.home.MainViewModel" />
-
-        <variable
-            name="adapter"
-            type="com.myAllVideoBrowser.ui.component.adapter.ProgressAdapter" />
-
+        <variable name="viewModel" type="com.myAllVideoBrowser.ui.main.progress.ProgressViewModel" />
+        <variable name="mainViewModel" type="com.myAllVideoBrowser.ui.main.home.MainViewModel" />
+        <variable name="adapter" type="com.myAllVideoBrowser.ui.component.adapter.ProgressAdapter" />
     </data>
-
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@color/sxSurface">
-
         <LinearLayout
             android:id="@+id/progress_header"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:background="@drawable/sx_toolbar_background"
             android:orientation="vertical"
-            android:paddingStart="@dimen/padding_normal"
-            android:paddingEnd="@dimen/padding_normal"
-            android:paddingBottom="@dimen/padding_normal"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="12dp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent">
-
             <com.google.android.material.appbar.MaterialToolbar
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
-                android:layout_height="56dp"
+                android:layout_height="64dp"
                 android:contentInsetStart="0dp"
                 android:contentInsetEnd="0dp"
                 app:contentInsetStart="0dp"
                 app:contentInsetEnd="0dp"
                 app:title="@string/title_progress"
-                app:titleTextColor="@color/sxTextPrimary" />
-
+                app:titleTextColor="@color/sxTextPrimary"
+                app:titleTextAppearance="@style/TextAppearance.Surf.ScreenTitle" />
             <com.google.android.material.textview.MaterialTextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/progress_subtitle"
                 android:textColor="@color/sxTextSecondary"
-                android:textSize="@dimen/text_small" />
+                android:textSize="@dimen/text_small"
+                android:id="@+id/downloads_subtitle"
+                android:textAppearance="@style/TextAppearance.Surf.Body"
+                android:layout_marginBottom="8dp" />
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/download_section_toggle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                app:checkedButton="@id/button_media_downloads"
+                app:selectionRequired="true"
+                app:singleSelection="true">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_media_downloads"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:text="@string/media_download_section"
+                    android:minHeight="48dp"
+                    android:textAllCaps="false" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_file_downloads"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:text="@string/browser_file_section"
+                    android:minHeight="48dp"
+                    android:textAllCaps="false" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none"
+                android:fillViewport="false">
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/download_filters"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:singleSelection="true"
+                    app:selectionRequired="true"
+                    app:singleLine="true"
+                    app:checkedChip="@id/downloads_all"
+                    app:chipSpacingHorizontal="6dp">
+                    <com.google.android.material.chip.Chip
+                        style="@style/Widget.Surf.FilterChip"
+                        android:id="@+id/downloads_all"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/surf_filter_all" />
+                    <com.google.android.material.chip.Chip
+                        style="@style/Widget.Surf.FilterChip"
+                        android:id="@+id/downloads_active"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/surf_filter_active" />
+                    <com.google.android.material.chip.Chip
+                        style="@style/Widget.Surf.FilterChip"
+                        android:id="@+id/downloads_paused"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/surf_filter_paused" />
+                    <com.google.android.material.chip.Chip
+                        style="@style/Widget.Surf.FilterChip"
+                        android:id="@+id/downloads_failed"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/surf_filter_failed" />
+                </com.google.android.material.chip.ChipGroup>
+            </HorizontalScrollView>
         </LinearLayout>
-
         <FrameLayout
             android:id="@+id/progress_native_ad_container"
             android:layout_width="0dp"
@@ -66,48 +123,54 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/progress_header" />
-
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_progress"
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:clipToPadding="false"
-            android:padding="@dimen/padding_small"
-            app:items="@{viewModel.progressInfos}"
+            android:padding="12dp"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/progress_native_ad_container" />
-
-        <LinearLayout
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_file_downloads"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:clipToPadding="false"
+            android:padding="12dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/progress_native_ad_container" />
+        <androidx.core.widget.NestedScrollView
             android:id="@+id/layout_empty"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:padding="@dimen/padding_large"
-            android:visibility="@{viewModel.progressInfos.size() == 0 ? View.VISIBLE : View.GONE}"
+            android:layout_height="0dp"
+            android:fillViewport="true"
+            android:visibility="gone"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/progress_header">
-
-            <FrameLayout
-                android:layout_width="@dimen/art_empty_state_container"
-                android:layout_height="@dimen/art_empty_state_container"
-                android:background="@drawable/surf_empty_state_art">
-
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:gravity="center"
+              android:orientation="vertical"
+              android:padding="24dp">
+            <FrameLayout android:layout_width="64dp" android:layout_height="64dp">
                 <ImageView
                     android:id="@+id/iv_empty_icon"
-                    android:layout_width="@dimen/art_empty_state_icon"
-                    android:layout_height="@dimen/art_empty_state_icon"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
                     android:layout_gravity="center"
                     android:contentDescription="@null"
                     android:importantForAccessibility="no"
-                    android:src="@drawable/ic_empty"
+                    android:src="@drawable/ic_download_24dp"
                     app:tint="@color/colorPrimary" />
             </FrameLayout>
-
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/tv_empty_text"
                 android:layout_width="wrap_content"
@@ -116,8 +179,8 @@
                 android:text="@string/empty_progress_title"
                 android:textAppearance="@style/TextAppearance.Surf.TitleMedium"
                 android:textColor="@color/sxTextPrimary" />
-
             <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_empty_subtitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/padding_small"
@@ -125,7 +188,6 @@
                 android:text="@string/empty_progress_subtitle"
                 android:textAppearance="@style/TextAppearance.Surf.Body"
                 android:textColor="@color/sxTextSecondary" />
-
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/empty_action_button"
                 android:layout_width="wrap_content"
@@ -134,8 +196,8 @@
                 android:text="@string/empty_action_browse"
                 app:icon="@drawable/search_24px"
                 app:iconTint="@color/colorOnPrimary" />
-        </LinearLayout>
-
+          </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
         <FrameLayout
             android:id="@+id/anchor"
             android:layout_width="0dp"
@@ -144,7 +206,5 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
-
     </androidx.constraintlayout.widget.ConstraintLayout>
-
 </layout>

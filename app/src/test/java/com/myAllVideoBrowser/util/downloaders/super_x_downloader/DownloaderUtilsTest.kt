@@ -58,6 +58,7 @@ class DownloaderUtilsTest {
             OkHttpClient.Builder().build(),
             temporaryDirectory,
             Headers.Builder().build(),
+            server.url("/master.m3u8").toString(),
             segments
         )
 

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -43,11 +44,11 @@ import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView.SHOW_BUFFERING_ALWAYS
 import com.bumptech.glide.Glide
 import com.bumptech.glide.request.RequestOptions
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.FragmentPlayerBinding
+import com.myAllVideoBrowser.data.repository.PlaybackPositionStore
 import com.myAllVideoBrowser.data.repository.VideoRepository
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.util.AppUtil
@@ -76,6 +77,7 @@ class VideoPlayerFragment : BaseFragment() {
         const val VIDEO_FORMAT_ID = "video_format_id"
         const val VIDEO_FORMAT_HEIGHT = "video_format_height"
         const val VIDEO_PAGE_URL = "video_page_url"
+        const val VIDEO_MEDIA_IDENTITY = "video_media_identity"
         const val VIDEO_DETECTED_BY_SUPER_X = "video_detected_by_super_x"
         const val VIDEO_EXTRACTED_AT = "video_extracted_at"
         const val SOURCE_BROWSER = "browser"
@@ -83,6 +85,10 @@ class VideoPlayerFragment : BaseFragment() {
         private const val SEEK_INCREMENT_MS = 10_000L
         private const val TOP_BAR_PADDING_DP = 4
         private const val MENU_TRACKS = 1
+        private const val MENU_SPEED = 2
+        private const val MENU_ASPECT = 3
+        private const val MENU_PIP = 4
+        private const val POSITION_SAVE_INTERVAL_MS = 10_000L
     }
 
     @Inject
@@ -96,6 +102,9 @@ class VideoPlayerFragment : BaseFragment() {
 
     @Inject
     lateinit var videoRepository: VideoRepository
+
+    @Inject
+    lateinit var playbackPositionStore: PlaybackPositionStore
 
     private lateinit var player: ExoPlayer
     private lateinit var trackSelector: DefaultTrackSelector
@@ -118,9 +127,13 @@ class VideoPlayerFragment : BaseFragment() {
     private var playbackFormatId = ""
     private var playbackFormatHeight = 0
     private var playbackPageUrl = ""
+    private var playbackMediaIdentity = ""
     private var playbackSource = ""
     private var playbackDetectedBySuperX = false
     private var playbackExtractedAt = 0L
+    private var playbackPositionKey = ""
+    private var initialPlaybackPositionMs: Long? = null
+    private var playbackPositionSaveRunnable: Runnable? = null
     private var currentPlaybackHeaders: Map<String, String> = emptyMap()
     private var refreshAttempted = false
     private var refreshInProgress = false
@@ -150,7 +163,7 @@ class VideoPlayerFragment : BaseFragment() {
                 if (e1 == null || isPipMode) return false
                 val view = dataBinding.videoView
                 // 触摸落在底部进度条区域 → 不抢事件，交给 PlayerView 自带 TimeBar（避免双 seek 打架）
-                val controllerH = (120 * resources.displayMetrics.density).toInt()
+                val controllerH = view.findViewById<View>(R.id.player_bottom_controls).height
                 if (view.isControllerFullyVisible && e2.y > view.height - controllerH) return false
                 // 右滑(totalDx>0)快进、左滑快退；用总位移判断主方向（避免增量 distanceX 抖动）
                 val totalDx = e2.x - e1.x
@@ -196,11 +209,13 @@ class VideoPlayerFragment : BaseFragment() {
         isPipMode = inPip
         if (!::dataBinding.isInitialized) return
         dataBinding.topBar.visibility = if (inPip) View.GONE else View.VISIBLE
+        dataBinding.loadingBar.visibility = if (!inPip && player.playbackState == Player.STATE_BUFFERING) View.VISIBLE else View.GONE
         dataBinding.videoView.useController = !inPip
         if (inPip) {
             registerPipStateListener()
         } else {
             unregisterPipStateListener()
+            dataBinding.videoView.showController()
         }
     }
 
@@ -285,6 +300,7 @@ class VideoPlayerFragment : BaseFragment() {
         playbackFormatId = arguments?.getString(VIDEO_FORMAT_ID).orEmpty()
         playbackFormatHeight = arguments?.getInt(VIDEO_FORMAT_HEIGHT) ?: 0
         playbackPageUrl = arguments?.getString(VIDEO_PAGE_URL).orEmpty()
+        playbackMediaIdentity = arguments?.getString(VIDEO_MEDIA_IDENTITY).orEmpty()
         playbackSource = arguments?.getString(VIDEO_SOURCE).orEmpty()
         playbackDetectedBySuperX = arguments?.getBoolean(VIDEO_DETECTED_BY_SUPER_X) == true
         playbackExtractedAt = arguments?.getLong(VIDEO_EXTRACTED_AT) ?: 0L
@@ -296,6 +312,16 @@ class VideoPlayerFragment : BaseFragment() {
         }
 
         val url = videoPlayerViewModel.videoUrl.get() ?: Uri.EMPTY
+        playbackPositionKey = PlaybackPositionKey.forMedia(
+            source = playbackSource,
+            mediaUrl = url.toString(),
+            mediaIdentity = playbackMediaIdentity,
+            mediaKind = playbackMediaKind
+        )
+        val savedPosition = playbackPositionStore.get(playbackPositionKey)
+        val restoreDecision = PlaybackPositionPolicy.restore(savedPosition, 0L)
+        if (restoreDecision.shouldClear) playbackPositionStore.remove(playbackPositionKey)
+        initialPlaybackPositionMs = restoreDecision.positionMs
         // The "Cookie" header will be passed here, but OkHttp using CookieJar
         val headers = videoPlayerViewModel.videoHeaders.get() ?: emptyMap()
         currentPlaybackHeaders = headers
@@ -319,19 +345,13 @@ class VideoPlayerFragment : BaseFragment() {
             currentBinding.viewModel = videoPlayerViewModel
             currentBinding.btnBack.setOnClickListener(navigationIconClickListener)
             currentBinding.videoView.player = player
+            PlayerChrome.bind(currentBinding, player) { isPipMode }
             // 共享元素过渡目标端 transitionName，与 VideoFragment.startVideo 源端 "surf_video_thumb" 一致
             currentBinding.videoView.transitionName = "surf_video_thumb"
-            currentBinding.videoView.setShowBuffering(SHOW_BUFFERING_ALWAYS)
             // 默认画面比例：FIT（完整显示，不裁切不变形）。全屏按钮不再绑定 ZOOM，
             // 用户如需裁切/填满，通过「更多」右侧的画面比例入口显式选择。
             currentBinding.videoView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
 
-            currentBinding.btnSpeed.setOnClickListener { showSpeedPicker() }
-            currentBinding.btnAspect.setOnClickListener { showAspectPicker() }
-            currentBinding.btnPip.setOnClickListener {
-                (activity as? VideoPlayerActivity)?.enterPipIfPossible()
-            }
-            // 「更多」按钮弹出真菜单（当前仅轨道选择，为后续扩展留口），避免叫"更多"却直接跳单一功能
             currentBinding.btnMore.setOnClickListener { showOverflowMenu() }
 
             // 双击/滑动 seek 由 gestureDetector 处理；返回 false 不消费触摸，让 PlayerView controller 正常显示/隐藏。
@@ -350,16 +370,17 @@ class VideoPlayerFragment : BaseFragment() {
 
             player.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_READY && player.playWhenReady) {
-                        currentBinding.loadingBar.visibility = View.GONE
+                    if (playbackState == Player.STATE_READY) {
+
                         // 首帧就绪：启动缩略图→播放器共享元素过渡（仅一次，防黑帧）
                         maybeStartPostponedTransition()
                     } else if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
-                        currentBinding.loadingBar.visibility = View.GONE
+
+                        if (playbackState == Player.STATE_ENDED && playbackPositionKey.isNotBlank()) {
+                            playbackPositionStore.remove(playbackPositionKey)
+                        }
                         // 兜底：确保过渡不因 player 状态无限推迟
                         maybeStartPostponedTransition()
-                    } else {
-                        currentBinding.loadingBar.visibility = View.VISIBLE
                     }
                 }
 
@@ -377,7 +398,12 @@ class VideoPlayerFragment : BaseFragment() {
                 }
             })
 
-            player.setMediaSource(createMediaSource(url, headers))
+            val mediaSource = createMediaSource(url, headers)
+            if (initialPlaybackPositionMs != null) {
+                player.setMediaSource(mediaSource, initialPlaybackPositionMs!!)
+            } else {
+                player.setMediaSource(mediaSource)
+            }
             player.prepare()
             player.playWhenReady = true
         }
@@ -390,6 +416,7 @@ class VideoPlayerFragment : BaseFragment() {
         handlePlayerEvents()
         applyTopBarInsets()
         videoPlayerViewModel.start()
+        startPlaybackPositionPersistence()
         getActivity(context)?.let { appUtil.hideSystemUI(it.window, dataBinding.root) }
         // 超时兜底：极端情况下 player 不进 READY/ERROR（如初始化异常），1.5s 后强制启动过渡，避免界面卡死
         dataBinding.root.postDelayed({ maybeStartPostponedTransition() }, 1500)
@@ -413,12 +440,17 @@ class VideoPlayerFragment : BaseFragment() {
     private fun applyTopBarInsets() {
         val base = (TOP_BAR_PADDING_DP * resources.displayMetrics.density).toInt()
         ViewCompat.setOnApplyWindowInsetsListener(dataBinding.topBar) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             v.updatePadding(
                 left = base + bars.left,
                 top = base + bars.top,
                 right = base + bars.right,
                 bottom = base
+            )
+            dataBinding.videoView.findViewById<View>(R.id.player_bottom_controls).updatePadding(
+                left = (16 * resources.displayMetrics.density).toInt() + bars.left,
+                right = (16 * resources.displayMetrics.density).toInt() + bars.right,
+                bottom = (8 * resources.displayMetrics.density).toInt() + bars.bottom
             )
             insets
         }
@@ -439,6 +471,8 @@ class VideoPlayerFragment : BaseFragment() {
     }
 
     override fun onDestroyView() {
+        persistPlaybackPosition(force = true)
+        stopPlaybackPositionPersistence()
         surfaceRecoveryGeneration++
         dataBinding.root.removeCallbacks(surfaceRecoveryRunnable)
         unregisterPipStateListener()
@@ -624,8 +658,43 @@ class VideoPlayerFragment : BaseFragment() {
     }
 
     private fun handleClose() {
+        persistPlaybackPosition(force = true)
         videoPlayerViewModel.stop()
         (activity as? VideoPlayerActivity)?.finishPlayer()
+    }
+
+    private fun startPlaybackPositionPersistence() {
+        val root = dataBinding.root
+        val runnable = object : Runnable {
+            override fun run() {
+                persistPlaybackPosition(force = false)
+                if (::dataBinding.isInitialized && view != null) {
+                    root.postDelayed(this, POSITION_SAVE_INTERVAL_MS)
+                }
+            }
+        }
+        playbackPositionSaveRunnable = runnable
+        root.postDelayed(runnable, POSITION_SAVE_INTERVAL_MS)
+    }
+
+    private fun stopPlaybackPositionPersistence() {
+        playbackPositionSaveRunnable?.let { dataBinding.root.removeCallbacks(it) }
+        playbackPositionSaveRunnable = null
+    }
+
+    private fun persistPlaybackPosition(force: Boolean) {
+        if (playbackPositionKey.isBlank() || !::player.isInitialized) return
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val duration = player.duration.takeIf { it > 0L } ?: 0L
+        if (player.isCurrentMediaItemLive) return
+        if (player.playbackState == Player.STATE_ENDED ||
+            PlaybackPositionPolicy.shouldClearAtEnd(position, duration)
+        ) {
+            playbackPositionStore.remove(playbackPositionKey)
+            return
+        }
+        if (!force && position < PlaybackPositionPolicy.MIN_PERSISTED_POSITION_MS) return
+        playbackPositionStore.save(playbackPositionKey, position, duration)
     }
 
     private val surfaceRecoveryRunnable = Runnable {
@@ -651,6 +720,7 @@ class VideoPlayerFragment : BaseFragment() {
     fun onHostStopped() {
         if (!::player.isInitialized || !::dataBinding.isInitialized || hostBackgrounded) return
         hostBackgrounded = true
+        persistPlaybackPosition(force = true)
         surfaceRecoveryGeneration++
         dataBinding.root.removeCallbacks(surfaceRecoveryRunnable)
         val snapshot = PlayerForegroundPolicy.capture(
@@ -680,16 +750,23 @@ class VideoPlayerFragment : BaseFragment() {
         AppLogger.d("PLAYER_LIFECYCLE: started position=$resumePositionMs play=$resumePlayWhenReady")
     }
 
-    /** 「更多」按钮：弹出真菜单（当前仅"音轨/字幕"，后续可扩展）。 */
+    /** Secondary playback settings share one entry in the fullscreen header. */
     private fun showOverflowMenu() {
         val popup = PopupMenu(requireContext(), dataBinding.btnMore)
-        popup.menu.add(0, MENU_TRACKS, 0, getString(R.string.player_tracks))
+        popup.menu.apply {
+            add(0, MENU_SPEED, 0, "${getString(R.string.player_speed_title)} · ${formatSpeed(player.playbackParameters.speed)}×")
+            add(0, MENU_ASPECT, 1, getString(R.string.player_aspect_title))
+            add(0, MENU_TRACKS, 2, getString(R.string.player_tracks))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                add(0, MENU_PIP, 3, getString(R.string.player_pip))
+            }
+        }
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                MENU_TRACKS -> {
-                    showTracksPicker()
-                    true
-                }
+                MENU_SPEED -> { showSpeedPicker(); true }
+                MENU_ASPECT -> { showAspectPicker(); true }
+                MENU_TRACKS -> { showTracksPicker(); true }
+                MENU_PIP -> { (activity as? VideoPlayerActivity)?.enterPipIfPossible(); true }
                 else -> false
             }
         }
@@ -697,16 +774,11 @@ class VideoPlayerFragment : BaseFragment() {
     }
 
     private fun showAspectPicker() {
-        // 菜单用解释文案（裁切保留"会裁掉边缘"提示），按钮只显示短文案，避免长文案挤掉标题
+        // Keep the explanation that cropping removes the edges of the video.
         val labels = arrayOf(
             getString(R.string.player_aspect_fit),
             getString(R.string.player_aspect_fill),
             getString(R.string.player_aspect_crop)
-        )
-        val shortLabels = arrayOf(
-            getString(R.string.player_aspect_fit_short),
-            getString(R.string.player_aspect_fill_short),
-            getString(R.string.player_aspect_crop_short)
         )
         val modes = intArrayOf(
             AspectRatioFrameLayout.RESIZE_MODE_FIT,
@@ -722,7 +794,6 @@ class VideoPlayerFragment : BaseFragment() {
             .setTitle(getString(R.string.player_aspect_title))
             .setSingleChoiceItems(labels, current) { dialog, which ->
                 dataBinding.videoView.resizeMode = modes[which]
-                dataBinding.btnAspect.text = shortLabels[which]
                 dialog.dismiss()
             }
             .show()
@@ -738,7 +809,6 @@ class VideoPlayerFragment : BaseFragment() {
             .setSingleChoiceItems(labels, checked) { dialog, which ->
                 val speed = values[which]
                 player.playbackParameters = PlaybackParameters(speed)
-                dataBinding.btnSpeed.text = "${formatSpeed(speed)}x"
                 dialog.dismiss()
             }
             .show()

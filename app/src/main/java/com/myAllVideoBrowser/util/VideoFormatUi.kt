@@ -88,6 +88,14 @@ object VideoFormatUi {
             )
     }
 
+    fun compactDetails(context: Context, format: VideoFormatEntity): String = listOfNotNull(
+        format.ext?.takeIf(String::isNotBlank)?.uppercase(Locale.US),
+        sizeLabel(context, format),
+        formatDuration(format.duration ?: 0L).takeIf(String::isNotBlank)
+    ).joinToString(" · ")
+
+    fun displaySize(context: Context, format: VideoFormatEntity): String = sizeLabel(context, format)
+
     fun qualityLabel(format: VideoFormatEntity): String {
         val height = inferredHeight(format)
         if (height > 0) {

@@ -5,6 +5,7 @@ import com.google.gson.JsonParser
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
 import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
 import com.myAllVideoBrowser.data.local.room.entity.PageInfo
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
@@ -38,6 +39,8 @@ internal data class MigrationRollbackData(
     val progress: List<ProgressInfo>,
     val settingsPrefs: List<PreferenceEntry>,
     val playbackPrefs: List<PreferenceEntry>,
+    val playbackPositionPrefs: List<PreferenceEntry>? = null,
+    val browserFileDownloads: List<BrowserFileDownload>? = null,
     val cookieProfiles: CookieProfileStore.StoreSnapshot
 )
 

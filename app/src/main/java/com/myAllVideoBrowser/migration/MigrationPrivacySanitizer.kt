@@ -3,6 +3,7 @@ package com.myAllVideoBrowser.migration
 import com.google.gson.Gson
 import com.myAllVideoBrowser.data.local.model.Proxy
 import com.myAllVideoBrowser.data.local.room.entity.DownloadRequestData
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
 import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
 import com.myAllVideoBrowser.data.local.room.entity.PageInfo
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
@@ -100,9 +101,24 @@ internal class MigrationPrivacySanitizer(
                 executionToken = "",
                 removePartialOnCancel = false,
                 finalizationSource = "",
-                finalizationTarget = ""
+                finalizationTarget = "",
+                finalMediaUri = "",
+                mediaBindingTrusted = false
             )
         }
+
+    fun sanitizeBrowserFileDownloads(
+        downloads: List<BrowserFileDownload>
+    ): List<BrowserFileDownload> = BrowserFileDownloadMigrationNormalizer.normalizeImported(
+        downloads.map { download ->
+            download.copy(
+                url = sanitizeUrl(download.url),
+                sourcePageUrl = sanitizeUrl(download.sourcePageUrl),
+                localUri = "",
+                systemBindingTrusted = false
+            )
+        }
+    )
 
     fun sanitizeBrowserSession(session: BrowserSessionSnapshot): BrowserSessionSnapshot =
         session.copy(
@@ -176,6 +192,8 @@ internal class MigrationPrivacySanitizer(
             url = format.url?.let(::sanitizeUrl),
             manifestUrl = format.manifestUrl?.let(::sanitizeUrl),
             httpHeaders = format.httpHeaders?.let(::sanitizeHeaders),
+            manifestRequestUrl = format.manifestRequestUrl?.let(::sanitizeUrl),
+            manifestRequestHeaders = format.manifestRequestHeaders?.let(::sanitizeHeaders),
             videoOnlyUrl = format.videoOnlyUrl?.let(::sanitizeUrl),
             audioOnlyUrl = format.audioOnlyUrl?.let(::sanitizeUrl)
         )

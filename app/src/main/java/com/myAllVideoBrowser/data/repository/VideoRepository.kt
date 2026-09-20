@@ -182,7 +182,9 @@ class VideoRepositoryImpl internal constructor(
             formats = VideFormatEntityList(
                 formats.formats.map { format ->
                     format.copy(
-                        httpHeaders = format.httpHeaders?.let { LinkedHashMap(it) }
+                        httpHeaders = format.httpHeaders?.let { LinkedHashMap(it) },
+                        manifestRequestHeaders = format.manifestRequestHeaders
+                            ?.let { LinkedHashMap(it) }
                     )
                 }
             )

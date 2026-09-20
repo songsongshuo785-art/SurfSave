@@ -108,6 +108,18 @@ data class VideoFormatEntity(
     @Expose
     val httpHeaders: Map<String, String>? = null,
 
+    /** Original manifest request URL, retained so authenticated redirects can be replayed safely. */
+    @ColumnInfo(name = "manifestRequestUrl")
+    @SerializedName("manifestRequestUrl")
+    @Expose
+    val manifestRequestUrl: String? = null,
+
+    /** Headers scoped to [manifestRequestUrl]; concrete targets must re-apply origin isolation. */
+    @ColumnInfo(name = "manifestRequestHeaders")
+    @SerializedName("manifestRequestHeaders")
+    @Expose
+    val manifestRequestHeaders: Map<String, String>? = null,
+
     @ColumnInfo(name = "bitrate")
     @SerializedName("bitrate")
     @Expose

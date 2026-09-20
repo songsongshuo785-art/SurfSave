@@ -1,148 +1,130 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layout xmlns:android="http://schemas.android.com/apk/res/android"
+<layout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools">
-
     <data>
-
         <import type="android.view.View" />
-
-        <variable
-            name="progressInfo"
-            type="com.myAllVideoBrowser.data.local.room.entity.ProgressInfo" />
-
-        <variable
-            name="downloadId"
-            type="Long" />
-
-        <variable
-            name="isRegular"
-            type="Boolean" />
-
-        <variable
-            name="progressListener"
-            type="com.myAllVideoBrowser.ui.component.adapter.ProgressListener" />
-
+        <variable name="progressInfo" type="com.myAllVideoBrowser.data.local.room.entity.ProgressInfo" />
+        <variable name="downloadId" type="Long" />
+        <variable name="isRegular" type="Boolean" />
+        <variable name="progressListener" type="com.myAllVideoBrowser.ui.component.adapter.ProgressListener" />
     </data>
-
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/card_progress"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginHorizontal="@dimen/padding_small"
-        android:layout_marginVertical="@dimen/padding_tiny"
-        android:minHeight="136dp"
+        android:layout_marginHorizontal="8dp"
+        android:layout_marginVertical="6dp"
+        android:minHeight="0dp"
         app:cardBackgroundColor="@color/sxSurfaceRaised"
-        app:cardCornerRadius="@dimen/corner_md"
+        app:cardCornerRadius="8dp"
         app:cardElevation="@dimen/elev_resting"
         app:strokeColor="@color/sxOutline"
         app:strokeWidth="0dp">
-
-        <androidx.constraintlayout.widget.ConstraintLayout
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="@dimen/padding_normal">
-
-            <com.google.android.material.imageview.ShapeableImageView
-                android:id="@+id/iv_thumbnail"
-                android:layout_width="96dp"
-                android:layout_height="96dp"
-                android:adjustViewBounds="true"
-                android:background="@drawable/sx_thumbnail_background"
-                android:scaleType="centerCrop"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent"
-                app:shapeAppearanceOverlay="@style/customImageViewRounded" />
-
-            <com.google.android.material.textview.MaterialTextView
-                android:id="@+id/tv_title"
-                android:layout_width="0dp"
+            android:orientation="vertical"
+            android:padding="16dp">
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="@dimen/padding_normal"
-                android:layout_marginEnd="@dimen/padding_tiny"
-                android:ellipsize="end"
-                android:maxLines="2"
-                android:textColor="@color/sxTextPrimary"
-                android:textSize="@dimen/text_medium"
-                android:textStyle="bold"
-                app:layout_constraintEnd_toStartOf="@+id/ip_more"
-                app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
-                app:layout_constraintTop_toTopOf="@id/iv_thumbnail"
-                tools:text="Video title from current download task" />
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/ip_more"
-                android:layout_width="@dimen/min_touch_target"
-                android:layout_height="@dimen/min_touch_target"
-                app:cardBackgroundColor="@android:color/transparent"
-                app:cardCornerRadius="@dimen/corner_full"
-                app:cardElevation="0dp"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toTopOf="@id/iv_thumbnail"
-                app:strokeColor="@android:color/transparent">
-
-                <androidx.appcompat.widget.AppCompatImageView
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:onClick="@{(view) -> progressListener.onMenuClicked(view, downloadId, isRegular)}"
-                    android:padding="@dimen/padding_small"
-                    app:srcCompat="@drawable/ic_more_24dp"
-                    app:tint="@color/sxTextSecondary"
-                    tools:ignore="VectorDrawableCompat" />
-            </com.google.android.material.card.MaterialCardView>
-
+                android:orientation="horizontal"
+                android:gravity="top">
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/iv_thumbnail"
+                    android:layout_width="104dp"
+                    android:layout_height="60dp"
+                    android:adjustViewBounds="true"
+                    android:background="@drawable/sx_thumbnail_background"
+                    android:scaleType="centerCrop"
+                    app:shapeAppearanceOverlay="@style/customImageViewRounded"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no" />
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tv_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="3"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    tools:text="Video title from current download task"
+                    android:layout_weight="1"
+                    android:layout_marginStart="12dp" />
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/ip_more"
+                    android:layout_width="@dimen/min_touch_target"
+                    android:layout_height="@dimen/min_touch_target"
+                    app:cardBackgroundColor="@android:color/transparent"
+                    app:cardCornerRadius="@dimen/corner_full"
+                    app:cardElevation="0dp"
+                    app:strokeColor="@android:color/transparent">
+                    <androidx.appcompat.widget.AppCompatImageView
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:onClick="@{(view) -&gt; progressListener.onMenuClicked(view, downloadId, isRegular)}"
+                        android:padding="12dp"
+                        app:srcCompat="@drawable/ic_more_24dp"
+                        app:tint="@color/sxTextSecondary"
+                        tools:ignore="VectorDrawableCompat"
+                        android:contentDescription="@string/menu" />
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
             <com.google.android.material.progressindicator.LinearProgressIndicator
                 android:id="@+id/progress_bar"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="@dimen/padding_normal"
-                android:layout_marginTop="@dimen/padding_normal"
                 android:progress="@{progressInfo.progress}"
                 app:indeterminate="@{progressInfo.progressIndeterminate}"
                 app:indicatorColor="@color/colorPrimary"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
-                app:layout_constraintTop_toBottomOf="@id/tv_title"
                 app:trackColor="@color/colorSurfaceContainerHigh"
                 app:trackCornerRadius="999dp"
                 app:trackThickness="@dimen/component_progress_indicator_height"
-                tools:progress="38" />
-
-            <com.google.android.material.textview.MaterialTextView
-                android:id="@+id/tv_progress"
-                android:layout_width="0dp"
+                tools:progress="38"
+                android:layout_marginTop="16dp" />
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="@dimen/padding_normal"
-                android:layout_marginTop="@dimen/padding_small"
-                android:ellipsize="end"
-                android:fontFeatureSettings="tnum"
-                android:maxLines="1"
-                android:textColor="@color/sxTextSecondary"
-                android:textSize="@dimen/text_small"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toEndOf="@id/iv_thumbnail"
-                app:layout_constraintTop_toBottomOf="@id/progress_bar"
-                tools:text="4.5 MB / 10 MB · 下载中" />
-
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="4dp">
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tv_progress"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:fontFeatureSettings="tnum"
+                    android:maxLines="2"
+                    android:textColor="@color/sxTextSecondary"
+                    android:textSize="12sp"
+                    tools:text="4.5 MB / 10 MB · 下载中"
+                    android:layout_weight="1" />
+                <com.google.android.material.button.MaterialButton
+                    style="@style/Widget.Surf.Button.TextButton"
+                    android:id="@+id/primary_action"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:minWidth="64dp"
+                    android:text="@string/progress_menu_pause" />
+            </LinearLayout>
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/info_line"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/padding_normal"
                 android:ellipsize="end"
                 android:lineSpacingExtra="1dp"
-                android:maxLines="2"
+                android:maxLines="3"
                 android:textColor="@color/sxTextSecondary"
                 android:textSize="@dimen/text_tiny"
                 android:visibility="gone"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/iv_thumbnail"
                 tools:text="网络异常 · 检查网络后重试"
-                tools:visibility="visible" />
-
-        </androidx.constraintlayout.widget.ConstraintLayout>
-
+                tools:visibility="visible"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 </layout>

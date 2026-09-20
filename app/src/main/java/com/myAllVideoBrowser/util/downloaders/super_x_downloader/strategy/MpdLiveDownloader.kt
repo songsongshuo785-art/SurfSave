@@ -61,7 +61,12 @@ class MpdLiveDownloader(
                 // 1. Initial Manifest Parse and Init Segment Download
                 val (initialVideoRep, initialAudioRep) = getMpdRepresentations(task.url, headers)
                 downloadInitSegments(
-                    initialVideoRep, initialAudioRep, downloadDir, controller, headers
+                    initialVideoRep,
+                    initialAudioRep,
+                    downloadDir,
+                    controller,
+                    headers,
+                    task.url
                 )
                 captureIndex = MpdLiveCaptureIndex.loadOrMigrate(downloadDir)
                 totalBytesDownloaded =
@@ -78,7 +83,7 @@ class MpdLiveDownloader(
 
                 // 2. Start Recording Loop
                 val segmentDownloader =
-                    SegmentDownloader(httpClient, headers, controller, progressCallback)
+                    SegmentDownloader(httpClient, headers, controller, task.url, progressCallback)
                 var updateInterval = 2000L
 
                 AppLogger.d("MPD (Live): Starting recording loop for task ${task.mId}")
@@ -263,9 +268,11 @@ class MpdLiveDownloader(
         audioRep: MpdPlaylistParser.MpdRepresentation?,
         downloadDir: File,
         controller: FileBasedDownloadController,
-        headers: Map<String, String>
+        headers: Map<String, String>,
+        credentialOriginUrl: String
     ) {
-        val segmentDownloader = SegmentDownloader(httpClient, headers, controller)
+        val segmentDownloader =
+            SegmentDownloader(httpClient, headers, controller, credentialOriginUrl)
         coroutineScope {
             videoRep?.initializationUrl?.let { url ->
                 launch {

@@ -13,6 +13,8 @@ object TelegramDownloadPolicy {
             url = null,
             manifestUrl = null,
             httpHeaders = null,
+            manifestRequestUrl = null,
+            manifestRequestHeaders = null,
             videoOnlyUrl = null,
             audioOnlyUrl = null
         )

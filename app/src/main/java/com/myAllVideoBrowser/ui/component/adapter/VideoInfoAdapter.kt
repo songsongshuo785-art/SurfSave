@@ -29,8 +29,11 @@ class VideoInfoAdapter(
 ) :
     RecyclerView.Adapter<VideoInfoAdapter.VideoInfoViewHolder>() {
 
+    private val expandedVideoIds = mutableSetOf<String>()
+
     class VideoInfoViewHolder(
         val binding: ItemVideoInfoBinding,
+        private val expandedVideoIds: MutableSet<String>,
         val model: VideoDetectionTabViewModel,
         private val candidateFormatListener: DownloadTabListener,
         private val appUtil: AppUtil
@@ -46,6 +49,7 @@ class VideoInfoAdapter(
                 if (foundFormat != null) {
                     model.selectedFormatUrl.set(foundFormat.url)
                 }
+                (binding.candidatesList.adapter as? CandidatesListRecyclerViewAdapter)?.refreshSelection()
                 updateDownloadButton(currentVideoInfo)
             }
         }
@@ -69,6 +73,9 @@ class VideoInfoAdapter(
         fun bind(info: VideoInfo) {
             with(binding) {
                 videoTitleEdit.removeTextChangedListener(textWatcher)
+                videoTitleEdit.clearFocus()
+                videoTitleEdit.isFocusable = false
+                videoTitleEdit.isFocusableInTouchMode = false
 
                 val titles = model.formatsTitles.get()?.toMutableMap() ?: mutableMapOf()
                 titles[info.id] = titles[info.id] ?: info.title
@@ -105,10 +112,6 @@ class VideoInfoAdapter(
                     else -> ""
                 }
 
-                val bestFormat = VideoFormatUi.sortFormats(info.formats.formats).firstOrNull()
-                sizeTextView.text = bestFormat?.let {
-                    VideoFormatUi.details(root.context, it, 0)
-                }.orEmpty()
                 val durationText = DetectedMediaPresentation.formatDuration(
                     durationMs = model.displayDurationMs(info),
                     isLive = info.isLive,
@@ -121,6 +124,7 @@ class VideoInfoAdapter(
                 updateDownloadButton(info)
                 trustTextView.text = buildTrustText(info)
                 videoTitleRenameButton.setOnClickListener {
+                    videoTitleEdit.isFocusableInTouchMode = true
                     videoTitleEdit.requestFocus()
                     this.videoTitleEdit.selectAll()
                     appUtil.showSoftKeyboard(videoTitleEdit)
@@ -130,7 +134,9 @@ class VideoInfoAdapter(
                     if (actionId == EditorInfo.IME_ACTION_DONE) {
                         this.videoTitleEdit.clearFocus()
                         appUtil.hideSoftKeyboard(videoTitleEdit)
-                        false
+                        videoTitleEdit.isFocusable = false
+                        videoTitleEdit.isFocusableInTouchMode = false
+                        true
                     } else false
                 }
 
@@ -141,15 +147,22 @@ class VideoInfoAdapter(
                 val layoutManager =
                     LinearLayoutManager(
                         binding.root.context,
-                        RecyclerView.HORIZONTAL,
+                        RecyclerView.VERTICAL,
                         false
                     )
                 candidatesList.layoutManager = layoutManager
-                candidatesList.adapter = CandidatesListRecyclerViewAdapter(
-                    info,
-                    model.selectedFormats,
-                    candidateFormatListener
-                )
+                val qualityAdapter = CandidatesListRecyclerViewAdapter(info, model.selectedFormats, candidateFormatListener)
+                candidatesList.adapter = qualityAdapter
+                candidatesList.isNestedScrollingEnabled = false
+                qualityAdapter.setExpanded(info.id in expandedVideoIds)
+                qualityToggle.visibility = if (info.formats.formats.size > 3) View.VISIBLE else View.GONE
+                qualityToggle.setText(if (qualityAdapter.isExpanded) R.string.surf_quality_less else R.string.surf_quality_more)
+                qualityToggle.setOnClickListener {
+                    val expanded = !qualityAdapter.isExpanded
+                    if (expanded) expandedVideoIds.add(info.id) else expandedVideoIds.remove(info.id)
+                    qualityAdapter.setExpanded(expanded)
+                    qualityToggle.setText(if (expanded) R.string.surf_quality_less else R.string.surf_quality_more)
+                }
 
                 dialogListener = object : DownloadTabListener {
                     override fun onCancel() {
@@ -214,6 +227,7 @@ class VideoInfoAdapter(
             val format = VideoFormatUi.findFormat(info, key)
                 ?: VideoFormatUi.sortFormats(info.formats.formats).firstOrNull()
             val quality = format?.let { VideoFormatUi.qualityLabel(it) }.orEmpty()
+            binding.sizeTextView.text = format?.let { VideoFormatUi.displaySize(context, it) }.orEmpty()
             binding.tvDownload.text = if (quality.isNotBlank()) {
                 context.getString(R.string.detected_download_with_quality, quality)
             } else {
@@ -221,7 +235,8 @@ class VideoInfoAdapter(
             }
         }
 
-        private fun buildTrustText(info: VideoInfo): String {            val context = binding.root.context
+        private fun buildTrustText(info: VideoInfo): String {
+            val context = binding.root.context
             val lines = mutableListOf<String>()
             val source = sourceHost(info)
             if (source.isNotBlank()) {
@@ -281,7 +296,7 @@ class VideoInfoAdapter(
             false
         )
 
-        return VideoInfoViewHolder(binding, model, downloadVideoListener, appUtil)
+        return VideoInfoViewHolder(binding, expandedVideoIds, model, downloadVideoListener, appUtil)
     }
 
     override fun onBindViewHolder(holder: VideoInfoViewHolder, position: Int) {

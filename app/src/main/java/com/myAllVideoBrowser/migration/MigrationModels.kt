@@ -1,6 +1,7 @@
 package com.myAllVideoBrowser.migration
 
 import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
 import com.myAllVideoBrowser.data.local.room.entity.PageInfo
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
@@ -42,6 +43,8 @@ data class MigrationManifest(
     val browserSessionCount: Int,
     val thumbnailCount: Int,
     val cookieProfileCount: Int = 0,
+    val browserFileDownloadCount: Int = 0,
+    val playbackPositionCount: Int = 0,
     val cookieContentIncluded: Boolean = false,
     val encryption: String? = null,
     val payloads: Map<String, MigrationPayloadDescriptor> = emptyMap(),
@@ -57,10 +60,12 @@ data class MigrationArchive(
     val manifest: MigrationManifest,
     val settingsPrefs: List<PreferenceEntry> = emptyList(),
     val playbackPrefs: List<PreferenceEntry> = emptyList(),
+    val playbackPositionPrefs: List<PreferenceEntry> = emptyList(),
     val bookmarks: List<PageInfo> = emptyList(),
     val history: List<HistoryItem> = emptyList(),
     val videos: List<VideoInfo> = emptyList(),
     val progress: List<ProgressInfo> = emptyList(),
+    val browserFileDownloads: List<BrowserFileDownload> = emptyList(),
     val browserSession: BrowserSessionSnapshot = BrowserSessionSnapshot(),
     val cookieProfiles: List<CookieProfileStore.CookieProfileBackup> = emptyList()
 )

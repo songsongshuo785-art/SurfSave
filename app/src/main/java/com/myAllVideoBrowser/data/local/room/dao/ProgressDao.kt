@@ -63,6 +63,29 @@ interface ProgressDao {
         isLive: Boolean
     )
 
+    @Query(
+        "UPDATE ProgressInfo SET finalMediaUri = :uri, mediaBindingTrusted = 1 WHERE id = :id"
+    )
+    fun updateFinalMediaUri(id: String, uri: String): Int
+
+    @Query(
+        "UPDATE ProgressInfo SET finalMediaUri = :uri, mediaBindingTrusted = 1 " +
+            "WHERE id = :id AND executionToken = :token AND downloadStatus = 5"
+    )
+    fun updateFinalMediaUriForExecution(id: String, token: String, uri: String): Int
+
+    @Query(
+        "UPDATE ProgressInfo SET finalMediaUri = :newUri, mediaBindingTrusted = 1 " +
+            "WHERE finalMediaUri = :oldUri"
+    )
+    fun replaceFinalMediaUri(oldUri: String, newUri: String): Int
+
+    @Query(
+        "UPDATE ProgressInfo SET finalMediaUri = '', mediaBindingTrusted = 0 " +
+            "WHERE finalMediaUri = :uri"
+    )
+    fun clearFinalMediaUri(uri: String): Int
+
     @Query("UPDATE ProgressInfo SET queuePosition = :position WHERE id = :id")
     fun updateQueuePosition(id: String, position: Long)
 

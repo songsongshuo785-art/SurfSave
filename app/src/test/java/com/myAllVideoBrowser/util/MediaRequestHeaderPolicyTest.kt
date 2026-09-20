@@ -13,6 +13,35 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [35])
 class MediaRequestHeaderPolicyTest {
     @Test
+    fun `target policy strips credentials across origin but keeps safe headers`() {
+        val result = MediaRequestHeaderPolicy.forTarget(
+            storedHeaders = mapOf(
+                "Cookie" to "session=secret",
+                "Authorization" to "Bearer secret",
+                "User-Agent" to "SurfSave",
+                "Referer" to "https://example.com/watch"
+            ),
+            credentialOriginUrl = "https://media.example.com/master.m3u8",
+            targetUrl = "https://cdn.example.net/segment.ts"
+        )
+
+        assertFalse(result.keys.any { it.equals("Cookie", true) })
+        assertFalse(result.keys.any { it.equals("Authorization", true) })
+        assertEquals("SurfSave", result["User-Agent"])
+        assertEquals("https://example.com/watch", result["Referer"])
+    }
+
+    @Test
+    fun `target policy keeps credentials for same origin`() {
+        val result = MediaRequestHeaderPolicy.forTarget(
+            storedHeaders = mapOf("Cookie" to "session=secret"),
+            credentialOriginUrl = "https://media.example.com/master.m3u8",
+            targetUrl = "https://media.example.com/key.bin"
+        )
+
+        assertEquals("session=secret", result["Cookie"])
+    }
+    @Test
     fun crossOriginFormat_dropsInheritedCredentialsButKeepsFormatCredentials() {
         val result = MediaRequestHeaderPolicy.mergeForFormat(
             sourceHeaders = mapOf(

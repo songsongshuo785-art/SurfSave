@@ -1,7 +1,10 @@
 package com.myAllVideoBrowser.util.downloaders.custom_downloader
 
+import com.google.gson.Gson
 import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.downloaders.super_x_downloader.ScopedHttpRequestExecutor
 import okhttp3.Headers.Companion.toHeaders
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -17,6 +20,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicLongArray
@@ -42,17 +46,21 @@ class CustomFileDownloader(
     private val client: OkHttpClient,
     private val listener: DownloadListener?,
     private val isForceStreamDownloadMode: Boolean,
+    private val credentialOriginUrl: String? = null,
 ) {
     private val executorService: ExecutorService = Executors.newFixedThreadPool(threadCount)
     private val isPaused = AtomicBoolean(false)
 
     private val isSaved = AtomicBoolean(false)
     private val isCanceled = AtomicBoolean(false)
+    private val isSystemInterrupted = AtomicBoolean(false)
+    private val activeCalls = CopyOnWriteArrayList<Call>()
     private val isTerminalCallbackDelivered = AtomicBoolean(false)
     private var lastProgressUpdate = AtomicLong(0L)
     private val totalBytesAll = AtomicLong(0L)
-    private val totalBytesChunks = AtomicLongArray(threadCount)
-    private val copiedBytesChunks = AtomicLongArray(threadCount)
+    private lateinit var totalBytesChunks: AtomicLongArray
+    private lateinit var copiedBytesChunks: AtomicLongArray
+    private lateinit var activeResourceIdentity: ResourceIdentity
     private val callBackIntervalMin = 1000
 
     companion object {
@@ -62,8 +70,12 @@ class CustomFileDownloader(
 
         const val CANCELED_ACTION = "CANCELED_ACTION"
 
+        internal const val SYSTEM_INTERRUPTED_ACTION = "SYSTEM_INTERRUPTED_ACTION"
+
         private val CONTENT_RANGE_PATTERN =
             Regex("bytes\\s+(\\d+)-(\\d+)/(\\d+)", RegexOption.IGNORE_CASE)
+        private const val RANGE_LAYOUT_FILE_NAME = "range_layout_v1.json"
+        private const val RANGE_LAYOUT_SCHEMA_VERSION = 1
 
         fun pause(fileToPause: File) {
             if (fileToPause.isDirectory) {
@@ -130,6 +142,7 @@ class CustomFileDownloader(
 
     private val totalCopiedBytes: Long
         get() {
+            if (!::copiedBytesChunks.isInitialized) return 0L
             var sum = 0L
             for (i in 0..<copiedBytesChunks.length()) {
                 val value = copiedBytesChunks.get(i)
@@ -140,13 +153,16 @@ class CustomFileDownloader(
         }
 
     fun download() {
-        val failure = try {
+        var failure = try {
             downloadInternal()
             null
         } catch (e: Throwable) {
             unwrapExecutionException(e)
         } finally {
             executorService.shutdownNow()
+        }
+        if (isSystemInterrupted.get()) {
+            failure = DownloadControlException(SYSTEM_INTERRUPTED_ACTION)
         }
 
         if (failure == null) {
@@ -156,8 +172,16 @@ class CustomFileDownloader(
         }
     }
 
+    fun interruptForSystemStop() {
+        isSystemInterrupted.set(true)
+        activeCalls.forEach(Call::cancel)
+        executorService.shutdownNow()
+    }
+
     private fun downloadInternal() {
-        val contentSize = getContentLength()
+        val resourceIdentity = inspectResource()
+        activeResourceIdentity = resourceIdentity
+        val contentSize = resourceIdentity.totalLength
         totalBytesAll.set(contentSize)
 
         Helper.unPause(file)
@@ -171,31 +195,30 @@ class CustomFileDownloader(
 
             if (useRegularStream) {
                 AppLogger.d("Range download unavailable, using a single stream.")
+                clearRangeResumeState()
+                totalBytesChunks = AtomicLongArray(1)
+                copiedBytesChunks = AtomicLongArray(1)
                 val result = executorService.submit {
                     downloadRegularStream(fileChannel)
                 }
                 awaitFuture(result)
             } else {
                 randomAccessFile.setLength(contentSize)
-                downloadRanges(contentSize, fileChannel)
+                downloadRanges(resourceIdentity, fileChannel)
             }
         }
 
         throwIfControlRequested()
     }
 
-    private fun downloadRanges(contentSize: Long, fileChannel: FileChannel) {
-        val chunkCount = minOf(threadCount.toLong(), contentSize).toInt()
-        val chunkSize = contentSize / chunkCount
-        val ranges = (0 until chunkCount).map {
-            val start = it * chunkSize
-            val end = if (it == chunkCount - 1) contentSize - 1 else (it + 1) * chunkSize - 1
-            start..end
-        }
+    private fun downloadRanges(resourceIdentity: ResourceIdentity, fileChannel: FileChannel) {
+        val ranges = loadOrCreateRangeLayout(resourceIdentity, fileChannel)
+        totalBytesChunks = AtomicLongArray(ranges.size)
+        copiedBytesChunks = AtomicLongArray(ranges.size)
 
         val chunkFutureMap = mutableMapOf<Chunk, Future<*>>()
         AppLogger.d(
-            "Start Downloading: file: $file threadCount: $chunkCount ranges: $ranges"
+            "Start Downloading: file: $file chunks: ${ranges.size} concurrency: $threadCount ranges: $ranges"
         )
         ranges.forEachIndexed { index, range ->
             val chunk = Chunk(index, range, range.last - range.first + 1)
@@ -242,7 +265,7 @@ class CustomFileDownloader(
 
     private fun downloadRegularStream(fileChannel: FileChannel) {
         val req = getOkRequest()
-        client.newCall(req).execute().use { res ->
+        execute(req) { res ->
             if (!res.isSuccessful) {
                 throw IOException("Failed to download file: ${res.code}")
             }
@@ -371,7 +394,7 @@ class CustomFileDownloader(
         val expectedResponseBytes = requestedEnd - requestedStart + 1
         val req = getOkRequestRange(requestedStart, requestedEnd)
 
-        client.newCall(req).execute().use { res ->
+        execute(req) { res ->
             validateRangeResponse(
                 response = res,
                 requestedStart = requestedStart,
@@ -490,6 +513,7 @@ class CustomFileDownloader(
         isCanceled.set(canceled)
 
         when {
+            isSystemInterrupted.get() -> throw DownloadControlException(SYSTEM_INTERRUPTED_ACTION)
             canceled -> throw DownloadControlException(CANCELED_ACTION)
             saved -> throw DownloadControlException(STOPPED_AND_SAVE_ACTION)
             paused -> throw DownloadControlException(PAUSE_ACTION)
@@ -500,7 +524,7 @@ class CustomFileDownloader(
         val req = getOkRequestRange(0, 0)
 
         try {
-            client.newCall(req).execute().use { res ->
+            execute(req) { res ->
                 if (res.code != 206) return false
                 val contentRange = parseContentRange(res.header("Content-Range")) ?: return false
                 val responseLength = res.body.contentLength()
@@ -529,24 +553,173 @@ class CustomFileDownloader(
         val end = endByte ?: ""
         val range = "bytes=$startByte-$end"
 
-        return Request.Builder().url(url).headers(headers.toHeaders()).header("Range", range)
-            .build()
+        return Request.Builder().url(url).headers(headers.toHeaders()).header("Range", range).apply {
+            if (::activeResourceIdentity.isInitialized) {
+                activeResourceIdentity.validator?.let { header("If-Range", it) }
+            }
+        }.build()
     }
 
-    private fun getContentLength(): Long {
+    private fun inspectResource(): ResourceIdentity {
         val req = getOkRequest()
-        return client.newCall(req).execute().use { response ->
+        return execute(req) { response ->
             if (!response.isSuccessful) {
                 throw IOException("Failed to inspect download: HTTP ${response.code}")
             }
             if (response.code == 206) {
                 throw IOException("Unexpected partial response while inspecting download")
             }
-            response.body.contentLength()
+            ResourceIdentity(
+                totalLength = response.body.contentLength(),
+                etag = response.header("ETag"),
+                lastModified = response.header("Last-Modified")
+            )
+        }
+    }
+
+    private fun loadOrCreateRangeLayout(
+        resourceIdentity: ResourceIdentity,
+        fileChannel: FileChannel
+    ): List<LongRange> {
+        val directory = file.parentFile
+            ?: throw IOException("Download output has no parent directory")
+        val layoutFile = File(directory, RANGE_LAYOUT_FILE_NAME)
+        val stored = if (layoutFile.isFile) {
+            runCatching {
+                Gson().fromJson(layoutFile.readText(Charsets.UTF_8), RangeLayout::class.java)
+            }.getOrNull()
+        } else {
+            null
+        }
+        if (stored != null && stored.matches(url.toString(), resourceIdentity)) {
+            return stored.chunks.sortedBy { it.index }.map { it.start..it.end }
+        }
+
+        clearRangeResumeState()
+        fileChannel.truncate(0L)
+        val ranges = createRanges(resourceIdentity.totalLength)
+        val layout = RangeLayout(
+            schemaVersion = RANGE_LAYOUT_SCHEMA_VERSION,
+            resourceUrl = url.toString(),
+            totalLength = resourceIdentity.totalLength,
+            etag = resourceIdentity.etag,
+            lastModified = resourceIdentity.lastModified,
+            chunks = ranges.mapIndexed { index, range ->
+                RangeLayoutChunk(index, range.first, range.last)
+            }
+        )
+        writeRangeLayout(layoutFile, layout)
+        return ranges
+    }
+
+    private fun createRanges(contentSize: Long): List<LongRange> {
+        val chunkCount = minOf(threadCount.toLong(), contentSize).toInt()
+        val chunkSize = contentSize / chunkCount
+        return (0 until chunkCount).map { index ->
+            val start = index * chunkSize
+            val end = if (index == chunkCount - 1) {
+                contentSize - 1
+            } else {
+                (index + 1) * chunkSize - 1
+            }
+            start..end
+        }
+    }
+
+    private fun writeRangeLayout(layoutFile: File, layout: RangeLayout) {
+        val temporary = File(layoutFile.parentFile, "${layoutFile.name}.tmp")
+        temporary.writeText(Gson().toJson(layout), Charsets.UTF_8)
+        if (layoutFile.exists() && !layoutFile.delete()) {
+            temporary.delete()
+            throw IOException("Unable to replace range resume layout")
+        }
+        if (!temporary.renameTo(layoutFile)) {
+            temporary.delete()
+            throw IOException("Unable to publish range resume layout")
+        }
+    }
+
+    private fun clearRangeResumeState() {
+        val directory = file.parentFile ?: return
+        directory.listFiles()?.forEach { candidate ->
+            if (candidate.name == RANGE_LAYOUT_FILE_NAME ||
+                candidate.name == "$RANGE_LAYOUT_FILE_NAME.tmp" ||
+                candidate.name.matches(Regex("chunk_\\d+"))
+            ) {
+                if (candidate.exists() && !candidate.delete()) {
+                    throw IOException("Unable to clear stale range state: ${candidate.name}")
+                }
+            }
+        }
+    }
+
+    private inline fun <T> execute(request: Request, block: (Response) -> T): T {
+        val originUrl = credentialOriginUrl?.takeIf { it.isNotBlank() }
+        if (originUrl != null) {
+            val scopedCalls = mutableListOf<Call>()
+            return try {
+                ScopedHttpRequestExecutor.execute(
+                    client = client,
+                    targetUrl = request.url.toString(),
+                    headers = request.headers.toMap(),
+                    credentialOriginUrl = originUrl,
+                    onCallCreated = { call ->
+                        scopedCalls += call
+                        activeCalls += call
+                    }
+                ).use(block)
+            } finally {
+                scopedCalls.forEach(activeCalls::remove)
+            }
+        }
+        val call = client.newCall(request)
+        activeCalls.add(call)
+        return try {
+            call.execute().use(block)
+        } finally {
+            activeCalls.remove(call)
         }
     }
 
     private data class ByteContentRange(val start: Long, val end: Long, val total: Long)
+
+    private data class ResourceIdentity(
+        val totalLength: Long,
+        val etag: String?,
+        val lastModified: String?
+    ) {
+        val validator: String?
+            get() = etag?.takeIf { it.isNotBlank() }
+                ?: lastModified?.takeIf { it.isNotBlank() }
+    }
+
+    private data class RangeLayout(
+        val schemaVersion: Int,
+        val resourceUrl: String,
+        val totalLength: Long,
+        val etag: String?,
+        val lastModified: String?,
+        val chunks: List<RangeLayoutChunk>
+    ) {
+        fun matches(expectedUrl: String, identity: ResourceIdentity): Boolean {
+            if (schemaVersion != RANGE_LAYOUT_SCHEMA_VERSION ||
+                resourceUrl != expectedUrl ||
+                totalLength != identity.totalLength ||
+                etag != identity.etag ||
+                lastModified != identity.lastModified ||
+                chunks.isEmpty()
+            ) return false
+
+            val ordered = chunks.sortedBy { it.index }
+            if (ordered.map { it.index } != ordered.indices.toList()) return false
+            if (ordered.first().start != 0L || ordered.last().end != totalLength - 1L) return false
+            return ordered.zipWithNext().all { (left, right) ->
+                left.start <= left.end && left.end + 1L == right.start
+            } && ordered.last().start <= ordered.last().end
+        }
+    }
+
+    private data class RangeLayoutChunk(val index: Int, val start: Long, val end: Long)
 
     private class DownloadControlException(action: String) : IOException(action)
 

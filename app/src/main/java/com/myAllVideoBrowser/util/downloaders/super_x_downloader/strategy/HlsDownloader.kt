@@ -63,7 +63,7 @@ class HlsDownloader(
             val audioExt = if (isAudioFmp4) "m4s" else "ts"
             val totalSegmentsToDownload = (videoSegments?.size ?: 0) + (audioSegments?.size ?: 0)
 
-            val segmentDownloader = SegmentDownloader(httpClient, headers, controller)
+            val segmentDownloader = SegmentDownloader(httpClient, headers, controller, task.url)
 
             // --- Download Initialization Segments (for fMP4) ---
             if (isVideoFmp4) {
@@ -92,6 +92,7 @@ class HlsDownloader(
                 httpClient,
                 downloadDir,
                 headers.toHeaders(),
+                task.url,
                 videoSegments,
                 audioSegments,
                 shouldAbort = controller::isInterrupted

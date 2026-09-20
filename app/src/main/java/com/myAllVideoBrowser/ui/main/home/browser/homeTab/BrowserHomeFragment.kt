@@ -124,7 +124,7 @@ class BrowserHomeFragment : BaseWebTabFragment() {
             this.browserMenuListener = menuListener
 
             this.homeEtSearch.setAdapter(suggestionAdapter)
-            this.homeCommonSitesGrid.layoutManager = GridLayoutManager(requireContext(), 2)
+            this.homeCommonSitesGrid.layoutManager = GridLayoutManager(requireContext(), if (resources.configuration.fontScale > 1.3f) 3 else 4)
             this.homeCommonSitesGrid.adapter = homeSitesAdapter
             this.homeCommonSitesGrid.isNestedScrollingEnabled = false
             this.homeEtSearch.addTextChangedListener(onInputHomeSearchChangeListener)

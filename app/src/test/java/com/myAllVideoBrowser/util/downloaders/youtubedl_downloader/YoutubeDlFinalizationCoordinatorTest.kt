@@ -12,6 +12,56 @@ import org.mockito.Mockito
 class YoutubeDlFinalizationCoordinatorTest {
 
     @Test
+    fun finalMediaUriWriteFailure_doesNotChangeCommittedSuccess() {
+        val repository = Mockito.mock(ProgressRepository::class.java)
+        val publisher = Mockito.mock(YoutubeDlMediaPublisher::class.java)
+        Mockito.`when`(
+            repository.claimYtDlpFinalization(
+                "task",
+                "token",
+                "/tmp/source",
+                "/out/target"
+            )
+        ).thenReturn(1)
+        Mockito.`when`(publisher.publish("/tmp/source", "/out/target")).thenReturn(null)
+        Mockito.`when`(publisher.publishedUri("/out/target"))
+            .thenReturn("content://media/video/1")
+        Mockito.`when`(
+            repository.commitYtDlpFinalization(
+                ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyInt(),
+                ArgumentMatchers.anyLong(),
+                ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyString()
+            )
+        ).thenReturn(1)
+        Mockito.`when`(
+            repository.updateFinalMediaUriForExecution(
+                "task",
+                "token",
+                "content://media/video/1"
+            )
+        ).thenThrow(IllegalStateException("metadata write failed"))
+        val coordinator = YoutubeDlFinalizationCoordinator(repository, publisher)
+
+        val result = coordinator.claimAndFinalize(
+            "task",
+            "token",
+            "/tmp/source",
+            "/out/target"
+        ) as YoutubeDlFinalizationCoordinator.Result.Committed
+
+        assertEquals(VideoTaskState.SUCCESS, result.status)
+        assertEquals("", result.error)
+        Mockito.verify(repository).updateFinalMediaUriForExecution(
+            "task",
+            "token",
+            "content://media/video/1"
+        )
+    }
+
+    @Test
     fun repeatedClaim_publishesAndCommitsOnlyForWinner() {
         val repository = Mockito.mock(ProgressRepository::class.java)
         val publisher = Mockito.mock(YoutubeDlMediaPublisher::class.java)

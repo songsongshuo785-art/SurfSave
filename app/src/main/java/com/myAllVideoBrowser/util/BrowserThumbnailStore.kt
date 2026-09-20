@@ -3,12 +3,14 @@ package com.myAllVideoBrowser.util
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 
 object BrowserThumbnailStore {
     private const val THUMBNAILS_DIR = "browser_tab_thumbnails"
-    private const val MAX_THUMBNAIL_COUNT = 80
+    private const val MAX_THUMBNAIL_COUNT = 160 // 100 open tabs, recent closures and in-flight replacements.
 
+    @Synchronized
     fun save(tabId: String, bitmap: Bitmap?): String? {
         if (tabId.isBlank() || !BrowserThumbnailQuality.isUsable(bitmap)) {
             return null
@@ -20,35 +22,53 @@ object BrowserThumbnailStore {
                 dir.mkdirs()
             }
 
-            val file = File(dir, safeFileName(tabId))
-            FileOutputStream(file).use { stream ->
-                check(bitmap!!.compress(Bitmap.CompressFormat.JPEG, 88, stream))
+            val temporary = File.createTempFile(safeFileName(tabId) + "_${bitmap!!.width}x${bitmap.height}_", ".tmp", dir)
+            val file = File(dir, temporary.name.removeSuffix(".tmp") + ".jpg")
+            try {
+                FileOutputStream(temporary).use { stream ->
+                    check(bitmap!!.compress(Bitmap.CompressFormat.JPEG, 88, stream))
+                }
+                check(temporary.renameTo(file))
+            } finally {
+                temporary.delete()
             }
             check(file.length() > 0L)
             trimCache(dir, file.name)
             file.absolutePath
-        }.getOrNull()
+        }.onFailure { AppLogger.w("Browser thumbnail could not be saved", it) }.getOrNull()
     }
 
-    fun load(path: String?): Bitmap? {
-        if (path.isNullOrBlank()) {
-            return null
-        }
+    /** Capture dimensions are part of the immutable cache key, readable without disk IO. */
+    fun dimensions(path: String?): Pair<Int, Int>? {
+        val match = path?.substringAfterLast('/')?.substringAfterLast('\\')
+            ?.let { Regex("_(\\d+)x(\\d+)_\\d+\\.jpg$").find(it) } ?: return null
+        val width = match.groupValues[1].toIntOrNull() ?: return null
+        val height = match.groupValues[2].toIntOrNull() ?: return null
+        return if (width > 0 && height > 0) width to height else null
+    }
 
+    fun load(path: String?, maxDimension: Int = Int.MAX_VALUE): Bitmap? {
+        if (path.isNullOrBlank()) return null
         return runCatching {
             val file = File(path)
-            if (!file.exists()) {
+            if (!file.exists()) return@runCatching null
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            FileInputStream(file).use { BitmapFactory.decodeStream(it, null, bounds) }
+            val sample = calculateSample(bounds.outWidth, bounds.outHeight, maxDimension)
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            val bitmap = FileInputStream(file).use { BitmapFactory.decodeStream(it, null, options) }
+            if (BrowserThumbnailQuality.isUsable(bitmap, requireCaptureSize = sample == 1)) bitmap else {
+                if (sample == 1) file.delete()
                 null
-            } else {
-                val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-                if (BrowserThumbnailQuality.isUsable(bitmap)) {
-                    bitmap
-                } else {
-                    file.delete()
-                    null
-                }
             }
-        }.getOrNull()
+        }.onFailure { AppLogger.w("Browser thumbnail could not be loaded", it) }.getOrNull()
+    }
+
+    private fun calculateSample(width: Int, height: Int, maxDimension: Int): Int {
+        var sample = 1
+        val limit = maxDimension.coerceAtLeast(120)
+        while (width / sample > limit || height / sample > limit) sample *= 2
+        return sample
     }
 
     fun delete(path: String?) {
@@ -104,7 +124,7 @@ object BrowserThumbnailStore {
 
     private fun trimCache(dir: File, keepFileName: String) {
         val files = dir.listFiles()
-            ?.filter { it.isFile }
+            ?.filter { it.isFile && !it.name.endsWith(".tmp") }
             ?.sortedByDescending { it.lastModified() }
             ?: return
 

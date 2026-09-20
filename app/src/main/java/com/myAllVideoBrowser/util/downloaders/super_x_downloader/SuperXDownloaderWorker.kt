@@ -26,14 +26,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import okhttp3.Headers.Companion.toHeaders
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
 import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.coroutines.resume
 import java.util.concurrent.TimeUnit
 import kotlin.collections.filter
 import kotlin.collections.first
@@ -70,7 +67,7 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
                         GenericDownloader.isWorkScheduled(applicationContext, taskId)
                     if (isWorkerRunning) {
                         controller.requestCancel()
-                        getContinuation().resume(Result.success())
+                        completeWork(Result.success())
                     } else {
                         controller.requestCancel()
                         finishWork(task.also { it.taskState = VideoTaskState.CANCELED })
@@ -80,7 +77,7 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
                 GenericDownloader.DownloaderActions.PAUSE -> {
                     AppLogger.d("HLS: Pause action received for task $taskId. Creating flag file.")
                     controller.requestPause()
-                    getContinuation().resume(Result.success())
+                    completeWork(Result.success())
                 }
 
                 GenericDownloader.DownloaderActions.STOP_SAVE_ACTION -> {
@@ -91,7 +88,7 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
                     if (isWorkerRunning) {
                         AppLogger.d("HLS (Live): Worker is active. Signaling it to stop and save.")
                         controller.requestStopAndSave()
-                        getContinuation().resume(Result.success()) // Acknowledge the request
+                        completeWork(Result.success()) // Acknowledge the request
                     } else {
                         AppLogger.d("SuperX (Live): No active worker found. Starting a merge-only job.")
                         when {
@@ -259,8 +256,7 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
         playlistUrl: String, headers: Map<String, String>
     ): Pair<HlsPlaylistParser.MediaPlaylist?, HlsPlaylistParser.MediaPlaylist?> {
         fun fetchAndParse(url: String): HlsPlaylistParser.HlsPlaylist {
-            val request = Request.Builder().url(url).headers(headers.toHeaders()).build()
-            return client.newCall(request).execute().use { response ->
+            return ScopedHttpRequestExecutor.execute(client, url, headers, playlistUrl).use { response ->
                 val content = response.body.string()
                 if (!response.isSuccessful || content.isEmpty()) {
                     throw IOException("Failed to download playlist at $url. HTTP ${response.code}")
@@ -373,6 +369,11 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
 
             } catch (e: Exception) {
                 // 4. Handle failures
+                if (e is CancellationException &&
+                    controller.interruptionReason() == FileBasedDownloadController.InterruptionReason.NONE
+                ) {
+                    return@launch
+                }
                 when {
                     controller.isCancelRequested() -> {
                         AppLogger.d("MPD: Task $taskId was canceled by user.")
@@ -495,8 +496,9 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
         client: OkHttpClient,
         manifestUrl: String, headers: Map<String, String>
     ): Pair<MpdPlaylistParser.MpdRepresentation?, MpdPlaylistParser.MpdRepresentation?> {
-        val request = Request.Builder().url(manifestUrl).headers(headers.toHeaders()).build()
-        val manifest = client.newCall(request).execute().use { response ->
+        val manifest = ScopedHttpRequestExecutor.execute(
+            client, manifestUrl, headers, manifestUrl
+        ).use { response ->
             val content = response.body.string()
             if (!response.isSuccessful || content.isEmpty()) {
                 throw IOException("Failed to download MPD manifest at $manifestUrl. HTTP ${response.code}")
@@ -619,6 +621,11 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
 
             } catch (e: Exception) {
                 // 4. Handle failures, including pause and cancel.
+                if (e is CancellationException &&
+                    controller.interruptionReason() == FileBasedDownloadController.InterruptionReason.NONE
+                ) {
+                    return@launch
+                }
                 when {
                     controller.isCancelRequested() -> {
                         AppLogger.d("HLS: Task $taskId was canceled by user.")
@@ -652,8 +659,7 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
         playlistUrl: String, headers: Map<String, String>
     ): Pair<List<HlsPlaylistParser.MediaSegment>?, List<HlsPlaylistParser.MediaSegment>?> {
         fun fetchAndParse(url: String): HlsPlaylistParser.HlsPlaylist {
-            val request = Request.Builder().url(url).headers(headers.toHeaders()).build()
-            return client.newCall(request).execute().use { response ->
+            return ScopedHttpRequestExecutor.execute(client, url, headers, playlistUrl).use { response ->
                 val content = response.body.string()
                 if (!response.isSuccessful || content.isEmpty()) {
                     throw IOException("Failed to download playlist at $url. HTTP ${response.code}")
@@ -741,42 +747,38 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
     }
 
     override fun finishWork(item: VideoTaskItem?) {
-        if (getDone()) {
-            getContinuation().resume(Result.success())
-            return
-        }
-        setDone()
+        if (!tryStartFinishing()) return
 
         val taskId = item?.mId ?: run {
             AppLogger.e("SuperX: Cannot finish work, taskId is NULL")
-            getContinuation().resume(Result.failure())
+            completeWork(Result.failure())
             return
         }
-        AppLogger.d("FFmpeg: Finishing work for task $taskId with state ${item.taskState}")
-
-        handleTaskCompletion(item)
-        downloadQueueManager.onTaskTerminal(taskId, item.taskState, item.errorMessage ?: item.lineInfo)
-
-        val notificationData = notificationsHelper.createNotificationBuilder(item.also {
-            if (item.taskState == VideoTaskState.SUCCESS) {
-                it.lineInfo = "Success"
-            }
-        })
-        showNotificationFinal(notificationData.first, notificationData.second)
-
-        val result =
-            if (item.taskState == VideoTaskState.ERROR) Result.failure() else Result.success()
         try {
-            getContinuation().resume(result)
-        } catch (e: IllegalStateException) {
-            AppLogger.e("SuperX: Could not resume continuation: ${e.message}")
+            AppLogger.d("FFmpeg: Finishing work for task $taskId with state ${item.taskState}")
+
+            handleTaskCompletion(item)
+            downloadQueueManager.onTaskTerminal(taskId, item.taskState, item.errorMessage ?: item.lineInfo)
+
+            val notificationData = notificationsHelper.createNotificationBuilder(item.also {
+                if (item.taskState == VideoTaskState.SUCCESS) {
+                    it.lineInfo = "Success"
+                }
+            })
+            showNotificationFinal(notificationData.first, notificationData.second)
+
+            val result =
+                if (item.taskState == VideoTaskState.ERROR) Result.failure() else Result.success()
+            completeWork(result)
+        } catch (e: Throwable) {
+            AppLogger.e("SuperX: Finishing task $taskId failed", e)
+            downloadTaskLogger.error(taskId, "SuperX download finish failed", e)
+            completeWork(Result.failure())
         }
     }
 
     override fun onWorkCancelled() {
-        activeControllers.forEach { controller ->
-            runCatching { controller.requestCancel() }
-        }
+        setDone()
         workerScope.cancel()
     }
 
@@ -895,6 +897,11 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
                     return
                 }
 
+                runCatching {
+                    progressRepository.updateFinalMediaUri(item.mId, finalUri.toString())
+                }.onFailure { error ->
+                    AppLogger.e("SuperX: Unable to persist final media URI", error)
+                }
                 AppLogger.d("SuperX: File moved and validated successfully at $finalUri")
                 sourcePath.parentFile?.deleteRecursively()
                 item.filePath = targetPath
@@ -1113,7 +1120,7 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
     private fun finishWorkWithFailureTaskId(task: VideoTaskItem) {
         AppLogger.d("Cannot finish work because taskId is null: $task")
         try {
-            getContinuation().resume(Result.failure())
+            completeWork(Result.failure())
         } catch (e: Throwable) {
             AppLogger.e("SuperX: resume failure failed", e)
         }

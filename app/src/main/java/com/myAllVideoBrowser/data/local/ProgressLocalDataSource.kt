@@ -70,6 +70,17 @@ class ProgressLocalDataSource @Inject constructor(
         )
     }
 
+    override fun updateFinalMediaUri(id: String, uri: String): Int =
+        progressDao.updateFinalMediaUri(id, uri)
+
+    override fun updateFinalMediaUriForExecution(id: String, token: String, uri: String): Int =
+        progressDao.updateFinalMediaUriForExecution(id, token, uri)
+
+    override fun replaceFinalMediaUri(oldUri: String, newUri: String): Int =
+        progressDao.replaceFinalMediaUri(oldUri, newUri)
+
+    override fun clearFinalMediaUri(uri: String): Int = progressDao.clearFinalMediaUri(uri)
+
     override fun updateQueuePosition(id: String, position: Long) {
         progressDao.updateQueuePosition(id, position)
     }

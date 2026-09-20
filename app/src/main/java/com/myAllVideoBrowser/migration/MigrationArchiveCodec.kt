@@ -8,9 +8,11 @@ import com.google.gson.reflect.TypeToken
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
 import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
 import com.myAllVideoBrowser.data.local.room.entity.PageInfo
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
+import com.myAllVideoBrowser.data.repository.BrowserFileDestinationPolicy
 import com.myAllVideoBrowser.util.CookieProfileStore
 import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
@@ -44,16 +46,19 @@ internal class MigrationArchiveCodec(
     companion object {
         const val SCHEMA_V1 = 1
         const val SCHEMA_V2 = 2
+        const val SCHEMA_V3 = 3
         const val ENCRYPTION_NONE = "none"
         const val SENSITIVE_COOKIE_CONTENT = "cookie_profile_content"
 
         const val ENTRY_MANIFEST = "manifest.json"
         const val ENTRY_SETTINGS_PREFS = "prefs/settings_prefs.json"
         const val ENTRY_PLAYBACK_PREFS = "prefs/playback_state_prefs.json"
+        const val ENTRY_PLAYBACK_POSITION_PREFS = "prefs/playback_position_prefs.json"
         const val ENTRY_BOOKMARKS = "db/bookmarks.json"
         const val ENTRY_HISTORY = "db/history.json"
         const val ENTRY_VIDEOS = "db/videos.json"
         const val ENTRY_PROGRESS = "db/progress.json"
+        const val ENTRY_BROWSER_FILE_DOWNLOADS = "db/browser_file_downloads.json"
         const val ENTRY_BROWSER_SESSION = "session/browser_session.json"
         const val ENTRY_COOKIE_PROFILES = "prefs/cookie_profiles.json"
         const val ENTRY_THUMBNAILS_PREFIX = "session/thumbnails/"
@@ -69,6 +74,10 @@ internal class MigrationArchiveCodec(
             ENTRY_PROGRESS,
             ENTRY_BROWSER_SESSION,
             ENTRY_COOKIE_PROFILES
+        )
+        private val V3_PAYLOAD_ENTRIES = linkedSetOf(
+            ENTRY_PLAYBACK_POSITION_PREFS,
+            ENTRY_BROWSER_FILE_DOWNLOADS
         )
 
         fun thumbnailEntryName(tabId: String): String {
@@ -86,6 +95,23 @@ internal class MigrationArchiveCodec(
         archive: MigrationArchive,
         thumbnailsByTabId: Map<String, ByteArray>
     ): ValidatedMigrationPackage {
+        return write(destination, archive, thumbnailsByTabId, SCHEMA_V2)
+    }
+
+    fun writeV3(
+        destination: File,
+        archive: MigrationArchive,
+        thumbnailsByTabId: Map<String, ByteArray>
+    ): ValidatedMigrationPackage {
+        return write(destination, archive, thumbnailsByTabId, SCHEMA_V3)
+    }
+
+    private fun write(
+        destination: File,
+        archive: MigrationArchive,
+        thumbnailsByTabId: Map<String, ByteArray>,
+        schemaVersion: Int
+    ): ValidatedMigrationPackage {
         val payloads = linkedMapOf<String, ByteArray>()
         payloads[ENTRY_SETTINGS_PREFS] = jsonBytes(archive.settingsPrefs)
         payloads[ENTRY_PLAYBACK_PREFS] = jsonBytes(archive.playbackPrefs)
@@ -95,6 +121,10 @@ internal class MigrationArchiveCodec(
         payloads[ENTRY_PROGRESS] = jsonBytes(archive.progress)
         payloads[ENTRY_BROWSER_SESSION] = jsonBytes(archive.browserSession)
         payloads[ENTRY_COOKIE_PROFILES] = jsonBytes(archive.cookieProfiles)
+        if (schemaVersion >= SCHEMA_V3) {
+            payloads[ENTRY_PLAYBACK_POSITION_PREFS] = jsonBytes(archive.playbackPositionPrefs)
+            payloads[ENTRY_BROWSER_FILE_DOWNLOADS] = jsonBytes(archive.browserFileDownloads)
+        }
         thumbnailsByTabId.toSortedMap().forEach { (tabId, bytes) ->
             require(bytes.isNotEmpty()) { "Migration thumbnail cannot be empty." }
             payloads[thumbnailEntryName(tabId)] = bytes
@@ -103,7 +133,7 @@ internal class MigrationArchiveCodec(
         val hasCookieContent = archive.cookieProfiles.any { it.content != null }
         val descriptors = payloads.mapValues { (_, bytes) -> descriptor(bytes) }
         val manifest = archive.manifest.copy(
-            schemaVersion = SCHEMA_V2,
+            schemaVersion = schemaVersion,
             bookmarkCount = archive.bookmarks.size,
             historyCount = archive.history.size,
             videoCount = archive.videos.size,
@@ -111,6 +141,8 @@ internal class MigrationArchiveCodec(
             browserSessionCount = archive.browserSession.tabs.size,
             thumbnailCount = thumbnailsByTabId.size,
             cookieProfileCount = archive.cookieProfiles.size,
+            browserFileDownloadCount = archive.browserFileDownloads.size,
+            playbackPositionCount = archive.playbackPositionPrefs.size,
             cookieContentIncluded = hasCookieContent,
             encryption = ENCRYPTION_NONE,
             payloads = descriptors,
@@ -134,7 +166,9 @@ internal class MigrationArchiveCodec(
         val manifestJson = parseJsonObject(manifestBytes, ENTRY_MANIFEST)
         val manifest = parseManifest(manifestJson)
 
-        REQUIRED_PAYLOAD_ENTRIES.forEach { required ->
+        val requiredPayloads = REQUIRED_PAYLOAD_ENTRIES +
+            if (manifest.schemaVersion >= SCHEMA_V3) V3_PAYLOAD_ENTRIES else emptySet()
+        requiredPayloads.forEach { required ->
             require(entries.containsKey(required)) {
                 "Migration package is invalid: missing $required."
             }
@@ -142,12 +176,12 @@ internal class MigrationArchiveCodec(
         entries.keys.forEach { name ->
             require(
                 name == ENTRY_MANIFEST ||
-                    name in REQUIRED_PAYLOAD_ENTRIES ||
+                    name in requiredPayloads ||
                     isThumbnailEntry(name)
             ) { "Migration package contains an unknown entry: $name." }
         }
 
-        if (manifest.schemaVersion == SCHEMA_V2) {
+        if (manifest.schemaVersion >= SCHEMA_V2) {
             validateV2Descriptors(manifestJson, manifest, entries)
         }
 
@@ -159,11 +193,19 @@ internal class MigrationArchiveCodec(
             entries.getValue(ENTRY_PLAYBACK_PREFS),
             ENTRY_PLAYBACK_PREFS
         )
+        val playbackPositionPrefs = entries[ENTRY_PLAYBACK_POSITION_PREFS]?.let { bytes ->
+            parseList<PreferenceEntry>(bytes, ENTRY_PLAYBACK_POSITION_PREFS)
+        }.orEmpty()
         val bookmarks = parseList<PageInfo>(entries.getValue(ENTRY_BOOKMARKS), ENTRY_BOOKMARKS)
         val history = parseList<HistoryItem>(entries.getValue(ENTRY_HISTORY), ENTRY_HISTORY)
         val videos = parseList<VideoInfo>(entries.getValue(ENTRY_VIDEOS), ENTRY_VIDEOS)
-        val progress = ProgressInfoMigrationNormalizer.normalize(
+        val progress = ProgressInfoMigrationNormalizer.normalizeImported(
             parseList<ProgressInfo>(entries.getValue(ENTRY_PROGRESS), ENTRY_PROGRESS)
+        )
+        val browserFileDownloads = BrowserFileDownloadMigrationNormalizer.normalizeImported(
+            entries[ENTRY_BROWSER_FILE_DOWNLOADS]?.let { bytes ->
+                parseList<BrowserFileDownload>(bytes, ENTRY_BROWSER_FILE_DOWNLOADS)
+            }.orEmpty()
         )
         val browserSession = parseObject<BrowserSessionSnapshot>(
             entries.getValue(ENTRY_BROWSER_SESSION),
@@ -181,10 +223,12 @@ internal class MigrationArchiveCodec(
             manifest = manifest,
             settingsPrefs = settingsPrefs,
             playbackPrefs = playbackPrefs,
+            playbackPositionPrefs = playbackPositionPrefs,
             bookmarks = bookmarks,
             history = history,
             videos = videos,
             progress = progress,
+            browserFileDownloads = browserFileDownloads,
             browserSession = browserSession,
             cookieProfiles = cookieProfiles
         )
@@ -194,7 +238,7 @@ internal class MigrationArchiveCodec(
 
     private fun parseManifest(json: JsonObject): MigrationManifest {
         val schemaVersion = requiredInt(json, "schemaVersion")
-        require(schemaVersion == SCHEMA_V1 || schemaVersion == SCHEMA_V2) {
+        require(schemaVersion in SCHEMA_V1..SCHEMA_V3) {
             "Unsupported migration schema version: $schemaVersion."
         }
         requiredLong(json, "exportedAtEpochMs")
@@ -209,6 +253,10 @@ internal class MigrationArchiveCodec(
         requiredInt(json, "thumbnailCount")
         requiredInt(json, "cookieProfileCount")
         requiredBoolean(json, "cookieContentIncluded")
+        if (schemaVersion >= SCHEMA_V3) {
+            requiredInt(json, "browserFileDownloadCount")
+            requiredInt(json, "playbackPositionCount")
+        }
 
         val encryption = json.get("encryption")
             ?.takeUnless(JsonElement::isJsonNull)
@@ -218,7 +266,7 @@ internal class MigrationArchiveCodec(
                 }
                 element.asString
             }
-        if (schemaVersion == SCHEMA_V2) {
+        if (schemaVersion >= SCHEMA_V2) {
             require(encryption == ENCRYPTION_NONE) {
                 "Unsupported migration encryption: ${encryption ?: "missing"}."
             }
@@ -287,10 +335,35 @@ internal class MigrationArchiveCodec(
 
         validatePreferences(archive.settingsPrefs, ENTRY_SETTINGS_PREFS)
         validatePreferences(archive.playbackPrefs, ENTRY_PLAYBACK_PREFS)
+        validatePreferences(archive.playbackPositionPrefs, ENTRY_PLAYBACK_POSITION_PREFS)
         requireUniqueNonBlank(archive.bookmarks.map { it.link }, "bookmark primary key")
         requireUniqueNonBlank(archive.history.map { it.id }, "history primary key")
         requireUniqueNonBlank(archive.videos.map { it.id }, "video primary key")
         requireUniqueNonBlank(archive.progress.map { it.id }, "progress primary key")
+        requireUniqueNonBlank(
+            archive.browserFileDownloads.map { it.id.toString() },
+            "browser file download primary key"
+        )
+        requireUniqueNonBlank(
+            archive.browserFileDownloads.map { it.downloadManagerId.toString() },
+            "browser file download manager id"
+        )
+        archive.browserFileDownloads.forEach { download ->
+            require(download.downloadManagerId < 0L && !download.systemBindingTrusted) {
+                "Migration browser file download contains a device-specific system binding."
+            }
+            require(download.localUri.isBlank()) {
+                "Migration browser file download contains a device-specific local URI."
+            }
+            require(download.status == com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownloadStatus.MISSING) {
+                "Migration browser file download contains an active device state."
+            }
+            require(
+                download.url.startsWith("http://", ignoreCase = true) ||
+                    download.url.startsWith("https://", ignoreCase = true)
+            ) { "Migration browser file download contains an invalid URL." }
+            BrowserFileDestinationPolicy.requireNormalized(download.relativePath, download.fileName)
+        }
         archive.progress.forEach { item ->
             require(item.downloadStatus == VideoTaskState.SUCCESS) {
                 "Migration progress contains a non-completed download."
@@ -366,12 +439,24 @@ internal class MigrationArchiveCodec(
         requireCount(manifest.browserSessionCount, tabs.size, "browser session")
         requireCount(manifest.thumbnailCount, thumbnailsByTabId.size, "thumbnails")
         requireCount(manifest.cookieProfileCount, archive.cookieProfiles.size, "Cookie profiles")
+        if (manifest.schemaVersion >= SCHEMA_V3) {
+            requireCount(
+                manifest.browserFileDownloadCount,
+                archive.browserFileDownloads.size,
+                "browser file downloads"
+            )
+            requireCount(
+                manifest.playbackPositionCount,
+                archive.playbackPositionPrefs.size,
+                "playback positions"
+            )
+        }
 
         val hasCookieContent = archive.cookieProfiles.any { it.content != null }
         require(manifest.cookieContentIncluded == hasCookieContent) {
             "Migration Cookie content declaration does not match the payload."
         }
-        if (manifest.schemaVersion == SCHEMA_V2) {
+        if (manifest.schemaVersion >= SCHEMA_V2) {
             val expectedSensitive = if (hasCookieContent) {
                 listOf(SENSITIVE_COOKIE_CONTENT)
             } else {

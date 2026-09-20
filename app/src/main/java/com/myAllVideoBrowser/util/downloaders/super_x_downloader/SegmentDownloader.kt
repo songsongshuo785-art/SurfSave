@@ -6,9 +6,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import okhttp3.Headers.Companion.toHeaders
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
 import java.io.IOException
 
@@ -20,6 +18,7 @@ class SegmentDownloader(
     private val client: OkHttpClient,
     private val headers: Map<String, String>,
     private val controller: FileBasedDownloadController,
+    private val credentialOriginUrl: String,
     private val onProgress: ((bytes: Long) -> Unit)? = null
 ) {
 
@@ -71,10 +70,12 @@ class SegmentDownloader(
                     throw IOException("Unable to clear stale segment staging file: ${stagingFile.absolutePath}")
                 }
                 AppLogger.d("$logPrefix: Downloading segment $segmentIdentifier from $segmentUrl (Attempt $attempt/$RETRY_COUNT)")
-                val request = Request.Builder().url(segmentUrl).headers(headers.toHeaders()).build()
-
-                val call = client.newCall(request)
-                val bytesCopied = call.execute().use { response ->
+                val bytesCopied = ScopedHttpRequestExecutor.execute(
+                    client = client,
+                    targetUrl = segmentUrl,
+                    headers = headers,
+                    credentialOriginUrl = credentialOriginUrl
+                ).use { response ->
                     if (!response.isSuccessful) {
                         throw IOException("Failed to download segment $segmentIdentifier. HTTP ${response.code}")
                     }
@@ -86,7 +87,6 @@ class SegmentDownloader(
                             while (true) {
                                 currentCoroutineContext().ensureActive()
                                 if (controller.isPauseOrCancelRequested()) {
-                                    call.cancel()
                                     throw CancellationException("Download interrupted by user.")
                                 }
                                 val bytesRead = input.read(buffer)

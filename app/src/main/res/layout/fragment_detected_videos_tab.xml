@@ -1,76 +1,60 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layout xmlns:android="http://schemas.android.com/apk/res/android"
+<layout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools">
-
     <data>
-
         <import type="android.view.View" />
-
-        <variable
-            name="dialogListener"
-            type="com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener" />
-
-        <variable
-            name="viewModel"
-            type="com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel" />
+        <variable name="dialogListener" type="com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener" />
+        <variable name="viewModel" type="com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel" />
     </data>
-
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
         android:id="@+id/detected_videos_tab_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/sxSurface"
+        android:background="@android:color/transparent"
         tools:context=".ui.main.home.browser.detectedVideos.DetectedVideosTabFragment">
-
         <View
             android:id="@+id/detected_backdrop"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:background="@color/black_55"
-            android:onClick="@{() -> dialogListener.onCancel()}"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/colorScrim"
+            android:onClick="@{() -&gt; dialogListener.onCancel()}"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
-
         <LinearLayout
             android:id="@+id/detected_sheet"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
             android:background="@drawable/surf_sheet_background"
             android:orientation="vertical"
             android:paddingStart="@dimen/padding_normal"
-            android:paddingTop="@dimen/padding_normal"
+            android:paddingTop="0dp"
             android:paddingEnd="@dimen/padding_normal"
             android:paddingBottom="@dimen/padding_normal"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintHeight_percent="0.94"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintVertical_bias="1">
-
-            <View
-                android:layout_width="@dimen/component_bottom_sheet_drag_handle_width"
-                android:layout_height="@dimen/component_bottom_sheet_drag_handle_height"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginBottom="@dimen/padding_normal"
-                android:background="@drawable/sx_sheet_handle_background" />
-
+            android:layout_marginTop="24dp"
+            android:paddingHorizontal="16dp"
+            app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior"
+            app:behavior_hideable="true"
+            app:behavior_skipCollapsed="true"
+            app:behavior_peekHeight="0dp">
+            <com.google.android.material.bottomsheet.BottomSheetDragHandleView
+                android:layout_width="match_parent"
+                android:layout_height="32dp"
+                android:layout_gravity="center_horizontal" />
             <LinearLayout
                 android:id="@+id/detected_header"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
-
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
-
                     <com.google.android.material.textview.MaterialTextView
                         android:id="@+id/title"
                         android:layout_width="match_parent"
@@ -80,7 +64,6 @@
                         android:text="@{viewModel.detectedPanelTitle}"
                         android:textAppearance="@style/TextAppearance.Surf.TitleLarge"
                         android:textColor="@color/sxTextPrimary" />
-
                     <com.google.android.material.textview.MaterialTextView
                         android:id="@+id/detected_subtitle"
                         android:layout_width="match_parent"
@@ -93,7 +76,6 @@
                         tools:text="来自 example.com"
                         tools:visibility="visible" />
                 </LinearLayout>
-
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/detected_count"
                     android:layout_width="wrap_content"
@@ -110,19 +92,17 @@
                     android:textSize="@dimen/text_tiny"
                     android:textStyle="bold"
                     android:visibility="@{viewModel.hasDetectedVideos ? View.VISIBLE : View.GONE}" />
-
                 <ImageButton
                     android:id="@+id/tv_cancel"
                     android:layout_width="48dp"
                     android:layout_height="48dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/dialog_download_cancel"
-                    android:onClick="@{() -> dialogListener.onCancel()}"
+                    android:onClick="@{() -&gt; dialogListener.onCancel()}"
                     android:padding="12dp"
                     android:src="@drawable/ic_cancel_24dp"
                     app:tint="@color/sxTextPrimary" />
             </LinearLayout>
-
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/detection_status"
                 android:layout_width="match_parent"
@@ -138,7 +118,6 @@
                 android:visibility="@{viewModel.hasDetectionStatus &amp;&amp; !viewModel.hasDetectedVideos &amp;&amp; !viewModel.hasProtectedMedia &amp;&amp; !viewModel.hasTelegramPostPreview ? View.VISIBLE : View.GONE}"
                 tools:text="检测暂时失败。请播放视频后再试，或刷新页面重新检测。"
                 tools:visibility="visible" />
-
             <LinearLayout
                 android:id="@+id/drm_web_playback_notice"
                 android:layout_width="match_parent"
@@ -149,13 +128,11 @@
                 android:padding="@dimen/padding_normal"
                 android:visibility="@{viewModel.hasProtectedMedia &amp;&amp; !viewModel.hasDetectedVideos ? View.VISIBLE : View.GONE}"
                 tools:visibility="visible">
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
-
                     <ImageView
                         android:layout_width="24dp"
                         android:layout_height="24dp"
@@ -163,7 +140,6 @@
                         android:importantForAccessibility="no"
                         android:src="@drawable/shield_24px"
                         app:tint="@color/colorPrimary" />
-
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
@@ -174,7 +150,6 @@
                         android:textSize="@dimen/text_medium"
                         android:textStyle="bold" />
                 </LinearLayout>
-
                 <com.google.android.material.textview.MaterialTextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -183,12 +158,11 @@
                     android:text="@string/drm_detected_message"
                     android:textColor="@color/sxTextSecondary"
                     android:textSize="@dimen/text_small" />
-
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/button_play_in_webpage"
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
-                    android:layout_height="40dp"
+                    android:layout_height="48dp"
                     android:layout_gravity="end"
                     android:layout_marginTop="@dimen/padding_small"
                     android:insetTop="0dp"
@@ -200,7 +174,6 @@
                     app:icon="@drawable/play_circle_24px"
                     app:iconTint="@color/colorPrimary" />
             </LinearLayout>
-
             <LinearLayout
                 android:id="@+id/telegram_post_summary"
                 android:layout_width="match_parent"
@@ -211,7 +184,6 @@
                 android:padding="@dimen/padding_normal"
                 android:visibility="@{viewModel.hasTelegramPostPreview ? View.VISIBLE : View.GONE}"
                 tools:visibility="visible">
-
                 <com.google.android.material.textview.MaterialTextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -222,7 +194,6 @@
                     android:textSize="@dimen/text_medium"
                     android:textStyle="bold"
                     tools:text="@cctv1" />
-
                 <com.google.android.material.textview.MaterialTextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -231,7 +202,6 @@
                     android:textColor="@color/colorPrimary"
                     android:textSize="@dimen/text_small"
                     tools:text="2 个媒体 · 1 个可播放" />
-
                 <com.google.android.material.imageview.ShapeableImageView
                     android:layout_width="match_parent"
                     android:layout_height="156dp"
@@ -242,7 +212,6 @@
                     android:scaleType="centerCrop"
                     android:visibility="@{viewModel.hasTelegramThumbnail &amp;&amp; !viewModel.hasDetectedVideos ? View.VISIBLE : View.GONE}"
                     app:imageUrl="@{viewModel.telegramPostThumbnail}" />
-
                 <com.google.android.material.textview.MaterialTextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -255,7 +224,6 @@
                     android:textSize="@dimen/text_small"
                     android:visibility="@{viewModel.hasTelegramDescription ? View.VISIBLE : View.GONE}"
                     tools:text="Telegram 公开帖子的正文预览。" />
-
                 <com.google.android.material.textview.MaterialTextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -264,7 +232,6 @@
                     android:textColor="@color/sxTextSecondary"
                     android:textSize="@dimen/text_small"
                     android:visibility="@{viewModel.hasTelegramPosterOnlyMedia ? View.VISIBLE : View.GONE}" />
-
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/button_open_telegram_post"
                     style="@style/Widget.MaterialComponents.Button.TextButton"
@@ -282,7 +249,6 @@
                     app:icon="@drawable/open_in_new_24px"
                     app:iconTint="@color/colorPrimary" />
             </LinearLayout>
-
             <LinearLayout
                 android:id="@+id/detected_secondary_actions"
                 android:layout_width="match_parent"
@@ -290,12 +256,11 @@
                 android:layout_marginTop="@dimen/padding_tiny"
                 android:gravity="end"
                 android:orientation="horizontal">
-
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/button_parse_playlist"
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
-                    android:layout_height="40dp"
+                    android:layout_height="48dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
                     android:minWidth="0dp"
@@ -305,19 +270,17 @@
                     app:icon="@drawable/search_24px"
                     app:iconTint="@color/colorPrimary" />
             </LinearLayout>
-
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/video_info_list"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
-                android:layout_marginTop="@dimen/padding_small"
+                android:layout_marginTop="12dp"
                 android:layout_weight="1"
                 android:clipToPadding="false"
-                android:paddingStart="@dimen/padding_tiny"
-                android:paddingEnd="@dimen/padding_tiny"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
                 android:paddingBottom="@dimen/padding_small"
                 app:items="@{viewModel.sortedDetectedVideosList}" />
         </LinearLayout>
-
-    </androidx.constraintlayout.widget.ConstraintLayout>
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
 </layout>

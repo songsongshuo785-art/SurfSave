@@ -96,6 +96,19 @@ class BrowserBackPolicyTest {
     }
 
     @Test
+    fun newTab_isInsertedImmediatelyAfterCurrentTab() {
+        assertEquals(1, BrowserTabIndexPolicy.newTabInsertionIndex(0, 4))
+        assertEquals(3, BrowserTabIndexPolicy.newTabInsertionIndex(2, 4))
+        assertEquals(4, BrowserTabIndexPolicy.newTabInsertionIndex(3, 4))
+    }
+
+    @Test
+    fun newTab_invalidSelection_isClampedAfterHome() {
+        assertEquals(1, BrowserTabIndexPolicy.newTabInsertionIndex(-4, 2))
+        assertEquals(2, BrowserTabIndexPolicy.newTabInsertionIndex(99, 2))
+    }
+
+    @Test
     fun closedTabUndo_remainsVisibleForEightSeconds() {
         assertEquals(8_000L, BrowserTabUndoPolicy.DURATION_MS)
         assertEquals(10, BrowserTabUndoPolicy.MAX_RECENTLY_CLOSED_TABS)

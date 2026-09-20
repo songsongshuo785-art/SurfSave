@@ -10,11 +10,23 @@ internal object ProgressInfoMigrationNormalizer {
         }
         return item.copy(
             downloadFingerprint = fingerprint,
+            infoLine = item.infoLine.orEmpty(),
+            lastError = item.lastError.orEmpty(),
+            logPath = item.logPath.orEmpty(),
             executionToken = item.executionToken.orEmpty(),
             finalizationSource = item.finalizationSource.orEmpty(),
-            finalizationTarget = item.finalizationTarget.orEmpty()
+            finalizationTarget = item.finalizationTarget.orEmpty(),
+            finalMediaUri = item.finalMediaUri.orEmpty()
         )
     }
 
     fun normalize(items: List<ProgressInfo>): List<ProgressInfo> = items.map(::normalize)
+
+    fun normalizeImported(items: List<ProgressInfo>): List<ProgressInfo> =
+        normalize(items).map { item ->
+            item.copy(
+                finalMediaUri = "",
+                mediaBindingTrusted = false
+            )
+        }
 }

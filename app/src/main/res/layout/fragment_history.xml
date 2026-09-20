@@ -1,39 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
-
+<layout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
     <data>
-
         <import type="android.view.View" />
-
-        <variable
-            name="viewModel"
-            type="com.myAllVideoBrowser.ui.main.history.HistoryViewModel" />
-
-        <variable
-            name="adapter"
-            type="com.myAllVideoBrowser.ui.component.adapter.HistoryAdapter" />
-
+        <variable name="viewModel" type="com.myAllVideoBrowser.ui.main.history.HistoryViewModel" />
+        <variable name="adapter" type="com.myAllVideoBrowser.ui.component.adapter.HistoryAdapter" />
     </data>
-
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/history_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@color/sxSurface">
-
         <androidx.coordinatorlayout.widget.CoordinatorLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:gravity="center"
             android:orientation="vertical">
-
             <com.google.android.material.appbar.AppBarLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@drawable/sx_toolbar_background"
                 app:elevation="0dp">
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -42,7 +28,6 @@
                     android:paddingTop="@dimen/padding_small"
                     android:paddingEnd="@dimen/padding_normal"
                     android:paddingBottom="@dimen/padding_normal">
-
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -50,7 +35,6 @@
                         android:textColor="@color/sxTextPrimary"
                         android:textSize="@dimen/text_xxlarge"
                         android:textStyle="bold" />
-
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -58,7 +42,6 @@
                         android:text="@string/history_subtitle"
                         android:textColor="@color/sxTextSecondary"
                         android:textSize="@dimen/text_small" />
-
                     <com.google.android.material.search.SearchBar
                         android:id="@+id/search_bar"
                         android:layout_width="match_parent"
@@ -69,13 +52,10 @@
                         android:text="@{viewModel.searchQuery}" />
                 </LinearLayout>
             </com.google.android.material.appbar.AppBarLayout>
-
-            <!-- NestedScrollingChild goes here (NestedScrollView, RecyclerView, etc.). -->
             <androidx.constraintlayout.widget.ConstraintLayout
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 app:layout_behavior="@string/appbar_scrolling_view_behavior">
-
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/clear_button"
                     style="@style/Widget.Material3.Button.OutlinedButton"
@@ -93,8 +73,6 @@
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent"
                     app:strokeColor="@color/sxOutline" />
-
-                <!-- Screen content goes here. -->
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/history_list"
                     android:layout_width="0dp"
@@ -109,7 +87,6 @@
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toBottomOf="@+id/clear_button" />
-
                 <include
                     android:id="@+id/state_empty"
                     layout="@layout/state_empty"
@@ -123,14 +100,12 @@
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent" />
             </androidx.constraintlayout.widget.ConstraintLayout>
-
             <com.google.android.material.search.SearchView
                 android:id="@+id/search_history_view"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:hint="@string/searchbar_hint"
                 app:layout_anchor="@id/search_bar">
-                <!-- Search suggestions/results go here (ScrollView, RecyclerView, etc.). -->
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/history_search_list"
                     android:layout_width="match_parent"
@@ -141,7 +116,6 @@
                     app:items="@{viewModel.searchHistoryItems}" />
             </com.google.android.material.search.SearchView>
         </androidx.coordinatorlayout.widget.CoordinatorLayout>
-
         <include
             android:id="@+id/state_loading"
             layout="@layout/state_loading"

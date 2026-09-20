@@ -45,6 +45,69 @@ class BrowserMediaClassifierTest {
     }
 
     @Test
+    fun genericBinaryMime_keepsExplicitMp4Url() {
+        assertEquals(
+            ContentType.VIDEO,
+            BrowserMediaClassifier.classify(
+                "https://cdn.example/114835-720p.mp4?secure=temporary",
+                "application/octet-stream"
+            )
+        )
+    }
+
+    @Test
+    fun opaqueDownloadUrl_usesMediaFilenameButRejectsNonMediaAttachment() {
+        assertEquals(
+            ContentType.VIDEO,
+            BrowserMediaClassifier.classify(
+                url = "https://cdn.example/download?id=1",
+                contentType = "application/octet-stream",
+                contentDisposition = "attachment; filename*=UTF-8''sample%20video.mp4"
+            )
+        )
+        assertEquals(
+            ContentType.OTHER,
+            BrowserMediaClassifier.classify(
+                url = "https://cdn.example/download?id=2",
+                contentType = "application/octet-stream",
+                contentDisposition = "attachment; filename=archive.zip"
+            )
+        )
+    }
+
+    @Test
+    fun unknownEndpointExtension_doesNotHideMediaAttachmentFilename() {
+        assertEquals(
+            ContentType.VIDEO,
+            BrowserMediaClassifier.classify(
+                url = "https://cdn.example/download.php?id=1",
+                contentType = "application/octet-stream",
+                contentDisposition = "attachment; filename=\"movie;final.mp4\""
+            )
+        )
+        assertEquals(
+            ContentType.M3U8,
+            BrowserMediaClassifier.classify(
+                url = "https://cdn.example/playlist.php?id=1",
+                contentType = "application/octet-stream",
+                contentDisposition = "attachment; filename*=UTF-8''master.m3u8"
+            )
+        )
+    }
+
+    @Test
+    fun segmentAttachment_isNotPromotedToStandaloneMedia() {
+        assertEquals(
+            ContentType.OTHER,
+            BrowserMediaClassifier.classify(
+                url = "https://cdn.example/download.php?id=1",
+                contentType = "video/mp2t",
+                contentDisposition = "attachment; filename=segment.ts"
+            )
+        )
+    }
+
+    @Test
     fun segmentsAndBlob_areNotExposedAsStandaloneVideos() {
         assertEquals(
             ContentType.OTHER,

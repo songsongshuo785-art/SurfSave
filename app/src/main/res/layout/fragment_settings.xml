@@ -1,18 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layout xmlns:android="http://schemas.android.com/apk/res/android"
+<layout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools">
-
     <data>
-
         <import type="android.view.View" />
         <import type="com.myAllVideoBrowser.R" />
-
-        <variable
-            name="viewModel"
-            type="com.myAllVideoBrowser.ui.main.settings.SettingsViewModel" />
+        <variable name="viewModel" type="com.myAllVideoBrowser.ui.main.settings.SettingsViewModel" />
     </data>
-
     <ScrollView
         android:id="@+id/settings_background"
         android:layout_width="match_parent"
@@ -21,25 +16,23 @@
         android:clickable="true"
         android:fillViewport="true"
         android:focusable="true">
-
         <LinearLayout
             android:id="@+id/settings_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="@dimen/padding_normal">
-
             <com.google.android.material.appbar.MaterialToolbar
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
-                android:layout_height="56dp"
+                android:layout_height="64dp"
                 android:contentInsetStart="0dp"
                 android:contentInsetEnd="0dp"
                 app:contentInsetStart="0dp"
                 app:contentInsetEnd="0dp"
                 app:title="@string/title_settings"
-                app:titleTextColor="@color/sxTextPrimary" />
-
+                app:titleTextColor="@color/sxTextPrimary"
+                app:titleTextAppearance="@style/TextAppearance.Surf.ScreenTitle" />
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/settings_search_input"
                 android:layout_width="match_parent"
@@ -56,7 +49,6 @@
                 android:textColor="@color/sxTextPrimary"
                 android:textColorHint="@color/sxTextSecondary"
                 android:textSize="@dimen/text_medium" />
-
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/settings_no_results"
                 android:layout_width="match_parent"
@@ -68,24 +60,21 @@
                 android:textColor="@color/sxTextSecondary"
                 android:textSize="@dimen/text_medium"
                 android:visibility="gone" />
-
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/settings_general_card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/padding_small"
                 app:cardBackgroundColor="@color/sxSurfaceRaised"
-                app:cardCornerRadius="@dimen/corner_md"
+                app:cardCornerRadius="20dp"
                 app:cardElevation="@dimen/elev_resting"
                 app:strokeColor="@color/sxOutline"
                 app:strokeWidth="0dp">
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="@dimen/padding_normal">
-
                     <com.google.android.material.textview.MaterialTextView
                         android:id="@+id/tv_general"
                         android:layout_width="match_parent"
@@ -94,7 +83,6 @@
                         android:textColor="@color/sxTextPrimary"
                         android:textSize="@dimen/text_medium"
                         android:textStyle="bold" />
-
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -102,15 +90,13 @@
                         android:text="@string/settings_general_subtitle"
                         android:textColor="@color/sxTextSecondary"
                         android:textSize="@dimen/text_small" />
-
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:id="@+id/layout_clear_cookie"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:layout_marginTop="@dimen/padding_normal"
                         android:background="?attr/selectableItemBackground"
-                        android:onClick="@{() -> viewModel.clearCookies()}">
-
+                        android:onClick="@{() -&gt; viewModel.clearCookies()}">
                         <ImageView
                             android:id="@+id/iv_browser"
                             android:layout_width="40dp"
@@ -123,7 +109,6 @@
                             app:layout_constraintStart_toStartOf="parent"
                             app:layout_constraintTop_toTopOf="parent"
                             app:tint="@color/colorPrimary" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
@@ -138,22 +123,19 @@
                             app:layout_constraintStart_toEndOf="@id/iv_browser"
                             app:layout_constraintTop_toTopOf="parent" />
                     </androidx.constraintlayout.widget.ConstraintLayout>
-
                     <View
                         android:id="@+id/divider_after_clear_cookie"
                         android:layout_width="match_parent"
                         android:layout_height="1dp"
                         android:background="@color/sxOutline" />
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/is_auto_theme_check_box"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:checked="@{viewModel.isAutoDarkMode}"
-                        android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsAutoTheme(isChecked)}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsAutoTheme(isChecked)}"
                         android:text="@string/is_auto_dark"
                         android:textColor="@color/sxTextPrimary" />
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/is_dark_mode_check_box"
                         android:layout_width="match_parent"
@@ -161,52 +143,46 @@
                         android:alpha="@{viewModel.isAutoDarkMode ? 0.45f : 1f}"
                         android:checked="@{viewModel.isDarkMode}"
                         android:enabled="@{!viewModel.isAutoDarkMode}"
-                        android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsDarkMode(isChecked)}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsDarkMode(isChecked)}"
                         android:text="@string/dark_mode"
                         android:textColor="@color/sxTextPrimary" />
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/is_auto_pip_check_box"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:checked="@{viewModel.isAutoPipEnabled}"
-                        android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsAutoPipEnabled(isChecked)}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsAutoPipEnabled(isChecked)}"
                         android:text="@string/auto_pip"
                         android:textColor="@color/sxTextPrimary" />
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/is_desktop_mode_check_box"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:checked="@{viewModel.isDesktopMode}"
-                        android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsDesktopMode(isChecked)}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsDesktopMode(isChecked)}"
                         android:text="@string/desktop_mode"
                         android:textColor="@color/sxTextPrimary" />
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/lock_orientation_check_box"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:checked="@{viewModel.isLockPortrait}"
-                        android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsLockPortrait(isChecked)}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsLockPortrait(isChecked)}"
                         android:text="@string/lock_screen_orientation_portrait"
                         android:textColor="@color/sxTextPrimary" />
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/drm_enabled_check_box"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:checked="@{viewModel.isDrmEnabled}"
-                        android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsDrmEnabled(isChecked)}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsDrmEnabled(isChecked)}"
                         android:text="@string/drm_permission_title"
                         android:textColor="@color/sxTextPrimary" />
-
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:id="@+id/layout_search_engine"
                         android:layout_width="match_parent"
                         android:layout_height="72dp"
                         android:background="?attr/selectableItemBackground">
-
                         <ImageView
                             android:id="@+id/iv_search_engine"
                             android:layout_width="40dp"
@@ -219,7 +195,6 @@
                             app:layout_constraintStart_toStartOf="parent"
                             app:layout_constraintTop_toTopOf="parent"
                             app:tint="@color/colorPrimary" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/tv_search_engine"
                             android:layout_width="0dp"
@@ -235,7 +210,6 @@
                             app:layout_constraintStart_toEndOf="@id/iv_search_engine"
                             app:layout_constraintTop_toTopOf="parent"
                             app:layout_constraintVertical_chainStyle="packed" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/tv_search_engine_summary"
                             android:layout_width="0dp"
@@ -251,13 +225,11 @@
                             app:layout_constraintStart_toEndOf="@id/iv_search_engine"
                             app:layout_constraintTop_toBottomOf="@id/tv_search_engine" />
                     </androidx.constraintlayout.widget.ConstraintLayout>
-
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:id="@+id/layout_proxy_settings"
                         android:layout_width="match_parent"
                         android:layout_height="72dp"
                         android:background="?attr/selectableItemBackground">
-
                         <ImageView
                             android:id="@+id/iv_proxy_settings"
                             android:layout_width="40dp"
@@ -270,7 +242,6 @@
                             app:layout_constraintStart_toStartOf="parent"
                             app:layout_constraintTop_toTopOf="parent"
                             app:tint="@color/colorPrimary" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/tv_proxy_settings"
                             android:layout_width="0dp"
@@ -286,7 +257,6 @@
                             app:layout_constraintStart_toEndOf="@id/iv_proxy_settings"
                             app:layout_constraintTop_toTopOf="parent"
                             app:layout_constraintVertical_chainStyle="packed" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/tv_proxy_settings_summary"
                             android:layout_width="0dp"
@@ -302,22 +272,19 @@
                             app:layout_constraintStart_toEndOf="@id/iv_proxy_settings"
                             app:layout_constraintTop_toBottomOf="@id/tv_proxy_settings" />
                     </androidx.constraintlayout.widget.ConstraintLayout>
-
                     <LinearLayout
                         android:id="@+id/ad_filter_container"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
-
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/ad_blocking_enabled_check_box"
                             android:layout_width="match_parent"
                             android:layout_height="56dp"
                             android:checked="@{viewModel.isAdBlockingEnabled}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsAdBlockingEnabled(isChecked)}"
+                            android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsAdBlockingEnabled(isChecked)}"
                             android:text="@string/ad_filter_title"
                             android:textColor="@color/sxTextPrimary" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -325,7 +292,6 @@
                             android:text="@string/ad_filter_summary"
                             android:textColor="@color/sxTextSecondary"
                             android:textSize="@dimen/text_small" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/content_block_status"
                             android:layout_width="match_parent"
@@ -334,7 +300,6 @@
                             android:textColor="@color/sxTextPrimary"
                             android:textSize="@dimen/text_small"
                             android:textStyle="bold" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/content_block_metadata"
                             android:layout_width="match_parent"
@@ -343,7 +308,6 @@
                             android:text="@string/content_block_rules_not_ready"
                             android:textColor="@color/sxTextSecondary"
                             android:textSize="@dimen/text_small" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/content_block_count"
                             android:layout_width="match_parent"
@@ -352,7 +316,6 @@
                             android:text="@string/content_block_blocked_count_zero"
                             android:textColor="@color/sxTextSecondary"
                             android:textSize="@dimen/text_small" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/content_block_error"
                             android:layout_width="match_parent"
@@ -361,7 +324,6 @@
                             android:textColor="@color/colorError"
                             android:textSize="@dimen/text_small"
                             android:visibility="gone" />
-
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/button_update_content_block_rules"
                             style="?attr/materialButtonOutlinedStyle"
@@ -371,35 +333,31 @@
                             android:layout_marginTop="@dimen/padding_small"
                             android:text="@string/content_block_update_rules" />
                     </LinearLayout>
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/auto_translate_pages_check_box"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:checked="@{viewModel.isAutoTranslatePages}"
-                        android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsAutoTranslatePages(isChecked)}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsAutoTranslatePages(isChecked)}"
                         android:text="@string/auto_translate_pages"
                         android:textColor="@color/sxTextPrimary" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/settings_detection_card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/padding_normal"
                 app:cardBackgroundColor="@color/sxSurfaceRaised"
-                app:cardCornerRadius="@dimen/corner_md"
+                app:cardCornerRadius="20dp"
                 app:cardElevation="@dimen/elev_resting"
                 app:strokeColor="@color/sxOutline"
                 app:strokeWidth="0dp">
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="@dimen/padding_normal">
-
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -407,7 +365,6 @@
                         android:textColor="@color/sxTextPrimary"
                         android:textSize="@dimen/text_medium"
                         android:textStyle="bold" />
-
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -415,50 +372,44 @@
                         android:text="@string/settings_detection_subtitle"
                         android:textColor="@color/sxTextSecondary"
                         android:textSize="@dimen/text_small" />
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/show_video_alert_check_box"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:layout_marginTop="@dimen/padding_small"
                         android:checked="@{viewModel.getVideoAlertState()}"
-                        android:onCheckedChanged="@{(_, isChecked) -> isChecked ? viewModel.setShowVideoAlertOn() : viewModel.setShowVideoAlertOff()}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; isChecked ? viewModel.setShowVideoAlertOn() : viewModel.setShowVideoAlertOff()}"
                         android:text="@string/show_video_found_alert"
                         android:textColor="@color/sxTextPrimary" />
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/show_video_action_button_check_box"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:checked="@{viewModel.getVideoButtonState()}"
-                        android:onCheckedChanged="@{(_, isChecked) -> isChecked ? viewModel.setShowVideoActionButtonOn() : viewModel.setShowVideoActionButtonOff()}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; isChecked ? viewModel.setShowVideoActionButtonOn() : viewModel.setShowVideoActionButtonOff()}"
                         android:text="@string/show_action_button"
                         android:textColor="@color/sxTextPrimary" />
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/find_videos_by_url"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:checked="@{viewModel.isFindVideoByUrl}"
-                        android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsFindVideoByUrl(isChecked)}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsFindVideoByUrl(isChecked)}"
                         android:text="@string/find_videos_by_url"
                         android:textColor="@color/sxTextPrimary" />
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/filter_short_videos"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:checked="@{viewModel.isFilterShortVideos}"
-                        android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsFilterShortVideos(isChecked)}"
+                        android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsFilterShortVideos(isChecked)}"
                         android:text="@string/filter_short_videos"
                         android:textColor="@color/sxTextPrimary" />
-
                     <LinearLayout
                         android:id="@+id/short_video_duration_container"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/short_video_duration_text"
                             android:layout_width="match_parent"
@@ -467,7 +418,6 @@
                             android:textSize="@dimen/text_small"
                             android:textStyle="bold"
                             tools:text="Hide clips shorter than 40 seconds" />
-
                         <com.google.android.material.slider.Slider
                             android:id="@+id/seekBarShortVideoDuration"
                             android:layout_width="match_parent"
@@ -476,7 +426,6 @@
                             android:valueFrom="0"
                             android:valueTo="115" />
                     </LinearLayout>
-
                     <LinearLayout
                         android:id="@+id/detection_advanced_header"
                         android:layout_width="match_parent"
@@ -485,7 +434,6 @@
                         android:background="?attr/selectableItemBackground"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
-
                         <com.google.android.material.textview.MaterialTextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
@@ -494,89 +442,79 @@
                             android:textColor="@color/sxTextPrimary"
                             android:textSize="@dimen/text_medium"
                             android:textStyle="bold" />
-
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/detection_advanced_toggle"
                             style="@style/Widget.MaterialComponents.Button.TextButton"
                             android:layout_width="wrap_content"
-                            android:layout_height="44dp"
+                            android:layout_height="48dp"
                             android:minWidth="72dp"
                             android:text="@string/settings_show_advanced"
                             android:textColor="@color/colorPrimary" />
                     </LinearLayout>
-
                     <LinearLayout
                         android:id="@+id/detection_advanced_container"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:visibility="gone">
-
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_check_every_request_on_mp4"
                             android:layout_width="match_parent"
                             android:layout_height="56dp"
                             android:checked="@{viewModel.isCheckEveryRequestOnMp4Video}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsCheckEveryRequestOnVideo(isChecked)}"
+                            android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsCheckEveryRequestOnVideo(isChecked)}"
                             android:text="@string/check_every_request_on_video_mp4"
                             android:textColor="@color/sxTextPrimary" />
-
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_check_every_request_on_m3u8"
                             android:layout_width="match_parent"
                             android:layout_height="56dp"
                             android:checked="@{viewModel.isCheckIfEveryRequestOnM3u8}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsCheckIfEveryUrlOnM3u8(isChecked)}"
+                            android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsCheckIfEveryUrlOnM3u8(isChecked)}"
                             android:text="@string/check_every_request_on_video_m3u8"
                             android:textColor="@color/sxTextPrimary" />
-
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_check_every_request_on_audio"
                             android:layout_width="match_parent"
                             android:layout_height="56dp"
                             android:checked="@{viewModel.isCheckOnAudio}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsCheckOnAudio(isChecked)}"
+                            android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsCheckOnAudio(isChecked)}"
                             android:text="@string/check_every_request_on_audio"
                             android:textColor="@color/sxTextPrimary" />
-
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_force_stream_detection"
                             android:layout_width="match_parent"
                             android:layout_height="56dp"
                             android:checked="@{viewModel.isForceStreamDetection}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setForceStreamDetection(isChecked)}"
+                            android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setForceStreamDetection(isChecked)}"
                             android:text="@string/force_stream_detection"
                             android:textColor="@color/sxTextPrimary" />
-
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_use_legacy_m3u8_detection"
                             android:layout_width="match_parent"
                             android:layout_height="56dp"
                             android:checked="@{viewModel.isUseLegacyM3u8Detection}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setUseLegacyM3u8Detection(isChecked)}"
+                            android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setUseLegacyM3u8Detection(isChecked)}"
                             android:text="@string/use_legacy_m3u8_detection"
                             android:textColor="@color/sxTextPrimary" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/settings_downloading_card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/padding_normal"
                 app:cardBackgroundColor="@color/sxSurfaceRaised"
-                app:cardCornerRadius="@dimen/corner_md"
+                app:cardCornerRadius="20dp"
                 app:cardElevation="@dimen/elev_resting"
                 app:strokeColor="@color/sxOutline"
                 app:strokeWidth="0dp">
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="@dimen/padding_normal">
-
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -584,7 +522,6 @@
                         android:textColor="@color/sxTextPrimary"
                         android:textSize="@dimen/text_medium"
                         android:textStyle="bold" />
-
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -592,7 +529,6 @@
                         android:text="@string/settings_downloading_subtitle"
                         android:textColor="@color/sxTextSecondary"
                         android:textSize="@dimen/text_small" />
-
                     <LinearLayout
                         android:id="@+id/downloading_advanced_header"
                         android:layout_width="match_parent"
@@ -601,7 +537,6 @@
                         android:gravity="center_vertical"
                         android:layout_height="48dp"
                         android:orientation="horizontal">
-
                         <com.google.android.material.textview.MaterialTextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
@@ -610,67 +545,59 @@
                             android:textColor="@color/sxTextPrimary"
                             android:textSize="@dimen/text_medium"
                             android:textStyle="bold" />
-
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/downloading_advanced_toggle"
                             style="@style/Widget.MaterialComponents.Button.TextButton"
                             android:layout_width="wrap_content"
-                            android:layout_height="44dp"
+                            android:layout_height="48dp"
                             android:minWidth="72dp"
                             android:text="@string/settings_show_advanced"
                             android:textColor="@color/colorPrimary" />
                     </LinearLayout>
-
                     <LinearLayout
                         android:id="@+id/downloading_advanced_container"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:visibility="gone">
-
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_force_stream_downloading"
                             android:layout_width="match_parent"
                             android:layout_height="56dp"
                             android:checked="@{viewModel.isForceStreamDownloading}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setForceStreamDownloading(isChecked)}"
+                            android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setForceStreamDownloading(isChecked)}"
                             android:text="@string/force_stream_downloading"
                             android:textColor="@color/sxTextPrimary" />
-
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_always_remux_regular_downloads"
                             android:layout_width="match_parent"
                             android:layout_height="56dp"
                             android:checked="@{viewModel.isAlwaysRemuxRegularDownloads}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsRemuxOnlyRegularDownloads(isChecked)}"
+                            android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsRemuxOnlyRegularDownloads(isChecked)}"
                             android:text="@string/is_always_remux_regular_downloads"
                             android:textColor="@color/sxTextPrimary" />
-
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_remux_only_live_regular_downloads"
                             android:layout_width="match_parent"
                             android:layout_height="56dp"
                             android:checked="@{viewModel.isRemuxOnlyLiveRegularDownloads}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsRemuxOnlyLiveRegularDownloads(isChecked)}"
+                            android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsRemuxOnlyLiveRegularDownloads(isChecked)}"
                             android:text="@string/is_remux_only_live_regular_downloads"
                             android:textColor="@color/sxTextPrimary" />
-
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/is_interrupt_intrecepted_resources"
                             android:layout_width="match_parent"
                             android:layout_height="56dp"
                             android:checked="@{viewModel.isInterruptIntreceptedResources}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsInterruptInterceptedResources(isChecked)}"
+                            android:onCheckedChanged="@{(_, isChecked) -&gt; viewModel.setIsInterruptInterceptedResources(isChecked)}"
                             android:text="@string/is_interrupt_intrecepted_resources"
                             android:textColor="@color/sxTextPrimary" />
-
                         <LinearLayout
                             android:id="@+id/filename_template_container"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/padding_normal"
                             android:orientation="vertical">
-
                             <com.google.android.material.textview.MaterialTextView
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
@@ -678,7 +605,6 @@
                                 android:textColor="@color/sxTextPrimary"
                                 android:textSize="@dimen/text_small"
                                 android:textStyle="bold" />
-
                             <com.google.android.material.textview.MaterialTextView
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
@@ -686,7 +612,6 @@
                                 android:text="@string/filename_template_summary"
                                 android:textColor="@color/sxTextSecondary"
                                 android:textSize="@dimen/text_tiny" />
-
                             <com.google.android.material.textfield.TextInputEditText
                                 android:id="@+id/filename_template_input"
                                 android:layout_width="match_parent"
@@ -702,24 +627,21 @@
                                 android:textColor="@color/sxTextPrimary"
                                 android:textSize="@dimen/text_small"
                                 tools:text="%(title)s-%(resolution)s.%(ext)s" />
-
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/button_reset_filename_template"
                                 style="@style/Widget.MaterialComponents.Button.TextButton"
                                 android:layout_width="wrap_content"
-                                android:layout_height="44dp"
+                                android:layout_height="48dp"
                                 android:layout_gravity="end"
                                 android:text="@string/filename_template_reset"
                                 android:textColor="@color/colorPrimary" />
                         </LinearLayout>
-
                         <LinearLayout
                             android:id="@+id/ytdlp_update_container"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/padding_normal"
                             android:orientation="vertical">
-
                             <com.google.android.material.textview.MaterialTextView
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
@@ -727,7 +649,6 @@
                                 android:textColor="@color/sxTextPrimary"
                                 android:textSize="@dimen/text_small"
                                 android:textStyle="bold" />
-
                             <com.google.android.material.textview.MaterialTextView
                                 android:id="@+id/ytdlp_update_summary"
                                 android:layout_width="match_parent"
@@ -737,7 +658,6 @@
                                 android:textColor="@color/sxTextSecondary"
                                 android:textSize="@dimen/text_tiny"
                                 tools:text="yt-dlp 2026.01.01&#10;Already up to date" />
-
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/button_update_ytdlp"
                                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -750,14 +670,12 @@
                                 app:cornerRadius="8dp"
                                 app:strokeColor="@color/sxOutline" />
                         </LinearLayout>
-
                         <LinearLayout
                             android:id="@+id/cookie_profile_container"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/padding_normal"
                             android:orientation="vertical">
-
                             <com.google.android.material.textview.MaterialTextView
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
@@ -765,7 +683,6 @@
                                 android:textColor="@color/sxTextPrimary"
                                 android:textSize="@dimen/text_small"
                                 android:textStyle="bold" />
-
                             <com.google.android.material.textview.MaterialTextView
                                 android:id="@+id/cookie_profile_summary"
                                 android:layout_width="match_parent"
@@ -774,13 +691,11 @@
                                 android:text="@{viewModel.cookieProfileSummary}"
                                 android:textColor="@color/sxTextSecondary"
                                 android:textSize="@dimen/text_tiny" />
-
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="@dimen/padding_small"
                                 android:orientation="horizontal">
-
                                 <com.google.android.material.button.MaterialButton
                                     android:id="@+id/button_import_cookie_profile"
                                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -792,7 +707,6 @@
                                     android:textColor="@color/sxTextPrimary"
                                     app:cornerRadius="8dp"
                                     app:strokeColor="@color/sxOutline" />
-
                                 <com.google.android.material.button.MaterialButton
                                     android:id="@+id/button_export_cookie_profile"
                                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -805,114 +719,101 @@
                                     app:strokeColor="@color/sxOutline" />
                             </LinearLayout>
                         </LinearLayout>
-
                         <LinearLayout
                             android:id="@+id/max_concurrent_downloads_container"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/padding_normal"
                             android:orientation="vertical">
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/max_concurrent_downloads_text"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@{context.getString(R.string.max_concurrent_downloads) + viewModel.maxConcurrentDownloads}"
-                            android:textColor="@color/sxTextPrimary"
-                            android:textSize="@dimen/text_small"
-                            android:textStyle="bold"
-                            tools:text="Concurrent downloads: 2" />
-
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/seekBarMaxConcurrentDownloads"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:stepSize="1"
-                            android:valueFrom="0"
-                            android:valueTo="5" />
+                            <com.google.android.material.textview.MaterialTextView
+                                android:id="@+id/max_concurrent_downloads_text"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@{context.getString(R.string.max_concurrent_downloads) + viewModel.maxConcurrentDownloads}"
+                                android:textColor="@color/sxTextPrimary"
+                                android:textSize="@dimen/text_small"
+                                android:textStyle="bold"
+                                tools:text="Concurrent downloads: 2" />
+                            <com.google.android.material.slider.Slider
+                                android:id="@+id/seekBarMaxConcurrentDownloads"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:stepSize="1"
+                                android:valueFrom="0"
+                                android:valueTo="5" />
                         </LinearLayout>
-
                         <LinearLayout
                             android:id="@+id/regular_container"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/padding_normal"
                             android:orientation="vertical">
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/regular_threads_count_text"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@{(context.getString(R.string.regular_threads_count) + viewModel.regularThreadsCount)}"
-                            android:textColor="@color/sxTextPrimary"
-                            android:textSize="@dimen/text_small"
-                            android:textStyle="bold"
-                            tools:text="Regular Download Threads: 4" />
-
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/seekBarRegular"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:stepSize="1"
-                            android:valueFrom="0"
-                            android:valueTo="15" />
+                            <com.google.android.material.textview.MaterialTextView
+                                android:id="@+id/regular_threads_count_text"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@{(context.getString(R.string.regular_threads_count) + viewModel.regularThreadsCount)}"
+                                android:textColor="@color/sxTextPrimary"
+                                android:textSize="@dimen/text_small"
+                                android:textStyle="bold"
+                                tools:text="Regular Download Threads: 4" />
+                            <com.google.android.material.slider.Slider
+                                android:id="@+id/seekBarRegular"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:stepSize="1"
+                                android:valueFrom="0"
+                                android:valueTo="15" />
                         </LinearLayout>
-
                         <LinearLayout
                             android:id="@+id/m3u8_container"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/padding_small"
                             android:orientation="vertical">
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/m3u8_threads_count_text"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@{context.getString(R.string.m3u8_threads_count) + viewModel.m3u8ThreadsCount}"
-                            android:textColor="@color/sxTextPrimary"
-                            android:textSize="@dimen/text_small"
-                            android:textStyle="bold"
-                            tools:text="M3U8 Download Threads: 8" />
-
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/seekBarM3u8"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:stepSize="1"
-                            android:valueFrom="0"
-                            android:valueTo="15" />
+                            <com.google.android.material.textview.MaterialTextView
+                                android:id="@+id/m3u8_threads_count_text"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@{context.getString(R.string.m3u8_threads_count) + viewModel.m3u8ThreadsCount}"
+                                android:textColor="@color/sxTextPrimary"
+                                android:textSize="@dimen/text_small"
+                                android:textStyle="bold"
+                                tools:text="M3U8 Download Threads: 8" />
+                            <com.google.android.material.slider.Slider
+                                android:id="@+id/seekBarM3u8"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:stepSize="1"
+                                android:valueFrom="0"
+                                android:valueTo="15" />
                         </LinearLayout>
-
                         <LinearLayout
                             android:id="@+id/video_detection_threshold"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/padding_small"
                             android:orientation="vertical">
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/video_detection_threshold_text"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/video_detection_threshold"
-                            android:textColor="@color/sxTextPrimary"
-                            android:textSize="@dimen/text_small"
-                            android:textStyle="bold"
-                            tools:text="Ads detection threshold is 4 MB" />
-
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/seekBarVideoDetectionThreshold"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:stepSize="1"
-                            android:valueFrom="0"
-                            android:valueTo="100" />
+                            <com.google.android.material.textview.MaterialTextView
+                                android:id="@+id/video_detection_threshold_text"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/video_detection_threshold"
+                                android:textColor="@color/sxTextPrimary"
+                                android:textSize="@dimen/text_small"
+                                android:textStyle="bold"
+                                tools:text="Ads detection threshold is 4 MB" />
+                            <com.google.android.material.slider.Slider
+                                android:id="@+id/seekBarVideoDetectionThreshold"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:stepSize="1"
+                                android:valueFrom="0"
+                                android:valueTo="100" />
                         </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/settings_storage_card"
                 android:layout_width="match_parent"
@@ -920,18 +821,16 @@
                 android:layout_marginTop="@dimen/padding_normal"
                 android:layout_marginBottom="@dimen/padding_normal"
                 app:cardBackgroundColor="@color/sxSurfaceRaised"
-                app:cardCornerRadius="@dimen/corner_md"
+                app:cardCornerRadius="20dp"
                 app:cardElevation="@dimen/elev_resting"
                 app:strokeColor="@color/sxOutline"
                 app:strokeWidth="0dp">
-
                 <LinearLayout
                     android:id="@+id/downloads_location_container"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="@dimen/padding_normal">
-
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -939,7 +838,6 @@
                         android:textColor="@color/sxTextPrimary"
                         android:textSize="@dimen/text_medium"
                         android:textStyle="bold" />
-
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -947,14 +845,12 @@
                         android:text="@string/settings_storage_subtitle"
                         android:textColor="@color/sxTextSecondary"
                         android:textSize="@dimen/text_small" />
-
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:id="@+id/layout_migration_center"
                         android:layout_width="match_parent"
                         android:layout_height="72dp"
                         android:layout_marginTop="@dimen/padding_small"
                         android:background="?attr/selectableItemBackground">
-
                         <ImageView
                             android:id="@+id/iv_migration_center"
                             android:layout_width="40dp"
@@ -967,7 +863,6 @@
                             app:layout_constraintStart_toStartOf="parent"
                             app:layout_constraintTop_toTopOf="parent"
                             app:tint="@color/colorPrimary" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/tv_migration_center"
                             android:layout_width="0dp"
@@ -983,7 +878,6 @@
                             app:layout_constraintStart_toEndOf="@id/iv_migration_center"
                             app:layout_constraintTop_toTopOf="parent"
                             app:layout_constraintVertical_chainStyle="packed" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/tv_migration_center_summary"
                             android:layout_width="0dp"
@@ -999,15 +893,13 @@
                             app:layout_constraintStart_toEndOf="@id/iv_migration_center"
                             app:layout_constraintTop_toBottomOf="@id/tv_migration_center" />
                     </androidx.constraintlayout.widget.ConstraintLayout>
-
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:id="@+id/layout_open_download_folder"
                         android:layout_width="match_parent"
                         android:layout_height="72dp"
                         android:layout_marginTop="@dimen/padding_small"
                         android:background="?attr/selectableItemBackground"
-                        android:onClick="@{() -> viewModel.openVideoFolder()}">
-
+                        android:onClick="@{() -&gt; viewModel.openVideoFolder()}">
                         <ImageView
                             android:id="@+id/iv_open_download_folder"
                             android:layout_width="40dp"
@@ -1020,7 +912,6 @@
                             app:layout_constraintStart_toStartOf="parent"
                             app:layout_constraintTop_toTopOf="parent"
                             app:tint="@color/colorPrimary" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/tv_open_download_folder"
                             android:layout_width="0dp"
@@ -1036,7 +927,6 @@
                             app:layout_constraintStart_toEndOf="@id/iv_open_download_folder"
                             app:layout_constraintTop_toTopOf="parent"
                             app:layout_constraintVertical_chainStyle="packed" />
-
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/tv_open_download_folder_summary"
                             android:layout_width="0dp"
@@ -1052,40 +942,36 @@
                             app:layout_constraintStart_toEndOf="@id/iv_open_download_folder"
                             app:layout_constraintTop_toBottomOf="@id/tv_open_download_folder" />
                     </androidx.constraintlayout.widget.ConstraintLayout>
-
                     <RadioGroup
                         android:id="@+id/storage_options"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/padding_small">
-
                         <RadioButton
                             android:id="@+id/option_sd_card"
                             android:layout_width="match_parent"
                             android:layout_height="48dp"
                             android:buttonTint="@color/colorPrimary"
                             android:checked="@{viewModel.storageType == viewModel.storageType.SD}"
-                            android:onClick="@{() -> viewModel.setDownloadsFolderSdCard()}"
+                            android:onClick="@{() -&gt; viewModel.setDownloadsFolderSdCard()}"
                             android:text="@string/downloads_folder"
                             android:textColor="@color/sxTextPrimary" />
-
                         <RadioButton
                             android:id="@+id/option_hidden_folder"
                             android:layout_width="match_parent"
                             android:layout_height="48dp"
                             android:buttonTint="@color/colorPrimary"
                             android:checked="@{viewModel.storageType == viewModel.storageType.HIDDEN}"
-                            android:onClick="@{() -> viewModel.setDownloadsFolderHidden()}"
+                            android:onClick="@{() -&gt; viewModel.setDownloadsFolderHidden()}"
                             android:text="@string/hidden_folder"
                             android:textColor="@color/sxTextPrimary" />
-
                         <RadioButton
                             android:id="@+id/option_sd_app_folder"
                             android:layout_width="match_parent"
                             android:layout_height="48dp"
                             android:buttonTint="@color/colorPrimary"
                             android:checked="@{viewModel.storageType == viewModel.storageType.HIDDEN_SD}"
-                            android:onClick="@{() -> viewModel.setDownloadsFolderHiddenSdCard()}"
+                            android:onClick="@{() -&gt; viewModel.setDownloadsFolderHiddenSdCard()}"
                             android:text="@string/sd_app_folder"
                             android:textColor="@color/sxTextPrimary" />
                     </RadioGroup>

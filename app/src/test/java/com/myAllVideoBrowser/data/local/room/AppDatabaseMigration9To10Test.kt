@@ -7,6 +7,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.myAllVideoBrowser.di.module.MIGRATION_9_10
+import com.myAllVideoBrowser.di.module.MIGRATION_10_11
+import com.myAllVideoBrowser.di.module.MIGRATION_11_12
+import com.myAllVideoBrowser.di.module.MIGRATION_12_13
+import com.myAllVideoBrowser.di.module.MIGRATION_13_14
 import com.myAllVideoBrowser.util.downloaders.DownloadFingerprint
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
 import com.myAllVideoBrowser.util.downloaders.youtubedl_downloader.YoutubeDlStopReason
@@ -48,7 +52,13 @@ class AppDatabaseMigration9To10Test {
         createVersionNineDatabase()
 
         database = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
-            .addMigrations(MIGRATION_9_10)
+            .addMigrations(
+                MIGRATION_9_10,
+                MIGRATION_10_11,
+                MIGRATION_11_12,
+                MIGRATION_12_13,
+                MIGRATION_13_14
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -62,6 +72,8 @@ class AppDatabaseMigration9To10Test {
         assertEquals(false, migrated.removePartialOnCancel)
         assertEquals("", migrated.finalizationSource)
         assertEquals("", migrated.finalizationTarget)
+        assertEquals("", migrated.finalMediaUri)
+        assertEquals(true, migrated.mediaBindingTrusted)
         assertEquals("https://cdn.example/legacy.mp4", migrated.videoInfo.downloadUrls.single().url)
         assertEquals(true, migrated.videoInfo.isRegularDownload)
         assertEquals(
@@ -70,7 +82,7 @@ class AppDatabaseMigration9To10Test {
         )
         assertEquals(LEGACY_ID, database?.progressDao()?.findDuplicateByFingerprint(migrated.downloadFingerprint)?.id)
 
-        val expectedColumns = progressColumns(readSchema(10))
+        val expectedColumns = progressColumns(readSchema(14))
         val actualColumns = readProgressColumns(requireNotNull(database).openHelper.writableDatabase)
         assertEquals(expectedColumns, actualColumns)
         assertEquals(ColumnSpec("INTEGER", true, "0"), actualColumns.getValue("stopReason"))
@@ -78,6 +90,8 @@ class AppDatabaseMigration9To10Test {
         assertEquals(ColumnSpec("INTEGER", true, "0"), actualColumns.getValue("removePartialOnCancel"))
         assertEquals(ColumnSpec("TEXT", true, "''"), actualColumns.getValue("finalizationSource"))
         assertEquals(ColumnSpec("TEXT", true, "''"), actualColumns.getValue("finalizationTarget"))
+        assertEquals(ColumnSpec("TEXT", true, "''"), actualColumns.getValue("finalMediaUri"))
+        assertEquals(ColumnSpec("INTEGER", true, "1"), actualColumns.getValue("mediaBindingTrusted"))
 
         val dao = requireNotNull(database).progressDao()
         assertEquals(1, dao.adoptLegacyYtDlpExecution(LEGACY_ID, "recovery-token"))
@@ -92,7 +106,13 @@ class AppDatabaseMigration9To10Test {
         createVersionNineDatabase(videoJson = "{not-valid-json")
 
         database = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
-            .addMigrations(MIGRATION_9_10)
+            .addMigrations(
+                MIGRATION_9_10,
+                MIGRATION_10_11,
+                MIGRATION_11_12,
+                MIGRATION_12_13,
+                MIGRATION_13_14
+            )
             .allowMainThreadQueries()
             .build()
 

@@ -226,6 +226,7 @@ object DownloaderUtils {
         httpClient: OkHttpClient,
         hlsTmpDir: File,
         headers: Headers,
+        credentialOriginUrl: String,
         vararg segmentGroups: List<HlsPlaylistParser.MediaSegment>?,
         shouldAbort: () -> Boolean = { false }
     ) {
@@ -250,7 +251,7 @@ object DownloaderUtils {
             if (keyFile.exists() && !keyFile.delete()) {
                 throw IOException("Unable to replace invalid HLS key file: ${keyFile.absolutePath}")
             }
-            downloadKey(httpClient, key, keyFile, headers, shouldAbort)
+            downloadKey(httpClient, key, keyFile, headers, credentialOriginUrl, shouldAbort)
             throwIfAbortRequested(shouldAbort)
         }
     }
@@ -269,6 +270,7 @@ object DownloaderUtils {
         key: HlsPlaylistParser.HlsEncryptionKey,
         keyFile: File,
         headers: Headers,
+        credentialOriginUrl: String,
         shouldAbort: () -> Boolean
     ) {
         val temporaryFile = File(keyFile.parentFile, keyFile.name + ".download")
@@ -276,9 +278,13 @@ object DownloaderUtils {
             if (temporaryFile.exists() && !temporaryFile.delete()) {
                 throw IOException("Unable to clear stale HLS key staging file.")
             }
-            val request = Request.Builder().url(key.uri).headers(headers).build()
             throwIfAbortRequested(shouldAbort)
-            httpClient.newCall(request).execute()
+            ScopedHttpRequestExecutor.execute(
+                client = httpClient,
+                targetUrl = key.uri,
+                headers = headers.toMap(),
+                credentialOriginUrl = credentialOriginUrl
+            )
                 .use { response ->
                     if (!response.isSuccessful) throw IOException("Failed to download key file. HTTP ${response.code}")
                     val bytes = response.body.byteStream().use { input ->

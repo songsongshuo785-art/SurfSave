@@ -6,10 +6,11 @@ import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.MediaCodecClassifier
+import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
+import com.myAllVideoBrowser.util.downloaders.super_x_downloader.ScopedHttpRequestExecutor
 import com.myAllVideoBrowser.util.hls_parser.HlsPlaylistParser
 import com.myAllVideoBrowser.util.hls_parser.MpdPlaylistParser
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
-import okhttp3.Headers.Companion.toHeaders
 import okhttp3.Request
 import java.io.IOException
 import java.time.Duration
@@ -59,17 +60,39 @@ class VideoServiceSuperX(
         isM3u8: Boolean,
         isMpd: Boolean
     ): VideoInfoWrapper? {
-        val urlString = url.url.toString()
-        AppLogger.d("PlaylistService: Fetching manifest from $urlString")
+        val credentialOriginUrl = url.url.toString()
+        val sourceHeaders = url.headers.toMap()
+        val originHeaders = MediaRequestHeaderPolicy.forTarget(
+            storedHeaders = sourceHeaders,
+            credentialOriginUrl = credentialOriginUrl,
+            targetUrl = credentialOriginUrl
+        )
+        AppLogger.d("PlaylistService: Fetching manifest from $credentialOriginUrl")
 
         // 1. Fetch the manifest content
-        val responsePayload = client.getProxyOkHttpClient().newCall(url).execute().use { response ->
+        val responsePayload = ScopedHttpRequestExecutor.execute(
+            client = client.getProxyOkHttpClient(),
+            targetUrl = credentialOriginUrl,
+            headers = originHeaders,
+            credentialOriginUrl = credentialOriginUrl
+        ).use { response ->
             val content = response.body.string()
             if (!response.isSuccessful || content.isEmpty()) {
-                throw IOException("Failed to download playlist at $urlString. HTTP ${response.code}")
+                throw IOException(
+                    "Failed to download playlist at ${response.request.url}. HTTP ${response.code}"
+                )
             }
-            ManifestResponse(content, response.header("Content-Type").orEmpty())
+            ManifestResponse(
+                content = content,
+                contentType = response.header("Content-Type").orEmpty(),
+                finalUrl = response.request.url.toString()
+            )
         }
+        val manifestHeaders = MediaRequestHeaderPolicy.forTarget(
+            storedHeaders = originHeaders,
+            credentialOriginUrl = credentialOriginUrl,
+            targetUrl = responsePayload.finalUrl
+        )
 
         // 2. Determine playlist type and parse
         return if (isM3u8) {
@@ -77,20 +100,31 @@ class VideoServiceSuperX(
             if (playlistContent == null) {
                 AppLogger.w(
                     "PlaylistService: Rejected HLS candidate without #EXTM3U header " +
-                        "at $urlString (${responsePayload.contentType.ifBlank { "unknown content type" }})"
+                        "at ${responsePayload.finalUrl} " +
+                        "(${responsePayload.contentType.ifBlank { "unknown content type" }})"
                 )
                 return null
             }
             AppLogger.d("PlaylistService: Detected HLS manifest.")
-            val manifest = HlsPlaylistParser.parse(playlistContent, urlString)
-            parseHlsManifest(manifest, url.headers.toMap())
+            val manifest = HlsPlaylistParser.parse(playlistContent, responsePayload.finalUrl)
+            parseHlsManifest(
+                manifest = manifest,
+                headers = manifestHeaders,
+                requestHeaders = originHeaders,
+                credentialOriginUrl = credentialOriginUrl
+            )
         } else if (isMpd) {
             AppLogger.d("PlaylistService: Detected MPD manifest.")
             val manifest = MpdPlaylistParser.parse(
                 normalizeManifestContent(responsePayload.content),
-                urlString
+                responsePayload.finalUrl
             )
-            parseMpdManifest(manifest, url.headers.toMap())
+            parseMpdManifest(
+                manifest = manifest,
+                headers = manifestHeaders,
+                requestHeaders = originHeaders,
+                credentialOriginUrl = credentialOriginUrl
+            )
         } else {
             AppLogger.w("PlaylistService: URL was flagged as a playlist but extension is not .m3u8 or .mpd.")
             null
@@ -99,11 +133,15 @@ class VideoServiceSuperX(
 
     private data class ManifestResponse(
         val content: String,
-        val contentType: String
+        val contentType: String,
+        val finalUrl: String
     )
 
     private fun parseHlsManifest(
-        manifest: HlsPlaylistParser.HlsPlaylist, headers: Map<String, String>
+        manifest: HlsPlaylistParser.HlsPlaylist,
+        headers: Map<String, String>,
+        requestHeaders: Map<String, String>,
+        credentialOriginUrl: String
     ): VideoInfoWrapper? {
         val formats = mutableListOf<VideoFormatEntity>()
         val title: String
@@ -114,7 +152,11 @@ class VideoServiceSuperX(
             is HlsPlaylistParser.MasterPlaylist -> {
                 title = "HLS Stream"
                 // Get duration and live status from the first child playlist
-                val firstMediaPlaylist = fetchFirstMediaPlaylist(manifest, headers)
+                val firstMediaPlaylist = fetchFirstMediaPlaylist(
+                    manifest = manifest,
+                    headers = requestHeaders,
+                    credentialOriginUrl = credentialOriginUrl
+                )
                 isLive = firstMediaPlaylist?.hasEndList == false
                 duration =
                     if (isLive) 0L else (firstMediaPlaylist?.totalDuration?.times(1000))?.toLong()
@@ -150,8 +192,6 @@ class VideoServiceSuperX(
                         val combinedBitrate = variant.bandwidth + (associatedAudioRendition?.bandwidth
                             ?: 0)
 
-                        // The final manifest URL for downloading is the MASTER playlist URL.
-                        // The URLs for video/audio tracks will be selected by the downloader later.
                         VideoFormatEntity(
                             formatId = "hls-${height}p-${variant.bandwidth}",
                             format = "hls-${height}p-${variant.bandwidth}",
@@ -163,7 +203,7 @@ class VideoServiceSuperX(
                             acodec = MediaCodecClassifier.firstAudioCodec(
                                 associatedAudioRendition?.codecs ?: variant.codecs
                             ) ?: "unknown",
-                            // The downloader only needs the MASTER manifest URL.
+                            // Keep the resolved URL and scoped headers for playback/inspection.
                             url = manifest.baseUri,
                             manifestUrl = manifest.baseUri,
                             protocol = "m3u8_native",
@@ -172,6 +212,10 @@ class VideoServiceSuperX(
                             videoOnlyUrl = videoUrl,
                             audioOnlyUrl = audioUrl,
                             httpHeaders = headers,
+                            // Downloading starts from the authenticated entry request, then every
+                            // redirect/child/segment re-applies the origin credential boundary.
+                            manifestRequestUrl = credentialOriginUrl,
+                            manifestRequestHeaders = requestHeaders,
                             height = height,
                             width = width,
                             bitrate = combinedBitrate,
@@ -209,6 +253,8 @@ class VideoServiceSuperX(
                         manifestUrl = manifest.baseUri,
                         protocol = "m3u8_native",
                         httpHeaders = headers,
+                        manifestRequestUrl = credentialOriginUrl,
+                        manifestRequestHeaders = requestHeaders,
                         height = inferredHeight,
                         width = 0,
                         duration = duration
@@ -242,7 +288,10 @@ class VideoServiceSuperX(
      * containing a list of selectable video formats.
      */
     private fun parseMpdManifest(
-        manifest: MpdPlaylistParser.MpdManifest, headers: Map<String, String>
+        manifest: MpdPlaylistParser.MpdManifest,
+        headers: Map<String, String>,
+        requestHeaders: Map<String, String>,
+        credentialOriginUrl: String
     ): VideoInfoWrapper? {
         // 1. Detect if the stream is live. This is the primary indicator.
         val isLive = manifest.type == "dynamic"
@@ -278,6 +327,8 @@ class VideoServiceSuperX(
                 manifestUrl = manifest.baseUri,
                 protocol = "http_dash_segments",
                 httpHeaders = headers,
+                manifestRequestUrl = credentialOriginUrl,
+                manifestRequestHeaders = requestHeaders,
                 height = rep.height,
                 width = rep.width,
                 bitrate = rep.bandwidth,
@@ -358,23 +409,27 @@ class VideoServiceSuperX(
      */
     private fun fetchFirstMediaPlaylist(
         manifest: HlsPlaylistParser.MasterPlaylist,
-        headers: Map<String, String>
+        headers: Map<String, String>,
+        credentialOriginUrl: String
     ): HlsPlaylistParser.MediaPlaylist? {
         // Find the first variant that has a valid URL.
         val firstVariantUrl = manifest.variants.firstOrNull()?.url ?: return null
 
         return try {
-            val request =
-                Request.Builder().url(firstVariantUrl).headers(headers.toHeaders()).build()
-            val response = client.getProxyOkHttpClient().newCall(request).execute()
-            val content = response.body.string()
-
-            if (!response.isSuccessful || content.isEmpty()) {
-                return null
+            ScopedHttpRequestExecutor.execute(
+                client = client.getProxyOkHttpClient(),
+                targetUrl = firstVariantUrl,
+                headers = headers,
+                credentialOriginUrl = credentialOriginUrl
+            ).use { response ->
+                val content = response.body.string()
+                if (!response.isSuccessful || content.isEmpty()) {
+                    return null
+                }
+                // Redirects can change the base URL used to resolve segments in the child playlist.
+                HlsPlaylistParser.parse(content, response.request.url.toString())
+                    as? HlsPlaylistParser.MediaPlaylist
             }
-            // Parse the content of the child playlist.
-            val mediaPlaylist = HlsPlaylistParser.parse(content, firstVariantUrl)
-            mediaPlaylist as? HlsPlaylistParser.MediaPlaylist
         } catch (e: Exception) {
             AppLogger.e("Failed to fetch child media playlist: $firstVariantUrl ${e.printStackTrace()}")
             null

@@ -81,6 +81,12 @@ open class YoutubeDlMediaPublisher @Inject constructor(
         return null
     }
 
+    open fun publishedUri(targetPath: String): String? =
+        targetPath.takeIf(String::isNotBlank)
+            ?.let(::File)
+            ?.let { fileUtil.resolveMediaUri(context, it) }
+            ?.toString()
+
     /** 记录失败（无独立 detail 时用 message 兜底）：写任务日志 + 全局最近错误日志，返回 message。 */
     private fun fail(message: String): String {
         return failWithDetail(message, message)

@@ -3,8 +3,12 @@ package com.myAllVideoBrowser.ui.main.video
 import android.content.ContentResolver
 import android.content.Context
 import android.content.IntentSender
+import android.database.ContentObserver
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import androidx.databinding.ObservableField
 import androidx.lifecycle.viewModelScope
@@ -22,11 +26,13 @@ import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.util.VideoFormatUi
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
 import io.reactivex.rxjava3.core.Observable
+import io.reactivex.rxjava3.disposables.Disposable
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Locale
 import javax.inject.Inject
 
 //@OpenForTesting
@@ -58,31 +64,79 @@ class VideoViewModel @Inject constructor(
     private var pendingRename: PendingRename? = null
     private val thumbnailFrameMicrosCache = mutableMapOf<String, Long>()
     private val mediaSortTimeMillisCache = mutableMapOf<String, Long>()
+    private var refreshJob: Job? = null
+    private var progressSubscription: Disposable? = null
+    private var mediaObserver: ContentObserver? = null
+    private var started = false
 
+    @Synchronized
     override fun start() {
-        viewModelScope.launch(Dispatchers.IO) {
-            while (true) {
-                delay(1000)
-                val newList = VideoLibraryOrdering.newestFirst(getFilesList())
-                localVideos.set(newList)
+        if (started) return
+        started = true
+        val context = ContextUtils.getApplicationContext()
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                scheduleRefresh()
             }
         }
+        mediaObserver = observer
+        val observedCollections = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            listOf(MediaStore.Downloads.EXTERNAL_CONTENT_URI)
+        } else {
+            listOf(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            )
+        }
+        observedCollections.forEach { uri ->
+            context.contentResolver.registerContentObserver(uri, true, observer)
+        }
+        progressSubscription = progressRepository.getProgressInfos().subscribe(
+            { scheduleRefresh() },
+            { error -> AppLogger.e("Video metadata observation failed", error) }
+        )
+        scheduleRefresh(immediate = true)
     }
 
-
+    @Synchronized
     override fun stop() {
+        if (!started) return
+        started = false
+        refreshJob?.cancel()
+        refreshJob = null
+        progressSubscription?.dispose()
+        progressSubscription = null
+        mediaObserver?.let { observer ->
+            runCatching {
+                ContextUtils.getApplicationContext().contentResolver.unregisterContentObserver(observer)
+            }
+        }
+        mediaObserver = null
+    }
+
+    private fun scheduleRefresh(immediate: Boolean = false) {
+        if (!started) return
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
+            if (!immediate) delay(250L)
+            val newList = withContext(Dispatchers.IO) {
+                VideoLibraryOrdering.newestFirst(getFilesList())
+            }
+            if (started) localVideos.set(newList)
+        }
     }
 
     private fun getFilesList(): List<LocalVideo> {
         val listVideos: MutableList<LocalVideo> = mutableListOf()
-        val completedProgressByName = loadCompletedProgressByName()
+        val completedProgress = loadCompletedProgress()
+        val metadataIndex = CompletedVideoMetadataIndex.from(completedProgress)
         val validCacheKeys = mutableSetOf<String>()
         val context = ContextUtils.getApplicationContext()
         fileUtil.listFiles.forEach { entry ->
             val fileUri = entry.uri
             val fileSize = fileUtil.getContentLength(context, fileUri)
             val readableSize = FileUtil.getFileSizeReadable(fileSize.toDouble())
-            val progressInfo = completedProgressByName[normalizeFileName(entry.displayName)]
+            val progressInfo = metadataIndex.find(fileUri.toString(), entry.displayName)
             val cacheKey = fileUri.toString()
             validCacheKeys += cacheKey
             val video = LocalVideo(
@@ -91,8 +145,18 @@ class VideoViewModel @Inject constructor(
                 entry.displayName
             )
             video.size = readableSize
+            video.mimeType = try {
+                context.contentResolver.getType(fileUri).orEmpty()
+            } catch (error: SecurityException) {
+                AppLogger.e("Media type permission changed for $fileUri", error)
+                ""
+            } catch (error: IllegalArgumentException) {
+                AppLogger.e("Media provider cannot resolve type for $fileUri", error)
+                ""
+            }
             video.quality = progressInfo?.let { resolveQuality(it) }.orEmpty()
             video.sourceUrl = progressInfo?.let { resolveSourceUrl(it) }.orEmpty()
+            video.originalThumbnailUrl = progressInfo?.videoInfo?.thumbnail.orEmpty()
             video.thumbnailFrameMicros =
                 resolveThumbnailFrameMicros(context, fileUri)
             video.sortTimeMillis = resolveMediaSortTimeMillis(context, fileUri)
@@ -193,36 +257,14 @@ class VideoViewModel @Inject constructor(
         return frameMillis.coerceAtLeast(0L) * 1_000L
     }
 
-    private fun loadCompletedProgressByName(): Map<String, ProgressInfo> {
+    private fun loadCompletedProgress(): List<ProgressInfo> {
         return runCatching {
-            progressRepository.getProgressInfos()
-                .blockingFirst(emptyList())
+            progressRepository.getProgressInfosOnce()
                 .filter { it.downloadStatus == VideoTaskState.SUCCESS }
-                .flatMap { progressInfo ->
-                    candidateFileNames(progressInfo).map { fileName -> fileName to progressInfo }
-                }
-                .toMap()
         }.getOrElse { error ->
             AppLogger.e("Failed to load completed video metadata: ${error.message}")
-            emptyMap()
+            emptyList()
         }
-    }
-
-    private fun candidateFileNames(progressInfo: ProgressInfo): Set<String> {
-        val videoInfo = progressInfo.videoInfo
-        return listOf(
-            videoInfo.name,
-            File(videoInfo.name).name,
-            videoInfo.title,
-            "${videoInfo.title}.mp4"
-        )
-            .map { normalizeFileName(it) }
-            .filter { it.isNotBlank() }
-            .toSet()
-    }
-
-    private fun normalizeFileName(fileName: String): String {
-        return File(fileName).name.trim().lowercase(Locale.US)
     }
 
     private fun resolveQuality(progressInfo: ProgressInfo): String {
@@ -251,29 +293,26 @@ class VideoViewModel @Inject constructor(
     }
 
     fun deleteVideo(context: Context, video: LocalVideo) {
-        // 直接用 video.uri 真删文件，不再依赖 localVideos 的 find 匹配（避免 path 比对失败时静默 return）。
-        when (val result = fileUtil.deleteMedia(context, video.uri)) {
-            is DeleteMediaResult.Success -> {
-                val list = localVideos.get()?.toMutableList() ?: mutableListOf()
-                list.removeAll {
-                    it.uri == video.uri ||
-                        it.uri.toString() == video.uri.toString() ||
-                        it.uri.path == video.uri.path
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                fileUtil.deleteMedia(context, video.uri)
+            }
+            when (result) {
+                is DeleteMediaResult.Success -> {
+                    clearFinalMediaBinding(video.uri)
+                    removeDeletedVideo(video)
                 }
-                removeCachedVideoMetadata(video.uri)
-                localVideos.set(list)
-                deleteSuccessEvent.value = Unit
-            }
-            is DeleteMediaResult.NeedsAuth -> {
-                pendingDelete = PendingDelete(
-                    video = video,
-                    retryUri = result.retryUri,
-                    verificationUri = result.verificationUri
-                )
-                deleteAuthEvent.value = result.intentSender
-            }
-            is DeleteMediaResult.Failed -> {
-                deleteFailedEvent.value = Unit
+                is DeleteMediaResult.NeedsAuth -> {
+                    pendingDelete = PendingDelete(
+                        video = video,
+                        retryUri = result.retryUri,
+                        verificationUri = result.verificationUri
+                    )
+                    deleteAuthEvent.value = result.intentSender
+                }
+                is DeleteMediaResult.Failed -> {
+                    deleteFailedEvent.value = Unit
+                }
             }
         }
     }
@@ -289,43 +328,53 @@ class VideoViewModel @Inject constructor(
             deleteFailedEvent.value = Unit
             return
         }
-        val deleted = if (operation.retryUri == null) {
-            fileUtil.isUriDefinitelyAbsent(context, operation.verificationUri)
-        } else {
-            when (val result = fileUtil.deleteMedia(context, operation.retryUri)) {
-                is DeleteMediaResult.Success -> true
-                is DeleteMediaResult.NeedsAuth -> {
-                    AppLogger.d("onDeleteAuthResult: retry still NeedsAuth, treat as failed")
-                    false
+        viewModelScope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                if (operation.retryUri == null) {
+                    fileUtil.isUriDefinitelyAbsent(context, operation.verificationUri)
+                } else {
+                    when (fileUtil.deleteMedia(context, operation.retryUri)) {
+                        is DeleteMediaResult.Success -> true
+                        is DeleteMediaResult.NeedsAuth -> {
+                            AppLogger.d("onDeleteAuthResult: retry still NeedsAuth, treat as failed")
+                            false
+                        }
+                        is DeleteMediaResult.Failed -> false
+                    }
                 }
-                is DeleteMediaResult.Failed -> false
             }
-        }
-        if (deleted) {
-            removeDeletedVideo(operation.video)
-        } else {
-            deleteFailedEvent.value = Unit
+            if (deleted) {
+                clearFinalMediaBinding(operation.video.uri)
+                removeDeletedVideo(operation.video)
+            } else {
+                deleteFailedEvent.value = Unit
+            }
         }
     }
 
     fun renameVideo(context: Context, uri: Uri, newName: String) {
-        when (val result = fileUtil.renameMedia(context, uri, newName)) {
-            is RenameMediaResult.Success -> applyRenameSuccess(uri, result)
-            is RenameMediaResult.NeedsAuth -> {
-                pendingRename = PendingRename(
-                    originalUri = uri,
-                    retryUri = result.retryUri,
-                    requestedName = result.requestedName
-                )
-                renameAuthEvent.value = result.intentSender
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                fileUtil.renameMedia(context, uri, newName)
             }
-            RenameMediaResult.AlreadyExists ->
-                renameErrorEvent.value = FILE_EXIST_ERROR_CODE
-            RenameMediaResult.Invalid ->
-                renameErrorEvent.value = FILE_INVALID_ERROR_CODE
-            is RenameMediaResult.Failed -> {
-                AppLogger.e("Media rename failed for $uri: ${result.reason}")
-                renameErrorEvent.value = FILE_INVALID_ERROR_CODE
+            when (result) {
+                is RenameMediaResult.Success -> applyRenameSuccess(uri, result)
+                is RenameMediaResult.NeedsAuth -> {
+                    pendingRename = PendingRename(
+                        originalUri = uri,
+                        retryUri = result.retryUri,
+                        requestedName = result.requestedName
+                    )
+                    renameAuthEvent.value = result.intentSender
+                }
+                RenameMediaResult.AlreadyExists ->
+                    renameErrorEvent.value = FILE_EXIST_ERROR_CODE
+                RenameMediaResult.Invalid ->
+                    renameErrorEvent.value = FILE_INVALID_ERROR_CODE
+                is RenameMediaResult.Failed -> {
+                    AppLogger.e("Media rename failed for $uri: ${result.reason}")
+                    renameErrorEvent.value = FILE_INVALID_ERROR_CODE
+                }
             }
         }
     }
@@ -341,25 +390,35 @@ class VideoViewModel @Inject constructor(
             renameErrorEvent.value = FILE_INVALID_ERROR_CODE
             return
         }
-        when (
-            val result = fileUtil.renameMedia(
-                context,
-                operation.retryUri,
-                operation.requestedName
-            )
-        ) {
-            is RenameMediaResult.Success -> applyRenameSuccess(operation.originalUri, result)
-            RenameMediaResult.AlreadyExists -> renameErrorEvent.value = FILE_EXIST_ERROR_CODE
-            RenameMediaResult.Invalid,
-            is RenameMediaResult.Failed,
-            is RenameMediaResult.NeedsAuth -> {
-                AppLogger.e("Media rename retry did not reach the requested final state")
-                renameErrorEvent.value = FILE_INVALID_ERROR_CODE
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                fileUtil.renameMedia(
+                    context,
+                    operation.retryUri,
+                    operation.requestedName
+                )
+            }
+            when (result) {
+                is RenameMediaResult.Success -> applyRenameSuccess(operation.originalUri, result)
+                RenameMediaResult.AlreadyExists -> renameErrorEvent.value = FILE_EXIST_ERROR_CODE
+                RenameMediaResult.Invalid,
+                is RenameMediaResult.Failed,
+                is RenameMediaResult.NeedsAuth -> {
+                    AppLogger.e("Media rename retry did not reach the requested final state")
+                    renameErrorEvent.value = FILE_INVALID_ERROR_CODE
+                }
             }
         }
     }
 
-    private fun applyRenameSuccess(originalUri: Uri, result: RenameMediaResult.Success) {
+    private suspend fun applyRenameSuccess(originalUri: Uri, result: RenameMediaResult.Success) {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                progressRepository.replaceFinalMediaUri(originalUri.toString(), result.uri.toString())
+            }.onFailure { error ->
+                AppLogger.e("Failed to update renamed video metadata binding", error)
+            }
+        }
         val list = localVideos.get()?.toMutableList() ?: mutableListOf()
         list.firstOrNull { sameUri(it.uri, originalUri) }?.let { video ->
             removeCachedVideoMetadata(video.uri)
@@ -369,6 +428,16 @@ class VideoViewModel @Inject constructor(
         }
         localVideos.set(list)
         renameSuccessEvent.value = Unit
+    }
+
+    private suspend fun clearFinalMediaBinding(uri: Uri) {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                progressRepository.clearFinalMediaUri(uri.toString())
+            }.onFailure { error ->
+                AppLogger.e("Failed to clear deleted video metadata binding", error)
+            }
+        }
     }
 
     private fun removeDeletedVideo(video: LocalVideo) {

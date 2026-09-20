@@ -59,6 +59,16 @@ class ProgressAdapter(
                 this.tvProgress.text =
                     ProgressTextHumanizer.progressLine(context, progressInfo)
 
+                val actionLabel = when {
+                    progressInfo.isActive || progressInfo.downloadStatus == VideoTaskState.PENDING -> R.string.progress_menu_pause
+                    progressInfo.downloadStatus == VideoTaskState.PAUSE -> R.string.progress_menu_resume
+                    progressInfo.downloadStatus == VideoTaskState.ERROR || progressInfo.downloadStatus == VideoTaskState.ENOSPC -> R.string.progress_menu_retry
+                    else -> R.string.surf_task_details
+                }
+                primaryAction.setText(actionLabel)
+                primaryAction.contentDescription = context.getString(actionLabel) + ", " + tvTitle.text
+                primaryAction.setOnClickListener { progressListener.onPrimaryAction(progressInfo.downloadId) }
+
                 // Error line: compact localized category + suggestion, only on failure
                 val failed = progressInfo.downloadStatus == VideoTaskState.ERROR ||
                     progressInfo.downloadStatus == VideoTaskState.ENOSPC
@@ -103,5 +113,6 @@ class ProgressAdapter(
 }
 
 interface ProgressListener {
+    fun onPrimaryAction(downloadId: Long)
     fun onMenuClicked(view: View, downloadId: Long, isRegular: Boolean)
 }

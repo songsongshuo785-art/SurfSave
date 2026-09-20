@@ -1,9 +1,12 @@
 package com.myAllVideoBrowser.ui.main.home.browser.webTab
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -22,6 +25,7 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.URLUtil
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -30,10 +34,12 @@ import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.appcompat.widget.ListPopupWindow
 import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.app.ShareCompat
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.widget.TextViewCompat
 import androidx.databinding.Observable
@@ -69,8 +75,12 @@ import com.myAllVideoBrowser.ui.component.adapter.TabSuggestionAdapter
 import com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener
 import com.myAllVideoBrowser.ui.main.home.browser.BaseWebTabFragment
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserBackPolicy
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserDownloadCoordinator
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserDownloadPlan
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserDownloadRequest
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserFragment
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserMediaClassifier
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserPopupRedirectGuard
 import com.myAllVideoBrowser.ui.main.home.browser.ContentType
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserListener
 import com.myAllVideoBrowser.ui.main.home.browser.CurrentTabIndexProvider
@@ -97,6 +107,7 @@ import com.myAllVideoBrowser.ui.main.player.VideoPlayerFragment
 import com.myAllVideoBrowser.ui.main.player.ExternalPlaybackIntentFactory
 import com.myAllVideoBrowser.ui.main.player.PlaybackMediaKind
 import com.myAllVideoBrowser.ui.main.player.PlaybackMediaKindResolver
+import com.myAllVideoBrowser.ui.main.player.PlaybackMediaIdentity
 import com.myAllVideoBrowser.ui.main.player.PlaybackTarget
 import com.myAllVideoBrowser.ui.main.player.PlaybackTargetMenuAdapter
 import com.myAllVideoBrowser.ui.main.player.PlaybackTargetMenuItem
@@ -104,7 +115,6 @@ import com.myAllVideoBrowser.ui.main.player.PlaybackTargetResolver
 import com.myAllVideoBrowser.ui.main.player.PlaybackTargetStore
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.AppUtil
-import com.myAllVideoBrowser.util.BrowserThumbnailStore
 import com.myAllVideoBrowser.util.FileNameCleaner
 import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
 import com.myAllVideoBrowser.util.VideoFormatUi
@@ -1108,6 +1118,9 @@ class WebTabFragment : BaseWebTabFragment() {
     @Inject
     lateinit var contentBlockWebController: ContentBlockWebController
 
+    @Inject
+    lateinit var browserDownloadCoordinator: BrowserDownloadCoordinator
+
     private lateinit var dataBinding: FragmentWebTabBinding
 
     private lateinit var tabManagerProvider: TabManagerProvider
@@ -1127,6 +1140,19 @@ class WebTabFragment : BaseWebTabFragment() {
     private lateinit var webTab: WebTab
 
     private var customWebChromeClient: CustomWebChromeClient? = null
+    private var browserDownloadDialog: androidx.appcompat.app.AlertDialog? = null
+    private var pendingLegacySystemDownload: BrowserDownloadPlan.SystemFile? = null
+    private val popupRedirectGuard = BrowserPopupRedirectGuard()
+    private val legacyStoragePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            resumePendingLegacySystemDownload()
+        } else {
+            pendingLegacySystemDownload = null
+            showBrowserDownloadFailure(R.string.browser_download_storage_permission_required)
+        }
+    }
 
     private var canGoCounter = 0
 
@@ -1575,15 +1601,12 @@ class WebTabFragment : BaseWebTabFragment() {
     }
 
     override fun openTabsOverview() {
-        runAfterThumbnailCapture { openTabsOverviewAfterCapture() }
+        // BrowserFragment owns the one snapshot taken immediately before opening the overview.
+        super.openTabsOverview()
     }
 
     override fun openNewTabPage() {
         runAfterThumbnailCapture { openNewTabPageAfterCapture() }
-    }
-
-    private fun openTabsOverviewAfterCapture() {
-        super.openTabsOverview()
     }
 
     private fun openNewTabPageAfterCapture() {
@@ -1633,19 +1656,19 @@ class WebTabFragment : BaseWebTabFragment() {
         handleDetectionFeedback()
         tabViewModel.start()
         videoDetectionTabViewModel.start()
+        resumePendingLegacySystemDownload()
     }
 
     override fun onDestroyView() {
         cancelTranslationWork()
         telegramResolveJob?.cancel()
+        browserDownloadDialog?.dismiss()
+        browserDownloadDialog = null
+        popupRedirectGuard.clear()
         videoDetectionTabViewModel.downloadButtonState.removeOnPropertyChangedCallback(
             downloadButtonStateCallback
         )
-        mainActivity.progressViewModel.progressInfos.removeOnPropertyChangedCallback(
-            progressRingCallback
-        )
-        dataBinding.fab.animate().cancel()
-        dataBinding.fabProgressRing?.animate()?.cancel()
+dataBinding.fab.animate().cancel()
         customWebChromeClient?.dispose()
         contentBlockWebController.detach()
         webTab.saveWebViewState()
@@ -1687,6 +1710,7 @@ class WebTabFragment : BaseWebTabFragment() {
 
     override fun onDestroy() {
         AppLogger.d("onDestroy Webview::::::::: ${webTab.getUrl()}")
+        pendingLegacySystemDownload = null
         super.onDestroy()
         translateJob?.cancel()
         translationDebounceJob?.cancel()
@@ -1697,10 +1721,7 @@ class WebTabFragment : BaseWebTabFragment() {
         webTab.getWebView()?.removeJavascriptInterface(TRANSLATION_BRIDGE_NAME)
         tabViewModel.stop()
         videoDetectionTabViewModel.stop()
-        mainActivity.progressViewModel.progressInfos.removeOnPropertyChangedCallback(
-            progressRingCallback
-        )
-        mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRouteCallBack)
+mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRouteCallBack)
         tabManagerProvider.getTabsListChangeEvent()
             .removeOnPropertyChangedCallback(tabsListChangeListener)
     }
@@ -1827,6 +1848,7 @@ class WebTabFragment : BaseWebTabFragment() {
             formatId = selectedFormat.formatId.orEmpty(),
             height = selectedFormat.height,
             pageUrl = videoInfo.originalUrl,
+            mediaIdentity = PlaybackMediaIdentity.fromVideoInfo(videoInfo),
             detectedBySuperX = videoInfo.isDetectedBySuperX,
             extractedAt = System.currentTimeMillis()
         )
@@ -1848,6 +1870,7 @@ class WebTabFragment : BaseWebTabFragment() {
             putExtra(VideoPlayerFragment.VIDEO_FORMAT_ID, request.formatId)
             putExtra(VideoPlayerFragment.VIDEO_FORMAT_HEIGHT, request.height)
             putExtra(VideoPlayerFragment.VIDEO_PAGE_URL, request.pageUrl)
+            putExtra(VideoPlayerFragment.VIDEO_MEDIA_IDENTITY, request.mediaIdentity)
             putExtra(
                 VideoPlayerFragment.VIDEO_DETECTED_BY_SUPER_X,
                 request.detectedBySuperX
@@ -2038,6 +2061,7 @@ class WebTabFragment : BaseWebTabFragment() {
         val formatId: String,
         val height: Int,
         val pageUrl: String,
+        val mediaIdentity: String,
         val detectedBySuperX: Boolean,
         val extractedAt: Long
     )
@@ -2117,6 +2141,9 @@ class WebTabFragment : BaseWebTabFragment() {
                 capturePageMediaMetadata(webView)
                 maybeResolveTelegramPost(webView)
             },
+            shouldBlockMainFrameNavigation = { targetUrl, hasUserGesture, isMainFrame ->
+                popupRedirectGuard.shouldBlock(targetUrl, hasUserGesture, isMainFrame)
+            },
         ) { webView ->
             injectPageScripts(webView)
         }
@@ -2132,12 +2159,34 @@ class WebTabFragment : BaseWebTabFragment() {
             contentBlockCoordinator,
             onProtectedMediaRequested = {
                 videoDetectionTabViewModel.markProtectedMedia(mediaPageGeneration)
+            },
+            onMediaPopupRequested = { url ->
+                val captured = handleBrowserDownloadRequest(
+                    rawUrl = url,
+                    callbackUserAgent = currentWebView?.settings?.userAgentString,
+                    contentDisposition = null,
+                    mimeType = null,
+                    contentLength = 0L
+                )
+                if (captured) {
+                    popupRedirectGuard.arm(currentWebView?.url)
+                }
+                captured
             }
         )
         customWebChromeClient = chromeClient
 
         currentWebView?.webChromeClient = chromeClient
         currentWebView?.webViewClient = webViewClient
+        currentWebView?.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+            handleBrowserDownloadRequest(
+                url,
+                userAgent,
+                contentDisposition,
+                mimeType,
+                contentLength
+            )
+        }
         currentWebView?.addJavascriptInterface(mediaProbeBridge, MEDIA_PROBE_BRIDGE_NAME)
         currentWebView?.addJavascriptInterface(translationBridge, TRANSLATION_BRIDGE_NAME)
         currentWebView?.let(contentBlockWebController::attach)
@@ -2238,6 +2287,7 @@ class WebTabFragment : BaseWebTabFragment() {
         runCatching {
             (webView.parent as? ViewGroup)?.removeView(webView)
             webView.stopLoading()
+            webView.setDownloadListener(null)
             webView.webChromeClient = null
             webView.webViewClient = WebViewClient()
             webView.destroy()
@@ -2247,6 +2297,7 @@ class WebTabFragment : BaseWebTabFragment() {
     }
 
     private fun configureFloatingVideoButton(fragmentWebTabBinding: FragmentWebTabBinding) {
+        fragmentWebTabBinding.floatingContainer.setTopBoundaryView(fragmentWebTabBinding.appBar)
         fragmentWebTabBinding.floatingContainer.setOnClickListener {
             videoDetectionTabViewModel.showVideoInfo()
         }
@@ -2263,39 +2314,10 @@ class WebTabFragment : BaseWebTabFragment() {
             downloadButtonStateCallback
         )
 
-        // Aggregate download progress ring around the FAB
-        mainActivity.progressViewModel.progressInfos.removeOnPropertyChangedCallback(
-            progressRingCallback
-        )
-        mainActivity.progressViewModel.progressInfos.addOnPropertyChangedCallback(
-            progressRingCallback
-        )
-        updateFabProgressRing()
-    }
-
-    private val progressRingCallback = object : Observable.OnPropertyChangedCallback() {
-        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
-            updateFabProgressRing()
-        }
-    }
-
-    private fun updateFabProgressRing() {
-        if (!::dataBinding.isInitialized) {
-            return
-        }
-        val ring = dataBinding.fabProgressRing ?: return
-        val active = mainActivity.progressViewModel.progressInfos.get().orEmpty()
-            .filter { it.isActive && !it.isProgressIndeterminate }
-        if (active.isEmpty()) {
-            ring.visibility = View.GONE
-            return
-        }
-        val percent = active.map { it.progress.coerceIn(0, 100) }.average().toInt()
-        ring.visibility = View.VISIBLE
-        ring.setProgressCompat(percent, true)
     }
 
     private fun animateFabPulse(view: View) {
+        if (android.os.Build.VERSION.SDK_INT >= 26 && !android.animation.ValueAnimator.areAnimatorsEnabled()) return
         view.animate()
             .scaleX(1.12f).scaleY(1.12f)
             .setDuration(75)
@@ -2559,34 +2581,21 @@ class WebTabFragment : BaseWebTabFragment() {
             return
         }
 
-        val expectedTabId = webTab.id
-        val expectedUrl = webView.url.orEmpty()
-        WebTabThumbnailCapture.capture(activity?.window, webView) { bitmap ->
-            try {
-                val pageTab = runCatching {
-                    pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
-                }.getOrNull()
-                val captureStillMatchesPage = bitmap != null &&
-                    isAdded &&
-                    webTab.id == expectedTabId &&
-                    webTab.getWebView() === webView &&
-                    webView.url.orEmpty() == expectedUrl
-                if (captureStillMatchesPage) {
-                    pageTab?.takeIf { it.id == expectedTabId }?.let { currentPageTab ->
-                        val thumbnailPath = BrowserThumbnailStore.save(expectedTabId, bitmap)
-                        tabManagerProvider.getUpdateTabEvent().value = currentPageTab.copyWith(
-                            url = webView.url ?: currentPageTab.getUrl(),
-                            title = webView.title ?: currentPageTab.getTitle(),
-                            iconBytes = webView.favicon ?: currentPageTab.getFavicon(),
-                            pageThumbnail = bitmap,
-                            pageThumbnailPath = thumbnailPath ?: currentPageTab.getPageThumbnailPath(),
-                            webview = webView
-                        )
-                    }
-                }
-            } finally {
-                onComplete()
-            }
+        try {
+            // Drawing this view excludes drawer/dialog overlays and completes before navigation.
+            // Only the visible frame is copied here; BrowserFragment persists it on IO.
+            val bitmap = WebTabThumbnailCapture.capture(webView) ?: return
+            val current = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+            if (current.id != webTab.id || current.getWebView() !== webView) return
+            tabManagerProvider.getUpdateTabEvent().value = current.copyWith(
+                url = webView.url ?: current.getUrl(),
+                title = webView.title ?: current.getTitle(),
+                iconBytes = webView.favicon ?: current.getFavicon(),
+                pageThumbnail = bitmap,
+                webview = webView
+            )
+        } finally {
+            onComplete()
         }
     }
 
@@ -3678,6 +3687,7 @@ class WebTabFragment : BaseWebTabFragment() {
 
     private fun detachWebView(webView: WebView) {
         runCatching {
+            webView.setDownloadListener(null)
             webView.webChromeClient = null
             webView.webViewClient = WebViewClient()
             webView.removeJavascriptInterface(MEDIA_PROBE_BRIDGE_NAME)
@@ -3685,6 +3695,199 @@ class WebTabFragment : BaseWebTabFragment() {
         }.onFailure {
             AppLogger.e("Failed to detach WebView: ${it.message}")
         }
+    }
+
+    private fun handleBrowserDownloadRequest(
+        rawUrl: String?,
+        callbackUserAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?,
+        contentLength: Long
+    ): Boolean {
+        if (!isAdded || view == null) return false
+
+        val url = rawUrl?.trim().orEmpty()
+        if (
+            !url.startsWith("http://", ignoreCase = true) &&
+            !url.startsWith("https://", ignoreCase = true)
+        ) return false
+
+        val pageUrl = webTab.getWebView()?.url
+            ?.takeIf {
+                it.startsWith("http://", ignoreCase = true) ||
+                    it.startsWith("https://", ignoreCase = true)
+            }
+            ?: tabViewModel.getTabTextInput().get()
+                ?.takeIf {
+                    it.startsWith("http://", ignoreCase = true) ||
+                        it.startsWith("https://", ignoreCase = true)
+                }
+        val userAgent = callbackUserAgent?.takeIf { it.isNotBlank() }
+            ?: webTab.getWebView()?.settings?.userAgentString
+            ?: BrowserFragment.MOBILE_USER_AGENT
+        val headers = linkedMapOf("User-Agent" to userAgent)
+        pageUrl?.let { headers["Referer"] = it }
+        CookieManager.getInstance().getCookie(url)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { headers["Cookie"] = it }
+
+        val request = BrowserDownloadRequest(
+            url = url,
+            pageUrl = pageUrl,
+            headers = headers,
+            contentDisposition = contentDisposition,
+            mimeType = mimeType,
+            contentLength = contentLength,
+            suggestedFileName = runCatching {
+                URLUtil.guessFileName(url, contentDisposition, mimeType)
+            }.getOrNull()
+        )
+        return when (val plan = browserDownloadCoordinator.plan(request)) {
+            is BrowserDownloadPlan.DirectMedia -> {
+                showBrowserDownloadConfirmation(plan.request.safeFileName(), plan.request.contentLength) {
+                    browserDownloadCoordinator.executeConfirmed(
+                        plan = plan,
+                        fallbackTitle = tabViewModel.currentTitle.get(),
+                        submitMedia = { mainActivity.progressViewModel.downloadVideo(it) }
+                    ).onFailure {
+                        AppLogger.e("Browser download: Unable to submit direct media.", it)
+                        showBrowserDownloadFailure()
+                    }
+                }
+            }
+
+            is BrowserDownloadPlan.Manifest -> {
+                videoDetectionTabViewModel.handleBrowserDownloadRequest(plan.request)
+                Snackbar.make(
+                    dataBinding.containerBrowser,
+                    R.string.browser_download_manifest_detecting,
+                    Snackbar.LENGTH_LONG
+                ).setAnchorView(dataBinding.floatingContainer).show()
+                true
+            }
+
+            is BrowserDownloadPlan.SystemFile -> {
+                showBrowserDownloadConfirmation(plan.spec.fileName, plan.spec.contentLength) {
+                    executeSystemDownload(plan)
+                }
+            }
+
+            BrowserDownloadPlan.Ignore -> false
+        }
+    }
+
+    private fun showBrowserDownloadConfirmation(
+        fileName: String,
+        contentLength: Long,
+        onConfirm: () -> Unit
+    ): Boolean {
+        if (!isAdded || view == null) return false
+
+        browserDownloadDialog?.dismiss()
+        val sizeLine = contentLength.takeIf { it > 0 }?.let {
+            getString(
+                R.string.browser_download_confirm_size,
+                com.myAllVideoBrowser.util.FileUtil.getFileSizeReadable(it.toDouble())
+            )
+        }
+        val message = listOfNotNull(fileName, sizeLine).joinToString("\n")
+        val dialog = MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.browser_download_confirm_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.detected_download) { _, _ -> onConfirm() }
+            .setNegativeButton(R.string.all_text_cancel, null)
+            .create()
+        browserDownloadDialog = dialog
+        dialog.setOnDismissListener {
+            if (browserDownloadDialog === dialog) browserDownloadDialog = null
+        }
+        dialog.show()
+        return true
+    }
+
+    private fun executeSystemDownload(plan: BrowserDownloadPlan.SystemFile) {
+        val permissionGranted = ContextCompat.checkSelfPermission(
+            requireContext(),
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED
+        if (BrowserDownloadCoordinator.requiresLegacyWritePermission(
+                Build.VERSION.SDK_INT,
+                permissionGranted
+            )
+        ) {
+            pendingLegacySystemDownload = plan
+            runCatching {
+                legacyStoragePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }.onFailure { error ->
+                pendingLegacySystemDownload = null
+                AppLogger.e("Browser download: Unable to request legacy storage permission.", error)
+                showBrowserDownloadFailure(R.string.browser_download_storage_permission_required)
+            }
+            return
+        }
+
+        pendingLegacySystemDownload = null
+        enqueueSystemDownload(plan)
+    }
+
+    private fun resumePendingLegacySystemDownload() {
+        val plan = pendingLegacySystemDownload ?: return
+        if (!isAdded || view == null) return
+        val permissionGranted = ContextCompat.checkSelfPermission(
+            requireContext(),
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED
+        if (BrowserDownloadCoordinator.requiresLegacyWritePermission(
+                Build.VERSION.SDK_INT,
+                permissionGranted
+            )
+        ) return
+
+        pendingLegacySystemDownload = null
+        enqueueSystemDownload(plan)
+    }
+
+    private fun enqueueSystemDownload(plan: BrowserDownloadPlan.SystemFile) {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            val result = browserDownloadCoordinator.executeConfirmed(
+                plan = plan,
+                submitMedia = { mainActivity.progressViewModel.downloadVideo(it) }
+            )
+            withContext(Dispatchers.Main) {
+                result
+                    .onSuccess {
+                        mainActivity.progressViewModel.showFileDownloads()
+                        Snackbar.make(
+                            dataBinding.containerBrowser,
+                            R.string.browser_download_system_started,
+                            Snackbar.LENGTH_LONG
+                        )
+                            .setAnchorView(dataBinding.floatingContainer)
+                            .setAction(R.string.action_view) {
+                                mainActivity.mainViewModel.currentItem.set(1)
+                            }
+                            .show()
+                    }
+                    .onFailure { error ->
+                        AppLogger.e(
+                            "Browser download: Unable to enqueue ${plan.spec.fileName} with the system manager.",
+                            error
+                        )
+                        showBrowserDownloadFailure()
+                    }
+            }
+        }
+    }
+
+    private fun showBrowserDownloadFailure(
+        messageRes: Int = R.string.browser_download_failed
+    ) {
+        if (!isAdded || view == null) return
+        Snackbar.make(
+            dataBinding.containerBrowser,
+            messageRes,
+            Snackbar.LENGTH_LONG
+        ).setAnchorView(dataBinding.floatingContainer).show()
     }
 
     private fun navigateToDownloads() {

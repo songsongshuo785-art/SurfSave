@@ -17,14 +17,17 @@ import com.google.gson.Gson
 import com.myAllVideoBrowser.BuildConfig
 import com.myAllVideoBrowser.data.local.room.AppDatabase
 import com.myAllVideoBrowser.data.local.room.dao.HistoryDao
+import com.myAllVideoBrowser.data.local.room.dao.BrowserFileDownloadDao
 import com.myAllVideoBrowser.data.local.room.dao.PageDao
 import com.myAllVideoBrowser.data.local.room.dao.ProgressDao
 import com.myAllVideoBrowser.data.local.room.dao.VideoDao
 import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
 import com.myAllVideoBrowser.data.local.room.entity.PageInfo
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.data.repository.PlaybackStateRepository
+import com.myAllVideoBrowser.data.repository.PlaybackPositionStore
 import com.myAllVideoBrowser.di.qualifier.ApplicationContext
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.BrowserThumbnailStore
@@ -50,6 +53,7 @@ class MigrationManager @Inject constructor(
     private val historyDao: HistoryDao,
     private val videoDao: VideoDao,
     private val progressDao: ProgressDao,
+    private val browserFileDownloadDao: BrowserFileDownloadDao,
     private val sharedPrefHelper: SharedPrefHelper,
     private val fileUtil: FileUtil,
     private val cookieProfileStore: CookieProfileStore,
@@ -129,13 +133,19 @@ class MigrationManager @Inject constructor(
         val playbackPrefs = privacySanitizer.sanitizePlaybackPreferences(
             snapshotSharedPreferences(PlaybackStateRepository.PREFS_NAME)
         )
+        val playbackPositionPrefs = privacySanitizer.sanitizePlaybackPreferences(
+            snapshotSharedPreferences(PlaybackPositionStore.PREFS_NAME)
+        )
         val bookmarks = privacySanitizer.sanitizeBookmarks(database.bookmarks)
         val history = privacySanitizer.sanitizeHistory(database.history)
         val videos = privacySanitizer.sanitizeVideos(database.videos)
         val progress = privacySanitizer.sanitizeProgress(completedProgress)
+        val browserFileDownloads = privacySanitizer.sanitizeBrowserFileDownloads(
+            database.browserFileDownloads
+        )
 
         val manifest = MigrationManifest(
-            schemaVersion = MigrationArchiveCodec.SCHEMA_V2,
+            schemaVersion = MigrationArchiveCodec.SCHEMA_V3,
             exportedAtEpochMs = System.currentTimeMillis(),
             exportedByPackage = context.packageName,
             exportedByRole = BuildConfig.MIGRATION_ROLE,
@@ -147,6 +157,8 @@ class MigrationManager @Inject constructor(
             browserSessionCount = browserSession.tabs.size,
             thumbnailCount = thumbnailBytes.size,
             cookieProfileCount = cookieProfiles.size,
+            browserFileDownloadCount = browserFileDownloads.size,
+            playbackPositionCount = playbackPositionPrefs.size,
             cookieContentIncluded = cookieProfiles.any { it.content != null },
             encryption = MigrationArchiveCodec.ENCRYPTION_NONE
         )
@@ -154,17 +166,19 @@ class MigrationManager @Inject constructor(
             manifest = manifest,
             settingsPrefs = settingsPrefs,
             playbackPrefs = playbackPrefs,
+            playbackPositionPrefs = playbackPositionPrefs,
             bookmarks = bookmarks,
             history = history,
             videos = videos,
             progress = progress,
+            browserFileDownloads = browserFileDownloads,
             browserSession = browserSession,
             cookieProfiles = cookieProfiles
         )
 
         val stagingFile = File.createTempFile("migration-export-", ".zip", migrationRoot)
         val validated = try {
-            archiveCodec.writeV2(stagingFile, archive, thumbnailBytes)
+            archiveCodec.writeV3(stagingFile, archive, thumbnailBytes)
         } catch (error: Throwable) {
             stagingFile.delete()
             throw error
@@ -206,7 +220,7 @@ class MigrationManager @Inject constructor(
                     "Cookie profile metadata is listed, but cookie contents are excluded by default."
                 },
                 "Proxy credentials, generated credentials, authenticated request bodies/headers, and sensitive URL parameters were excluded.",
-                "The migration package uses schema v2 with encryption=none; WebView login state is not included."
+                "The migration package uses schema v3 with encryption=none; WebView login state is not included."
             )
         )
         if (nextStage == MigrationStage.IMPORTED) {
@@ -258,6 +272,7 @@ class MigrationManager @Inject constructor(
                     } else {
                         "Cookie contents were not restored because the package contains metadata only."
                     },
+                    "Completed download and attachment records were restored as history only; device file and DownloadManager bindings were not restored.",
                     "Please verify videos, bookmarks, settings, and open tabs before removing the previous app."
                 )
             )
@@ -399,7 +414,8 @@ class MigrationManager @Inject constructor(
                 archive.bookmarks,
                 archive.history,
                 archive.videos,
-                archive.progress
+                archive.progress,
+                archive.browserFileDownloads
             )
             cookieProfileStore.replaceFromMigration(archive.cookieProfiles)
             val importedPaths = replaceThumbnailDirectory(thumbnailFiles)
@@ -415,6 +431,10 @@ class MigrationManager @Inject constructor(
                 )
             )
             replaceSharedPreferences(PlaybackStateRepository.PREFS_NAME, archive.playbackPrefs)
+            replaceSharedPreferences(
+                PlaybackPositionStore.PREFS_NAME,
+                archive.playbackPositionPrefs
+            )
         }
     }
 
@@ -425,12 +445,17 @@ class MigrationManager @Inject constructor(
                 snapshot.data.bookmarks,
                 snapshot.data.history,
                 snapshot.data.videos,
-                snapshot.data.progress
+                snapshot.data.progress,
+                snapshot.data.browserFileDownloads.orEmpty()
             )
             cookieProfileStore.restoreRollbackSnapshot(snapshot.data.cookieProfiles)
             replaceThumbnailDirectory(snapshot.thumbnailFiles)
             replaceSharedPreferences(SharedPrefHelper.PREF_KEY, snapshot.data.settingsPrefs)
             replaceSharedPreferences(PlaybackStateRepository.PREFS_NAME, snapshot.data.playbackPrefs)
+            replaceSharedPreferences(
+                PlaybackPositionStore.PREFS_NAME,
+                snapshot.data.playbackPositionPrefs.orEmpty()
+            )
         }
         applyStorageFlagsFromPreferences()
     }
@@ -451,8 +476,10 @@ class MigrationManager @Inject constructor(
             history = database.history,
             videos = database.videos,
             progress = database.progress,
+            browserFileDownloads = database.browserFileDownloads,
             settingsPrefs = snapshotSharedPreferences(SharedPrefHelper.PREF_KEY),
             playbackPrefs = snapshotSharedPreferences(PlaybackStateRepository.PREFS_NAME),
+            playbackPositionPrefs = snapshotSharedPreferences(PlaybackPositionStore.PREFS_NAME),
             cookieProfiles = cookieProfileStore.createRollbackSnapshot()
         )
     }
@@ -464,7 +491,8 @@ class MigrationManager @Inject constructor(
                 bookmarks = pageDao.getPageInfos().blockingFirst(emptyList()),
                 history = historyDao.getAllHistoryItems(),
                 videos = videoDao.getAllVideos(),
-                progress = progressDao.getAllProgressInfos()
+                progress = progressDao.getAllProgressInfos(),
+                browserFileDownloads = browserFileDownloadDao.getAll()
             )
         }
         return checkNotNull(snapshot) { "Unable to capture database migration snapshot." }
@@ -474,7 +502,8 @@ class MigrationManager @Inject constructor(
         bookmarks: List<PageInfo>,
         history: List<HistoryItem>,
         videos: List<VideoInfo>,
-        progress: List<ProgressInfo>
+        progress: List<ProgressInfo>,
+        browserFileDownloads: List<BrowserFileDownload>
     ) {
         pageDao.deleteAll()
         if (bookmarks.isNotEmpty()) pageDao.insertAllProgressInfo(bookmarks)
@@ -485,6 +514,10 @@ class MigrationManager @Inject constructor(
         val normalizedProgress = ProgressInfoMigrationNormalizer.normalize(progress)
         progressDao.clear()
         if (normalizedProgress.isNotEmpty()) progressDao.insertAllProgressInfo(normalizedProgress)
+        browserFileDownloadDao.clear()
+        if (browserFileDownloads.isNotEmpty()) {
+            browserFileDownloadDao.insertAll(browserFileDownloads)
+        }
     }
 
     private fun snapshotSharedPreferences(prefName: String): List<PreferenceEntry> {
@@ -935,7 +968,8 @@ class MigrationManager @Inject constructor(
         val bookmarks: List<PageInfo>,
         val history: List<HistoryItem>,
         val videos: List<VideoInfo>,
-        val progress: List<ProgressInfo>
+        val progress: List<ProgressInfo>,
+        val browserFileDownloads: List<BrowserFileDownload>
     )
 
     private data class PrivateVideoEntry(

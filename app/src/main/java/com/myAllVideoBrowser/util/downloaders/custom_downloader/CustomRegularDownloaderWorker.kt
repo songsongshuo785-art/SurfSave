@@ -19,7 +19,6 @@ import com.myAllVideoBrowser.util.downloaders.generic_downloader.workers.Progres
 import java.io.File
 import java.net.URL
 import java.util.Date
-import kotlin.coroutines.resume
 
 // TODO: REFACTORING
 class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerParameters) :
@@ -27,6 +26,8 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
     private var fileMovedSuccess = false
     private var outputFileName: String? = null
     private var progressCached: Progress = Progress(0, 0)
+    @Volatile
+    private var activeDownloader: CustomFileDownloader? = null
 
     @Volatile
     private var lastSavedTime = 0L
@@ -62,29 +63,22 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
         }
     }
 
-    @Synchronized
     override fun finishWork(item: VideoTaskItem?) {
         AppLogger.d("FINISHING... ${item?.filePath} $item")
 
-        if (getDone()) {
-            // Already resumed or finishing
+        if (!tryStartFinishing()) {
             AppLogger.w("finishWork called but worker is already done. Ignoring.")
             return
         }
 
         val taskId = item?.mId ?: run {
             AppLogger.d("Cannot finish work because taskId is null: $item")
-            if (!getDone()) {
-                setDone()
-                getContinuation().resume(Result.failure())
-            }
+            completeWork(Result.failure())
             return
         }
-        setDone()
-
-        CustomRegularDownloader.deleteHeadersStringFromSharedPreferences(applicationContext, taskId)
 
         try {
+            CustomRegularDownloader.deleteHeadersStringFromSharedPreferences(applicationContext, taskId)
             // 先确定最终状态：成功但文件未移动成功 → 视为 ERROR，
             // 避免通知 / Result / 落库三者基于不同状态产生不一致
             val wasSuccessWithoutMove =
@@ -113,19 +107,17 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
             val notificationData = notificationsHelper.createNotificationBuilder(item)
             showNotificationFinal(notificationData.first, notificationData.second)
 
-            getContinuation().resume(result)
+            completeWork(result)
         } catch (e: Throwable) {
             AppLogger.e("FINISHING UNEXPECTED ERROR $item ${e.message}", e)
             downloadTaskLogger.error(taskId, "Regular download finish failed", e)
-            if (!getDone()) {
-                setDone()
-                try {
-                    getContinuation().resume(Result.failure())
-                } catch (ignored: IllegalStateException) {
-                    // Ignored because another thread might have failed it first
-                }
-            }
+            completeWork(Result.failure())
         }
+    }
+
+    override fun onWorkCancelled() {
+        setDone()
+        activeDownloader?.interruptForSystemStop()
     }
 
     @Synchronized
@@ -285,6 +277,11 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
                 )
                 throw Error(message)
             }
+            runCatching {
+                progressRepository.updateFinalMediaUri(item.mId, finalUri.toString())
+            }.onFailure { error ->
+                AppLogger.e("Regular: Unable to persist final media URI", error)
+            }
             if (finalSource.scheme == "file") {
                 finalSource.path?.let(::File)?.parentFile?.deleteRecursively()
             }
@@ -333,7 +330,7 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
         val threadCount = sharedPrefHelper.getRegularDownloaderThreadCount()
         val okHttpClient = proxyOkHttpClient.getProxyOkHttpClient()
         val isForceStreamDownload = sharedPrefHelper.getIsForceStreamDownload()
-        CustomFileDownloader(
+        val downloader = CustomFileDownloader(
             URL(url),
             File(outputFileName!!),
             threadCount,
@@ -341,7 +338,13 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
             okHttpClient,
             createDownloadListener(taskItem, taskId),
             isForceStreamDownload
-        ).download()
+        )
+        activeDownloader = downloader
+        try {
+            downloader.download()
+        } finally {
+            if (activeDownloader === downloader) activeDownloader = null
+        }
     }
 
     private fun createDownloadListener(taskItem: VideoTaskItem, taskId: String): DownloadListener {
@@ -357,6 +360,10 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
             }
 
             override fun onFailure(e: Throwable) {
+                if (e.message == CustomFileDownloader.SYSTEM_INTERRUPTED_ACTION) {
+                    AppLogger.d("Regular download execution stopped by WorkManager; preserving resume data.")
+                    return
+                }
 
                 AppLogger.e("${e.message} Download Failed for $outputFileName", e)
                 downloadTaskLogger.error(taskId, "Regular download failed: ${e.message}", e)
@@ -462,7 +469,7 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
         val tmpFile = fileUtil.tmpDir.resolve(taskId).resolve(File(task.fileName).name)
         CustomFileDownloader.cancel(tmpFile)
 
-        getContinuation().resume(Result.success())
+        completeWork(Result.success())
 //        finishWork(task.also {
 //            it.mId = taskId
 //            it.taskState = VideoTaskState.CANCELED
@@ -481,7 +488,7 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
         val tmpFile = fileUtil.tmpDir.resolve(taskId).resolve(File(task.fileName).name)
         CustomFileDownloader.pause(tmpFile)
 
-        getContinuation().resume(Result.success())
+        completeWork(Result.success())
 //        finishWork(task.also {
 //            it.mId = taskId
 //            it.taskState = VideoTaskState.PAUSE
@@ -496,7 +503,7 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
         outputFileName = tmpFile.path
         AppLogger.d("STOPPING AND SAVING>>>>  $tmpFile")
         CustomFileDownloader.stopAndSave(tmpFile)
-        getContinuation().resume(Result.success())
+        completeWork(Result.success())
     }
 
     private fun showProgressProcessing(taskItem: VideoTaskItem, progress: Progress?) {
@@ -637,7 +644,7 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
     private fun finishWorkWithFailureTaskId(task: VideoTaskItem) {
         AppLogger.d("Cannot finish work because taskId is null: $task")
         try {
-            getContinuation().resume(Result.failure())
+            completeWork(Result.failure())
         } catch (e: Throwable) {
             AppLogger.e("Regular: resume failure failed", e)
         }

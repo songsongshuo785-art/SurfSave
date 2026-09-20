@@ -1,55 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layout xmlns:android="http://schemas.android.com/apk/res/android"
+<layout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     tools:context=".ui.main.home.browser.homeTab.BrowserHomeFragment">
-
     <data>
-
         <import type="android.view.View" />
         <import type="com.myAllVideoBrowser.R" />
-
-        <variable
-            name="viewModel"
-            type="com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabViewModel" />
-
-        <variable
-            name="videoTabVModel"
-            type="com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel" />
-
-        <variable
-            name="browserMenuListener"
-            type="com.myAllVideoBrowser.ui.main.home.browser.BrowserListener" />
-
-        <variable
-            name="settingsViewModel"
-            type="com.myAllVideoBrowser.ui.main.settings.SettingsViewModel" />
+        <variable name="viewModel" type="com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabViewModel" />
+        <variable name="videoTabVModel" type="com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel" />
+        <variable name="browserMenuListener" type="com.myAllVideoBrowser.ui.main.home.browser.BrowserListener" />
+        <variable name="settingsViewModel" type="com.myAllVideoBrowser.ui.main.settings.SettingsViewModel" />
     </data>
-
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="match_parent">
-
+    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent">
         <FrameLayout
             android:id="@+id/customView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:visibility="gone" />
-
         <androidx.coordinatorlayout.widget.CoordinatorLayout
             android:id="@+id/containerBrowser"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="@color/sxSurface"
             android:clipChildren="false">
-
             <com.google.android.material.appbar.AppBarLayout
                 android:id="@+id/app_bar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@drawable/sx_toolbar_background"
                 app:elevation="0dp">
-
                 <com.google.android.material.appbar.MaterialToolbar
                     android:id="@+id/toolbar"
                     android:layout_width="match_parent"
@@ -61,35 +41,32 @@
                     android:contentInsetEnd="0dp"
                     app:contentInsetStart="0dp"
                     app:contentInsetEnd="0dp">
-
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:id="@+id/browser_toolbar_content"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:paddingStart="@dimen/padding_tiny"
                         android:paddingEnd="@dimen/padding_tiny">
-
                         <ImageButton
                             android:id="@+id/browser_back_button"
                             android:layout_width="@dimen/min_touch_target"
                             android:layout_height="@dimen/min_touch_target"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:contentDescription="@string/back"
-                            android:onClick="@{() -> browserMenuListener.onBrowserBackClicked()}"
+                            android:onClick="@{() -&gt; browserMenuListener.onBrowserBackClicked()}"
                             android:padding="10dp"
                             android:src="@drawable/arrow_back24px"
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintStart_toStartOf="parent"
                             app:layout_constraintTop_toTopOf="parent"
                             app:tint="@color/sxTextPrimary" />
-
                         <ImageButton
                             android:id="@+id/browser_forward_button"
                             android:layout_width="@dimen/min_touch_target"
                             android:layout_height="@dimen/min_touch_target"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:contentDescription="@string/forward"
-                            android:onClick="@{() -> browserMenuListener.onBrowserForwardClicked()}"
+                            android:onClick="@{() -&gt; browserMenuListener.onBrowserForwardClicked()}"
                             android:padding="10dp"
                             android:src="@drawable/arrow_forward24px"
                             android:visibility="gone"
@@ -97,11 +74,10 @@
                             app:layout_constraintStart_toEndOf="@id/browser_back_button"
                             app:layout_constraintTop_toTopOf="parent"
                             app:tint="@color/sxTextSecondary" />
-
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
                             android:id="@+id/et_search"
                             android:layout_width="0dp"
-                            android:layout_height="44dp"
+                            android:layout_height="48dp"
                             android:layout_marginStart="@dimen/padding_tiny"
                             android:layout_marginEnd="@dimen/padding_tiny"
                             android:background="@{viewModel.isTabInputFocused() ? @drawable/sx_search_focused_background : @drawable/sx_search_background}"
@@ -123,7 +99,6 @@
                             app:layout_constraintEnd_toStartOf="@+id/browser_reload_button"
                             app:layout_constraintStart_toEndOf="@id/browser_forward_button"
                             app:layout_constraintTop_toTopOf="parent" />
-
                         <ImageButton
                             android:id="@+id/browser_reload_button"
                             android:layout_width="@dimen/min_touch_target"
@@ -131,14 +106,13 @@
                             android:layout_marginEnd="@dimen/padding_tiny"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:contentDescription="@{viewModel.isTabInputFocused() ? @string/go : (viewModel.isShowProgress() ? @string/all_text_cancel : @string/refresh)}"
-                            android:onClick="@{() -> viewModel.isTabInputFocused() ? browserMenuListener.onBrowserGoClicked() : (viewModel.isShowProgress() ? browserMenuListener.onBrowserStopClicked() : browserMenuListener.onBrowserReloadClicked())}"
+                            android:onClick="@{() -&gt; viewModel.isTabInputFocused() ? browserMenuListener.onBrowserGoClicked() : (viewModel.isShowProgress() ? browserMenuListener.onBrowserStopClicked() : browserMenuListener.onBrowserReloadClicked())}"
                             android:padding="10dp"
                             app:imageResource="@{viewModel.progressIcon}"
                             app:tint="@color/sxTextSecondary"
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintEnd_toStartOf="@+id/tabs_overview_button_container"
                             app:layout_constraintTop_toTopOf="parent" />
-
                         <FrameLayout
                             android:id="@+id/tabs_overview_button_container"
                             android:layout_width="@dimen/min_touch_target"
@@ -146,19 +120,17 @@
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintEnd_toStartOf="@+id/browser_menu_container"
                             app:layout_constraintTop_toTopOf="parent">
-
                             <ImageButton
                                 android:id="@+id/tabs_overview_button"
                                 android:layout_width="@dimen/min_touch_target"
                                 android:layout_height="@dimen/min_touch_target"
                                 android:background="?attr/selectableItemBackgroundBorderless"
                                 android:contentDescription="@string/tabs"
-                                android:onClick="@{() -> browserMenuListener.onTabsOverviewClicked()}"
+                                android:onClick="@{() -&gt; browserMenuListener.onTabsOverviewClicked()}"
                                 android:padding="10dp"
                                 android:src="@drawable/tab_group_24px"
                                 app:tint="@color/sxTextPrimary"
                                 tools:ignore="VectorDrawableCompat" />
-
                             <com.google.android.material.textview.MaterialTextView
                                 android:id="@+id/tabs_count_badge"
                                 android:layout_width="wrap_content"
@@ -178,7 +150,6 @@
                                 android:translationZ="2dp"
                                 tools:text="12" />
                         </FrameLayout>
-
                         <FrameLayout
                             android:id="@+id/browser_menu_container"
                             android:layout_width="@dimen/min_touch_target"
@@ -186,14 +157,13 @@
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintEnd_toEndOf="parent"
                             app:layout_constraintTop_toTopOf="parent">
-
                             <androidx.appcompat.widget.AppCompatImageView
                                 android:id="@+id/browser_menu_button"
                                 android:layout_width="@dimen/min_touch_target"
                                 android:layout_height="@dimen/min_touch_target"
                                 android:background="?attr/selectableItemBackgroundBorderless"
                                 android:contentDescription="@string/menu"
-                                android:onClick="@{() -> browserMenuListener.onBrowserMenuClicked()}"
+                                android:onClick="@{() -&gt; browserMenuListener.onBrowserMenuClicked()}"
                                 android:padding="10dp"
                                 app:srcCompat="@drawable/ic_more_24dp"
                                 app:tint="@color/sxTextPrimary"
@@ -202,32 +172,27 @@
                     </androidx.constraintlayout.widget.ConstraintLayout>
                 </com.google.android.material.appbar.MaterialToolbar>
             </com.google.android.material.appbar.AppBarLayout>
-
             <androidx.constraintlayout.widget.ConstraintLayout
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 app:layout_behavior="@string/appbar_scrolling_view_behavior">
-
                 <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
                     android:id="@+id/swipe_refresh"
                     android:layout_width="match_parent"
                     android:layout_height="0dp"
                     app:layout_constraintBottom_toBottomOf="parent"
                     app:layout_constraintTop_toTopOf="parent">
-
                     <LinearLayout
                         android:id="@+id/webview_container"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:orientation="horizontal" />
                 </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
-
                 <FrameLayout
                     android:id="@+id/fullscreen_container"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:visibility="gone" />
-
                 <ProgressBar
                     android:id="@+id/progressBar"
                     style="?android:attr/progressBarStyleHorizontal"
@@ -239,108 +204,90 @@
                     android:visibility="@{viewModel.isShowProgress &amp;&amp; !videoTabVModel.hasCheckLoadingsM3u8().get() &amp;&amp; !videoTabVModel.hasCheckLoadingsRegular().get() ? View.VISIBLE : View.GONE}"
                     app:layout_constraintTop_toTopOf="parent" />
             </androidx.constraintlayout.widget.ConstraintLayout>
-
             <com.myAllVideoBrowser.ui.component.widget.MovableContainer
                 android:id="@+id/floating_container"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:layout_gravity="bottom|end"
-                android:layout_margin="@dimen/padding_small"
+                android:layout_margin="8dp"
                 android:background="@android:color/transparent"
                 android:clickable="true"
                 android:clipChildren="false"
                 android:clipToPadding="false"
-                android:contentDescription="@string/open_download_dialog_or_restart"
+                android:contentDescription="@{(videoTabVModel.hasDetectedVideos ? @string/surf_media_entry + ` ` + videoTabVModel.detectedVideosBadgeText : @string/surf_detect_entry) + `. ` + @string/surf_media_button_move_hint}"
                 android:focusable="true"
                 android:translationZ="20dp"
                 android:visibility="@{settingsViewModel.getVideoButtonState() ? View.VISIBLE : View.GONE}">
-
-                <!-- Aggregate download progress ring (signature motion): sits behind the FAB -->
-                <com.google.android.material.progressindicator.CircularProgressIndicator
-                    android:id="@+id/fab_progress_ring"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
-                    android:indeterminate="false"
-                    android:max="100"
-                    android:progress="0"
-                    android:visibility="gone"
-                    app:indicatorColor="@color/colorPrimary"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toTopOf="parent"
-                    app:trackColor="@color/colorOutlineVariant"
-                    app:trackThickness="3dp"
-                    tools:progress="62"
-                    tools:visibility="visible"
-                    xmlns:tools="http://schemas.android.com/tools" />
-
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/fab"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:layout_margin="6dp"
-                    android:contentDescription="@string/open_download_dialog_or_restart"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:importantForAccessibility="no"
                     app:cardBackgroundColor="@color/colorPrimary"
-                    app:cardCornerRadius="999dp"
-                    app:cardElevation="0dp"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="2dp"
+                    app:cardPreventCornerOverlap="false"
                     app:layout_constraintBottom_toBottomOf="parent"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent"
-                    app:rippleColor="@color/white_30"
                     app:strokeWidth="0dp">
-
-                    <FrameLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent">
-
-                        <ImageView
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent">
+                        <androidx.appcompat.widget.AppCompatImageView
                             android:id="@+id/fab_icon"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_gravity="center"
                             android:contentDescription="@null"
-                            android:padding="10dp"
+                            android:importantForAccessibility="no"
                             android:scaleType="centerInside"
-                            app:imageResource="@{videoTabVModel.getDownloadBtnIcon()}"
                             android:visibility="@{videoTabVModel.getDownloadBtnIcon() == R.drawable.invisible_24px ? View.GONE : View.VISIBLE}"
+                            app:imageResource="@{videoTabVModel.getDownloadBtnIcon()}"
                             app:tint="@color/colorOnPrimary" />
-
                         <com.google.android.material.progressindicator.CircularProgressIndicator
                             android:id="@+id/loadingWavy"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:contentDescription="@string/loading_image_view"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_gravity="center"
                             android:focusable="false"
+                            android:importantForAccessibility="no"
                             android:indeterminate="true"
-                            android:padding="8dp"
                             android:visibility="@{videoTabVModel.getDownloadBtnIcon() == R.drawable.invisible_24px ? View.VISIBLE : View.GONE}"
                             app:indicatorColor="@color/colorOnPrimary"
+                            app:indicatorInset="0dp"
                             app:indicatorSize="24dp"
                             app:trackThickness="2dp"
                             app:trackColor="@android:color/transparent" />
                     </FrameLayout>
                 </com.google.android.material.card.MaterialCardView>
-
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/video_detection_badge"
                     android:layout_width="wrap_content"
                     android:layout_height="18dp"
-                    android:layout_marginTop="0dp"
-                    android:layout_marginEnd="0dp"
-                    android:background="@drawable/sx_primary_badge_background"
+                    android:background="@drawable/surf_media_count_background"
                     android:gravity="center"
+                    android:importantForAccessibility="no"
+                    android:includeFontPadding="false"
                     android:minWidth="18dp"
-                    android:paddingStart="5dp"
-                    android:paddingEnd="5dp"
+                    android:minHeight="18dp"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp"
+                    android:singleLine="true"
                     android:text="@{videoTabVModel.detectedVideosBadgeText}"
-                    android:textColor="@color/colorBadgeText"
-                    android:textSize="@dimen/text_tiny"
+                    android:textColor="@color/colorPrimary"
+                    android:textSize="10sp"
                     android:textStyle="bold"
+                    android:translationY="-6dp"
                     android:translationZ="24dp"
                     android:visibility="@{videoTabVModel.hasDetectedVideos ? View.VISIBLE : View.GONE}"
-                    app:layout_constraintEnd_toEndOf="@id/fab"
-                    app:layout_constraintTop_toTopOf="@id/fab" />
+                    app:autoSizeTextType="uniform"
+                    app:autoSizeMinTextSize="6sp"
+                    app:autoSizeMaxTextSize="10sp"
+                    app:autoSizeStepGranularity="1sp"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
             </com.myAllVideoBrowser.ui.component.widget.MovableContainer>
         </androidx.coordinatorlayout.widget.CoordinatorLayout>
     </FrameLayout>

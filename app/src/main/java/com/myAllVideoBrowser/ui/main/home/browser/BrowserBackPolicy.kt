@@ -23,6 +23,11 @@ internal object BrowserBackPolicy {
 }
 
 internal object BrowserTabIndexPolicy {
+    fun newTabInsertionIndex(currentIndex: Int, currentTabCount: Int): Int {
+        require(currentTabCount > 0) { "At least the home tab must exist" }
+        return (currentIndex + 1).coerceIn(HOME_TAB_INDEX + 1, currentTabCount)
+    }
+
     fun selectedIndexAfterClose(
         currentIndex: Int,
         closedIndex: Int,

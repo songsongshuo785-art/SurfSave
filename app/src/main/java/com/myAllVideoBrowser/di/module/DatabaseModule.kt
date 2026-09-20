@@ -10,6 +10,7 @@ import com.myAllVideoBrowser.data.local.room.dao.HistoryDao
 import com.myAllVideoBrowser.data.local.room.dao.PageDao
 import com.myAllVideoBrowser.data.local.room.dao.ProgressDao
 import com.myAllVideoBrowser.data.local.room.dao.VideoDao
+import com.myAllVideoBrowser.data.local.room.dao.BrowserFileDownloadDao
 import com.myAllVideoBrowser.util.RoomConverter
 import com.myAllVideoBrowser.util.downloaders.DownloadFingerprint
 import dagger.Module
@@ -85,6 +86,59 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
     }
 }
 
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS `BrowserFileDownload` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                `downloadManagerId` INTEGER NOT NULL,
+                `url` TEXT NOT NULL,
+                `sourcePageUrl` TEXT NOT NULL,
+                `fileName` TEXT NOT NULL,
+                `mimeType` TEXT NOT NULL,
+                `expectedSize` INTEGER NOT NULL,
+                `downloadedBytes` INTEGER NOT NULL,
+                `totalBytes` INTEGER NOT NULL,
+                `status` INTEGER NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                `completedAt` INTEGER NOT NULL,
+                `localUri` TEXT NOT NULL,
+                `relativePath` TEXT NOT NULL,
+                `failureReason` INTEGER NOT NULL
+            )""".trimIndent()
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_BrowserFileDownload_downloadManagerId` " +
+                "ON `BrowserFileDownload` (`downloadManagerId`)"
+        )
+    }
+}
+
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE BrowserFileDownload ADD COLUMN userAgent TEXT NOT NULL DEFAULT ''"
+        )
+    }
+}
+
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE ProgressInfo ADD COLUMN finalMediaUri TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE ProgressInfo ADD COLUMN mediaBindingTrusted INTEGER NOT NULL DEFAULT 1"
+        )
+        db.execSQL(
+            "ALTER TABLE BrowserFileDownload ADD COLUMN systemBindingTrusted INTEGER NOT NULL DEFAULT 1"
+        )
+    }
+}
+
 private fun backfillMissingDownloadFingerprints(db: SupportSQLiteDatabase) {
     val converter = RoomConverter()
     val fingerprints = mutableListOf<Pair<String, String>>()
@@ -147,7 +201,11 @@ class DatabaseModule {
             MIGRATION_6_7,
             MIGRATION_7_8,
             MIGRATION_8_9,
-            MIGRATION_9_10
+            MIGRATION_9_10,
+            MIGRATION_10_11,
+            MIGRATION_11_12,
+            MIGRATION_12_13,
+            MIGRATION_13_14
         ).build()
     }
 
@@ -170,4 +228,9 @@ class DatabaseModule {
     @Singleton
     @Provides
     fun providePageDao(database: AppDatabase): PageDao = database.pageDao()
+
+    @Singleton
+    @Provides
+    fun provideBrowserFileDownloadDao(database: AppDatabase): BrowserFileDownloadDao =
+        database.browserFileDownloadDao()
 }

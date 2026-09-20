@@ -3,8 +3,11 @@ package com.myAllVideoBrowser.ui.main.progress
 import androidx.annotation.VisibleForTesting
 import androidx.databinding.ObservableField
 import androidx.lifecycle.viewModelScope
+import android.net.Uri
+import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
+import com.myAllVideoBrowser.data.repository.BrowserFileDownloadRepository
 import com.myAllVideoBrowser.data.repository.ProgressRepository
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.ui.main.base.BaseViewModel
@@ -19,6 +22,10 @@ import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTas
 import io.reactivex.rxjava3.disposables.CompositeDisposable
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 import javax.inject.Inject
@@ -27,6 +34,7 @@ import javax.inject.Inject
 class ProgressViewModel @Inject constructor(
     private val fileUtil: FileUtil,
     private val progressRepository: ProgressRepository,
+    private val browserFileDownloadRepository: BrowserFileDownloadRepository,
     private val downloadQueueManager: DownloadQueueManager,
     private val downloadTaskLogger: DownloadTaskLogger,
 ) : BaseViewModel() {
@@ -34,15 +42,25 @@ class ProgressViewModel @Inject constructor(
     internal val compositeDisposable: CompositeDisposable = CompositeDisposable()
 
     var progressInfos: ObservableField<List<ProgressInfo>> = ObservableField(emptyList())
+    val browserFileDownloads: ObservableField<List<BrowserFileDownload>> = ObservableField(emptyList())
+    val selectedDownloadSection: ObservableField<DownloadSection> =
+        ObservableField(DownloadSection.MEDIA)
     val downloadRejectedEvent = SingleLiveEvent<Int>()
     val downloadStartedEvent = SingleLiveEvent<Int>()
     val downloadDuplicateEvent = SingleLiveEvent<DownloadDuplicateEvent>()
     val downloadTaskDetailsEvent = SingleLiveEvent<DownloadTaskDetails>()
     val playlistEnqueueSummaryEvent = SingleLiveEvent<PlaylistEnqueueSummary>()
+    val browserFileLaunchEvent = SingleLiveEvent<BrowserFileLaunchRequest>()
+    val browserFileMessageEvent = SingleLiveEvent<Int>()
     private val executor2 = Executors.newFixedThreadPool(1).asCoroutineDispatcher()
+    private var browserFileSyncJob: Job? = null
+    @Volatile
+    private var isDownloadScreenVisible = false
 
     override fun start() {
         downloadProgressStartListen()
+        browserFileDownloadStartListen()
+        startBrowserFileSync()
         viewModelScope.launch(executor2) {
             downloadQueueManager.scheduleNext()
         }
@@ -50,6 +68,7 @@ class ProgressViewModel @Inject constructor(
 
     override fun stop() {
         compositeDisposable.clear()
+        browserFileSyncJob?.cancel()
         executor2.cancel()
     }
 
@@ -162,6 +181,79 @@ class ProgressViewModel @Inject constructor(
         }
     }
 
+    fun showFileDownloads() {
+        selectedDownloadSection.set(DownloadSection.FILES)
+        startBrowserFileSync()
+    }
+
+    fun showMediaDownloads() {
+        selectedDownloadSection.set(DownloadSection.MEDIA)
+    }
+
+    fun setDownloadScreenVisible(visible: Boolean) {
+        isDownloadScreenVisible = visible
+        if (visible) startBrowserFileSync()
+    }
+
+    fun refreshBrowserFileDownloads() {
+        startBrowserFileSync()
+    }
+
+    fun openBrowserFile(download: BrowserFileDownload, share: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val uri = browserFileDownloadRepository.getContentUri(download)
+            if (uri == null) {
+                viewModelScope.launch {
+                    browserFileMessageEvent.value = R.string.browser_file_missing
+                }
+                return@launch
+            }
+            viewModelScope.launch {
+                browserFileLaunchEvent.value = BrowserFileLaunchRequest(
+                    uri = uri,
+                    mimeType = download.mimeType.ifBlank { "application/octet-stream" },
+                    share = share
+                )
+            }
+        }
+    }
+
+    fun cancelBrowserFile(download: BrowserFileDownload) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { browserFileDownloadRepository.cancel(download) }
+                .onFailure { AppLogger.e("Downloads: failed to cancel browser file", it) }
+        }
+    }
+
+    fun retryBrowserFile(download: BrowserFileDownload) {
+        viewModelScope.launch(Dispatchers.IO) {
+            browserFileDownloadRepository.retry(download)
+                .onSuccess {
+                    viewModelScope.launch {
+                        browserFileMessageEvent.value = R.string.browser_file_retry_started
+                    }
+                }
+                .onFailure {
+                    AppLogger.e("Downloads: failed to retry browser file", it)
+                    viewModelScope.launch {
+                        browserFileMessageEvent.value = R.string.browser_download_failed
+                    }
+                }
+        }
+    }
+
+    fun deleteBrowserFile(download: BrowserFileDownload, deleteLocalFile: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { browserFileDownloadRepository.delete(download, deleteLocalFile) }
+                .onFailure {
+                    AppLogger.e("Downloads: failed to delete browser file record", it)
+                    viewModelScope.launch {
+                        browserFileMessageEvent.value = R.string.browser_file_delete_failed
+                    }
+                }
+        }
+    }
+
     fun openTaskDetails(downloadId: Long) {
         val task = progressInfos.get()?.find { it.downloadId == downloadId } ?: return
         viewModelScope.launch(executor2) {
@@ -239,6 +331,34 @@ class ProgressViewModel @Inject constructor(
         )
     }
 
+    @VisibleForTesting
+    internal fun browserFileDownloadStartListen() {
+        compositeDisposable.add(
+            browserFileDownloadRepository.observeDownloads()
+                .subscribeOn(io.reactivex.rxjava3.schedulers.Schedulers.io())
+                .observeOn(io.reactivex.rxjava3.android.schedulers.AndroidSchedulers.mainThread())
+                .subscribe({ downloads ->
+                    browserFileDownloads.set(downloads)
+                }, { error ->
+                    AppLogger.e("Downloads: failed to observe browser file list", error)
+                })
+        )
+    }
+
+    private fun startBrowserFileSync() {
+        browserFileSyncJob?.cancel()
+        browserFileSyncJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                val requiresFrequentSync = runCatching { browserFileDownloadRepository.refreshAll() }
+                    .onFailure { AppLogger.e("Downloads: browser file status sync failed", it) }
+                    .getOrDefault(false)
+                val fileSectionVisible = isDownloadScreenVisible &&
+                    selectedDownloadSection.get() == DownloadSection.FILES
+                delay(if (requiresFrequentSync && fileSectionVisible) 1_500L else 15_000L)
+            }
+        }
+    }
+
     private fun sortProgressInfos(progressInfoList: List<ProgressInfo>): List<ProgressInfo> {
         return progressInfoList
             .filter { info ->
@@ -253,6 +373,17 @@ class ProgressViewModel @Inject constructor(
             )
     }
 }
+
+enum class DownloadSection {
+    FILES,
+    MEDIA
+}
+
+data class BrowserFileLaunchRequest(
+    val uri: Uri,
+    val mimeType: String,
+    val share: Boolean
+)
 
 data class DownloadDuplicateEvent(
     val existingDownloadId: Long,

@@ -8,6 +8,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import androidx.activity.addCallback
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
@@ -72,7 +73,6 @@ class DetectedVideosTabFragment : BaseFragment() {
                 detectedSubtitle.text = getString(R.string.detected_videos_from_host, host)
                 detectedSubtitle.visibility = View.VISIBLE
             }
-            detectedVideosTabContainer.setBackgroundColor(getThemeBackgroundColor())
             viewModel = detectedVideosTabViewModel
             videoInfoList.layoutManager = layoutMngr
             videoInfoList.isNestedScrollingEnabled = true
@@ -88,6 +88,17 @@ class DetectedVideosTabFragment : BaseFragment() {
                 if (shouldShowPlaylistAction(pageUrl)) View.VISIBLE else View.GONE
         }
 
+        BottomSheetBehavior.from(binding.detectedSheet).apply {
+            state = BottomSheetBehavior.STATE_EXPANDED
+            addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
+                override fun onStateChanged(bottomSheet: View, newState: Int) {
+                    if (newState == BottomSheetBehavior.STATE_HIDDEN) closeDetectedVideos()
+                }
+                override fun onSlide(bottomSheet: View, slideOffset: Float) {
+                    binding.detectedBackdrop.alpha = (1f + slideOffset).coerceIn(0f, 1f)
+                }
+            })
+        }
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner) {
             closeDetectedVideos()
         }

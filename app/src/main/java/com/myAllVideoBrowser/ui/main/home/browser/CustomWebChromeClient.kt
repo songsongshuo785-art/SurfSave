@@ -33,7 +33,8 @@ class CustomWebChromeClient(
     private val appUtil: AppUtil,
     private val mainActivity: MainActivity,
     private val contentBlockCoordinator: ContentBlockCoordinator,
-    private val onProtectedMediaRequested: () -> Unit = {}
+    private val onProtectedMediaRequested: () -> Unit = {},
+    private val onMediaPopupRequested: (String) -> Boolean = { false }
 ) : WebChromeClient() {
     private var fullscreenView: View? = null
     private var fullscreenCallback: CustomViewCallback? = null
@@ -171,7 +172,10 @@ class CustomWebChromeClient(
             return false
         }
 
-        if (url.startsWith("http://") || url.startsWith("https://")) {
+        if (
+            url.startsWith("http://", ignoreCase = true) ||
+            url.startsWith("https://", ignoreCase = true)
+        ) {
             if (contentBlockCoordinator.evaluatePopup(
                     targetUrl = url,
                     documentUrl = parentWebView.url,
@@ -182,6 +186,19 @@ class CustomWebChromeClient(
                 destroyPopupWindow(popupWebView)
                 return true
             }
+
+            val mediaPopupCaptured = BrowserMediaPopupPolicy.shouldCapture(url, hasUserGesture) &&
+                runCatching { onMediaPopupRequested(url) }
+                    .onFailure {
+                        AppLogger.e("ON_CREATE_WINDOW: Failed to hand a media popup to detection.", it)
+                    }
+                    .getOrDefault(false)
+            if (mediaPopupCaptured) {
+                AppLogger.d("ON_CREATE_WINDOW: Handed a user-requested media popup to detection.")
+                destroyPopupWindow(popupWebView)
+                return true
+            }
+
             AppLogger.d("ON_CREATE_WINDOW: Redirecting an allowed popup into the current tab.")
             parentWebView.post { parentWebView.loadUrl(url) }
             destroyPopupWindow(popupWebView)

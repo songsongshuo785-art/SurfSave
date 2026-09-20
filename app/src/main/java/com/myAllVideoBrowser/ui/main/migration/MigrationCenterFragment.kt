@@ -241,6 +241,9 @@ class MigrationCenterFragment : BaseFragment() {
         report.packageInfo?.let { info ->
             lines += getString(R.string.migration_center_report_package, info.displayPath)
         }
+        if (report.stage == MigrationStage.IMPORTED) {
+            lines += getString(R.string.migration_center_report_device_bindings_not_restored)
+        }
         return lines.joinToString("\n")
     }
 

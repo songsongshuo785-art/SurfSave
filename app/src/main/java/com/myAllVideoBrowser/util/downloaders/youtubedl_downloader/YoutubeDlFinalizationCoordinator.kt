@@ -75,6 +75,20 @@ open class YoutubeDlFinalizationCoordinator @Inject constructor(
             infoLine
         )
         checkSingleRow(committed, "commit finalization")
+        if (committed == 1 && status == VideoTaskState.SUCCESS) {
+            runCatching { mediaPublisher.publishedUri(targetPath) }
+                .getOrNull()
+                ?.takeIf(String::isNotBlank)
+                ?.let { uri ->
+                    runCatching {
+                        progressRepository.updateFinalMediaUriForExecution(
+                            taskId,
+                            executionToken,
+                            uri
+                        )
+                    }
+                }
+        }
         return if (committed == 1) {
             Result.Committed(status, error, targetPath)
         } else {

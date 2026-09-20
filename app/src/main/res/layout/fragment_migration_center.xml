@@ -1,25 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/sxSurface"
     android:fillViewport="true">
-
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/padding_normal">
-
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="64dp"
             android:navigationIcon="@drawable/arrow_back_24px"
             app:navigationIconTint="@color/sxTextPrimary"
-            app:titleTextColor="@color/sxTextPrimary" />
-
+            app:titleTextColor="@color/sxTextPrimary"
+            app:titleTextAppearance="@style/TextAppearance.Surf.ScreenTitle" />
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/migration_subtitle"
             android:layout_width="match_parent"
@@ -27,7 +26,6 @@
             android:layout_marginTop="@dimen/padding_small"
             android:textColor="@color/sxTextSecondary"
             android:textSize="@dimen/text_medium" />
-
         <ProgressBar
             android:id="@+id/migration_progress"
             android:layout_width="wrap_content"
@@ -35,23 +33,20 @@
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="@dimen/padding_normal"
             android:visibility="gone" />
-
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/padding_normal"
             app:cardBackgroundColor="@color/sxSurfaceRaised"
-            app:cardCornerRadius="@dimen/corner_md"
+            app:cardCornerRadius="20dp"
             app:cardElevation="@dimen/elev_resting"
             app:strokeColor="@color/sxOutline"
             app:strokeWidth="0dp">
-
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="@dimen/padding_normal">
-
                 <com.google.android.material.textview.MaterialTextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -59,7 +54,6 @@
                     android:textColor="@color/sxTextPrimary"
                     android:textSize="@dimen/text_medium"
                     android:textStyle="bold" />
-
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/status_text"
                     android:layout_width="match_parent"
@@ -69,23 +63,20 @@
                     android:textSize="@dimen/text_small" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/padding_normal"
             app:cardBackgroundColor="@color/sxSurfaceRaised"
-            app:cardCornerRadius="@dimen/corner_md"
+            app:cardCornerRadius="20dp"
             app:cardElevation="@dimen/elev_resting"
             app:strokeColor="@color/sxOutline"
             app:strokeWidth="0dp">
-
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="@dimen/padding_normal">
-
                 <com.google.android.material.textview.MaterialTextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -93,7 +84,6 @@
                     android:textColor="@color/sxTextPrimary"
                     android:textSize="@dimen/text_medium"
                     android:textStyle="bold" />
-
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/package_text"
                     android:layout_width="match_parent"
@@ -103,23 +93,20 @@
                     android:textSize="@dimen/text_small" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/padding_normal"
             app:cardBackgroundColor="@color/sxSurfaceRaised"
-            app:cardCornerRadius="@dimen/corner_md"
+            app:cardCornerRadius="20dp"
             app:cardElevation="@dimen/elev_resting"
             app:strokeColor="@color/sxOutline"
             app:strokeWidth="0dp">
-
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="@dimen/padding_normal">
-
                 <com.google.android.material.textview.MaterialTextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -127,7 +114,6 @@
                     android:textColor="@color/sxTextPrimary"
                     android:textSize="@dimen/text_medium"
                     android:textStyle="bold" />
-
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/private_videos_text"
                     android:layout_width="match_parent"
@@ -137,7 +123,6 @@
                     android:textSize="@dimen/text_small" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/report_card"
             android:layout_width="match_parent"
@@ -145,17 +130,15 @@
             android:layout_marginTop="@dimen/padding_normal"
             android:visibility="gone"
             app:cardBackgroundColor="@color/sxSurfaceRaised"
-            app:cardCornerRadius="@dimen/corner_md"
+            app:cardCornerRadius="20dp"
             app:cardElevation="@dimen/elev_resting"
             app:strokeColor="@color/sxOutline"
             app:strokeWidth="0dp">
-
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="@dimen/padding_normal">
-
                 <com.google.android.material.textview.MaterialTextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -163,7 +146,6 @@
                     android:textColor="@color/sxTextPrimary"
                     android:textSize="@dimen/text_medium"
                     android:textStyle="bold" />
-
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/report_text"
                     android:layout_width="match_parent"
@@ -173,7 +155,6 @@
                     android:textSize="@dimen/text_small" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_move_private_videos"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -181,14 +162,12 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/padding_normal"
             android:text="@string/migration_center_move_private_videos" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_import"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/padding_small"
             android:text="@string/migration_center_import_button" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_choose_package"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -196,7 +175,6 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/padding_small"
             android:text="@string/migration_center_choose_package_button" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_reimport"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -204,14 +182,12 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/padding_small"
             android:text="@string/migration_center_reimport_button" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_export"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/padding_small"
             android:text="@string/migration_center_export_button" />
-
         <com.google.android.material.checkbox.MaterialCheckBox
             android:id="@+id/include_cookie_profiles"
             android:layout_width="match_parent"
@@ -219,7 +195,6 @@
             android:text="@string/migration_center_include_cookie_profiles"
             android:textColor="@color/sxTextPrimary"
             app:buttonTint="@color/colorPrimary" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_delete_package"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -227,7 +202,6 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/padding_small"
             android:text="@string/migration_center_delete_package_button" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_uninstall_legacy"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -235,7 +209,6 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/padding_small"
             android:text="@string/migration_center_uninstall_legacy_button" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_refresh"
             style="@style/Widget.MaterialComponents.Button.TextButton"

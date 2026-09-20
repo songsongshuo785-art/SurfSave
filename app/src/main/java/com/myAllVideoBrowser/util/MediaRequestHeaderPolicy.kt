@@ -58,6 +58,22 @@ object MediaRequestHeaderPolicy {
         return result
     }
 
+    /** Re-applies the credential origin boundary for a concrete manifest child or redirect hop. */
+    fun forTarget(
+        storedHeaders: Map<String, String>,
+        credentialOriginUrl: String,
+        targetUrl: String
+    ): Map<String, String> {
+        val sameOrigin = isSameOrigin(credentialOriginUrl, targetUrl)
+        val result = linkedMapOf<String, String>()
+        storedHeaders.forEach { (name, value) ->
+            if (sameOrigin || name.lowercase() !in originBoundHeaderNames) {
+                putSanitized(result, name, value)
+            }
+        }
+        return result
+    }
+
     private fun putSanitized(target: MutableMap<String, String>, rawName: String, rawValue: String) {
         val name = rawName.trim()
         val value = rawValue.trim()

@@ -74,4 +74,10 @@ abstract class RepositoryModule {
     @Singleton
     @Binds
     abstract fun bindHistoryRepositoryImpl(historyRepository: HistoryRepositoryImpl): HistoryRepository
+
+    @Singleton
+    @Binds
+    abstract fun bindBrowserFileDownloadRepository(
+        repository: BrowserFileDownloadRepositoryImpl
+    ): BrowserFileDownloadRepository
 }

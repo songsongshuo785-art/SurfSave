@@ -78,7 +78,7 @@ class HlsLiveDownloader(
             val downloadedVideoUrls = mutableSetOf<String>()
             val downloadedAudioUrls = mutableSetOf<String>()
             val segmentDownloader =
-                SegmentDownloader(httpClient, headers, controller, progressCallback)
+                SegmentDownloader(httpClient, headers, controller, task.url, progressCallback)
 
             AppLogger.d("HLS (Live): Starting download loop for task ${task.mId}")
             task.setIsLive(true)
@@ -119,6 +119,7 @@ class HlsLiveDownloader(
                         httpClient,
                         downloadDir,
                         headers.toHeaders(),
+                        task.url,
                         candidateVideoSegments,
                         candidateAudioSegments,
                         shouldAbort = controller::isPauseOrCancelRequested

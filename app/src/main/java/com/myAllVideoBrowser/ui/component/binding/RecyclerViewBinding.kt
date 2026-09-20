@@ -13,6 +13,7 @@ object RecyclerViewBinding {
         when (val currentAdapter = adapter) {
             is WebTabsAdapter -> currentAdapter.setData(items.asList())
             is ProgressAdapter -> currentAdapter.setData(items.asList())
+            is BrowserFileDownloadAdapter -> currentAdapter.setData(items.asList())
             is ProxiesAdapter -> currentAdapter.setData(items.asList())
             is VideoAdapter -> currentAdapter.setData(items.asList())
             is HistoryAdapter -> currentAdapter.setData(items.asList())

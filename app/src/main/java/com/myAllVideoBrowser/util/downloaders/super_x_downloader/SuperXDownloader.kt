@@ -108,9 +108,8 @@ object SuperXDownloader : GenericDownloader() {
     }
 
     override fun getDownloadDataFromVideoInfo(videoInfo: VideoInfo): Data.Builder {
-        val videoUrl = videoInfo.originalUrl
-        val headers = videoInfo.formats.formats.firstOrNull()?.httpHeaders
-        val headersMap = headers?.toMap()?.toMutableMap() ?: mutableMapOf()
+        val source = SuperXDownloadSourceResolver.resolve(videoInfo)
+        val headersMap = source.headers.toMutableMap()
 
         val fileName = videoInfo.name
 
@@ -127,12 +126,12 @@ object SuperXDownloader : GenericDownloader() {
             "{}"
         }
         val data = Data.Builder()
-        data.putString(Constants.URL_KEY, videoUrl)
+        data.putString(Constants.URL_KEY, source.url)
         data.putString(Constants.TASK_ID_KEY, videoInfo.id)
 
         val zipHeaders = compressString(headersVal)
         AppLogger.d(
-            "SuperXDownloader: Zipped headers size $headersMap  ${zipHeaders.toByteArray().size} from ${headersVal.toByteArray().size}"
+            "SuperXDownloader: Zipped headers size ${zipHeaders.toByteArray().size} from ${headersVal.toByteArray().size}"
         )
 
         saveStringToSharedPreferences(
@@ -146,10 +145,10 @@ object SuperXDownloader : GenericDownloader() {
         data.putBoolean(Constants.IS_MPD, videoInfo.isMpd)
         data.putString(
             Constants.SELECTED_FORMAT_ID,
-            videoInfo.formats.formats.firstOrNull()?.formatId
+            source.formatId
         )
         data.putBoolean(Constants.IS_LIVE, videoInfo.isLive)
-        data.putString(Constants.VIDEO_CODEC, videoInfo.formats.formats.firstOrNull()?.vcodec)
+        data.putString(Constants.VIDEO_CODEC, source.videoCodec)
         return data
     }
 

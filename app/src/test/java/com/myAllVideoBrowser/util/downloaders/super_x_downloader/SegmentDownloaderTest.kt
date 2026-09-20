@@ -118,7 +118,8 @@ class SegmentDownloaderTest {
         return SegmentDownloader(
             client = OkHttpClient.Builder().build(),
             headers = emptyMap(),
-            controller = controller
+            controller = controller,
+            credentialOriginUrl = server.url("/master.m3u8").toString()
         )
     }
 

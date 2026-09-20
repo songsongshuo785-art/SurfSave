@@ -34,9 +34,6 @@ debug-*.xml
 # >>> AI 工作流本地文件 >>>
 AI工作流模板/
 .ai-workflow-backup-*/
-.trellis/
-.agents/
-.codex/
 .playwright-cli/
 AGENTS.md
 work.md

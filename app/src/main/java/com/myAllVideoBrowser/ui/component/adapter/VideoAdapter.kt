@@ -49,6 +49,7 @@ class VideoAdapter(
                 this.videoListener = videoListener
                 // 清除残留 transitionName：保证列表中仅被点击项在 startVideo 时持有共享元素名，避免重名冲突
                 this.ivThumbnail.transitionName = null
+                val placeholder = R.drawable.surf_video_placeholder
                 val thumbnailOptions = RequestOptions()
                     .frame(localVideo.thumbnailFrameMicros)
                     .format(DecodeFormat.PREFER_ARGB_8888)
@@ -56,11 +57,26 @@ class VideoAdapter(
                     .centerCrop()
                     .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
 
-                Glide.with(this@VideoViewHolder.itemView.context)
+                val requestManager = Glide.with(this@VideoViewHolder.itemView.context)
+                val videoFrameFallback = requestManager
                     .load(localVideo.uri)
-                    .error(R.drawable.surf_video_placeholder)
-                    .placeholder(R.drawable.surf_video_placeholder)
                     .apply(thumbnailOptions)
+                    .error(placeholder)
+                    .placeholder(placeholder)
+                val thumbnailRequest = localVideo.usableOriginalThumbnailUrl
+                    ?.let { thumbnailUrl ->
+                        requestManager
+                            .load(thumbnailUrl)
+                            .error(videoFrameFallback)
+                            .placeholder(placeholder)
+                    }
+                    ?: videoFrameFallback
+
+                thumbnailRequest
+                    .apply(RequestOptions()
+                        .override(VIDEO_THUMBNAIL_WIDTH_PX, VIDEO_THUMBNAIL_HEIGHT_PX)
+                        .centerCrop()
+                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
                     .into(this.ivThumbnail)
 
                 executePendingBindings()
@@ -72,7 +88,13 @@ class VideoAdapter(
         dispatchListDiff(
             oldItems = this.localVideos,
             newItems = localVideos,
-            areItemsTheSame = { oldItem, newItem -> oldItem.id == newItem.id }
+            areItemsTheSame = { oldItem, newItem -> oldItem.id == newItem.id },
+            areContentsTheSame = { old, new ->
+                old == new && old.size == new.size && old.quality == new.quality &&
+                    old.sourceUrl == new.sourceUrl &&
+                    old.originalThumbnailUrl == new.originalThumbnailUrl &&
+                    old.thumbnailFrameMicros == new.thumbnailFrameMicros
+            }
         ) {
             this.localVideos = localVideos
         }

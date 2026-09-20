@@ -12,6 +12,8 @@ class TelegramDownloadPolicyTest {
         url = "https://cdn.example/video.mp4?token=temporary",
         manifestUrl = "https://cdn.example/master.m3u8?token=temporary",
         httpHeaders = mapOf("Referer" to "https://t.me/channel/42"),
+        manifestRequestUrl = "https://t.me/channel/42/entry.m3u8?token=temporary",
+        manifestRequestHeaders = mapOf("Cookie" to "session=temporary"),
         videoOnlyUrl = "https://cdn.example/video-only.mp4",
         audioOnlyUrl = "https://cdn.example/audio-only.m4a",
         width = 1280,
@@ -31,6 +33,8 @@ class TelegramDownloadPolicyTest {
         assertNull(queued.url)
         assertNull(queued.manifestUrl)
         assertNull(queued.httpHeaders)
+        assertNull(queued.manifestRequestUrl)
+        assertNull(queued.manifestRequestHeaders)
         assertNull(queued.videoOnlyUrl)
         assertNull(queued.audioOnlyUrl)
     }

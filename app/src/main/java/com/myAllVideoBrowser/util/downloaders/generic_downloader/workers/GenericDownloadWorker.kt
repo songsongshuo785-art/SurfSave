@@ -14,21 +14,21 @@ import com.myAllVideoBrowser.util.proxy_utils.ProxyService
 import java.io.File
 import java.io.IOException
 import java.io.Serializable
-import kotlin.coroutines.Continuation
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 abstract class GenericDownloadWorker(appContext: Context, workerParams: WorkerParameters) :
     CoroutineWorker(appContext, workerParams) {
     @Volatile
-    private lateinit var continuation: Continuation<Result>
+    private lateinit var continuation: CancellableContinuation<Result>
     private val fileDir: String = File(
         applicationContext.filesDir.absolutePath, FileUtil.FOLDER_NAME
     ).absolutePath
 
-    @Volatile
-    private var isDone: Boolean = false
+    private val finishing = AtomicBoolean(false)
+    private val continuationCompleted = AtomicBoolean(false)
 
     abstract fun finishWork(item: VideoTaskItem?)
 
@@ -92,20 +92,20 @@ abstract class GenericDownloadWorker(appContext: Context, workerParams: WorkerPa
                 val headers = loadHeaders(task.mId)
 
                 if (action.isNullOrBlank() || task.url == null) {
-                    continuation.resumeWithException(IllegalArgumentException("ACTION or TASK is null"))
+                    completeWork(Result.failure())
                     return@suspendCancellableCoroutine
                 }
 
                 handleAction(action, task, headers, isFileRemove)
             } catch (e: IllegalArgumentException) {
                 AppLogger.e("Invalid input: $e")
-                continuation.resume(Result.failure())
+                completeWork(Result.failure())
             } catch (e: IOException) {
                 AppLogger.e("Download error:- $e")
-                continuation.resume(Result.failure())
+                completeWork(Result.failure())
             } catch (e: Exception) {
                 AppLogger.e("Unexpected error: $e")
-                continuation.resume(Result.failure())
+                completeWork(Result.failure())
             }
         }.also {
             afterDone()
@@ -138,23 +138,26 @@ abstract class GenericDownloadWorker(appContext: Context, workerParams: WorkerPa
 
     }
 
-    @Synchronized
     fun setDone() {
-        isDone = true
+        finishing.set(true)
     }
 
-    @Synchronized
     fun getDone(): Boolean {
-        return isDone
+        return finishing.get()
     }
 
-    @Synchronized
-    fun getContinuation(): Continuation<Result> {
-        return this.continuation
+    protected fun tryStartFinishing(): Boolean = finishing.compareAndSet(false, true)
+
+    protected fun completeWork(result: Result): Boolean {
+        finishing.set(true)
+        if (!continuationCompleted.compareAndSet(false, true)) return false
+        if (continuation.isActive) {
+            continuation.resume(result)
+        }
+        return true
     }
 
-    @Synchronized
-    private fun setWorkContinuation(continuation: Continuation<Result>) {
+    private fun setWorkContinuation(continuation: CancellableContinuation<Result>) {
         this.continuation = continuation
     }
 }

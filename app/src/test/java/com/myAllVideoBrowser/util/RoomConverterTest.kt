@@ -2,6 +2,8 @@ package com.myAllVideoBrowser.util
 
 import com.google.gson.JsonParser
 import com.myAllVideoBrowser.data.local.room.entity.DownloadRequestData
+import com.myAllVideoBrowser.data.local.room.entity.VideFormatEntityList
+import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -67,6 +69,37 @@ class RoomConverterTest {
         assertEquals("https://example/legacy", restored.originalUrl)
         assertTrue(restored.isRegularDownload)
         assertTrue(restored.isDetectedBySuperX)
+    }
+
+    @Test
+    fun convertListVideosToJson_roundTripsAuthenticatedManifestEntryMetadata() {
+        val source = VideoInfo(
+            id = "hls-video",
+            originalUrl = "https://page.example/watch/1",
+            isDetectedBySuperX = true,
+            formats = VideFormatEntityList(
+                listOf(
+                    VideoFormatEntity(
+                        formatId = "hls-720p-1000000",
+                        url = "https://cdn.example/master.m3u8",
+                        manifestUrl = "https://cdn.example/master.m3u8",
+                        httpHeaders = mapOf("User-Agent" to "SurfSave test"),
+                        manifestRequestUrl = "https://origin.example/auth/master.m3u8",
+                        manifestRequestHeaders = mapOf(
+                            "Cookie" to "session=origin",
+                            "Authorization" to "Bearer origin"
+                        )
+                    )
+                )
+            )
+        )
+
+        val restored = converter.convertJsonToVideo(converter.convertListVideosToJson(source))
+        val format = restored.formats.formats.single()
+
+        assertEquals("https://origin.example/auth/master.m3u8", format.manifestRequestUrl)
+        assertEquals("session=origin", format.manifestRequestHeaders?.get("Cookie"))
+        assertEquals("Bearer origin", format.manifestRequestHeaders?.get("Authorization"))
     }
 
     @Test

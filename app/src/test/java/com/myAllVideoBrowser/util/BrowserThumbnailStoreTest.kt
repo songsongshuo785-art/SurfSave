@@ -21,6 +21,7 @@ import java.io.FileOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
+@org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
 class BrowserThumbnailStoreTest {
     @Before
     fun setUp() {
@@ -58,8 +59,31 @@ class BrowserThumbnailStoreTest {
         val path = BrowserThumbnailStore.save("valid", structuredBitmap())
 
         assertNotNull(path)
+        org.junit.Assert.assertEquals(240 to 320, BrowserThumbnailStore.dimensions(path))
         assertTrue(File(path!!).length() > 0L)
         assertNotNull(BrowserThumbnailStore.load(path))
+    }
+
+    @Test
+    fun snapshotsOfOneTabHaveDistinctCompleteFiles() {
+        val first = BrowserThumbnailStore.save("same-tab", structuredBitmap())!!
+        val second = BrowserThumbnailStore.save("same-tab", structuredBitmap())!!
+        org.junit.Assert.assertNotEquals(first, second)
+        assertNotNull(BrowserThumbnailStore.load(first))
+        assertNotNull(BrowserThumbnailStore.load(second))
+        assertTrue(BrowserThumbnailStore.directory().listFiles()!!.none { it.extension == "tmp" })
+    }
+
+    @Test
+    fun landscapeDownsamplingDoesNotRejectAShorterPreview() {
+        val image = Bitmap.createScaledBitmap(structuredBitmap(), 720, 324, false)
+        val path = BrowserThumbnailStore.save("landscape", image)!!
+        val full = BrowserThumbnailStore.load(path)!!
+        org.junit.Assert.assertEquals(720, full.width)
+        org.junit.Assert.assertEquals(324, full.height)
+        val sampled = BrowserThumbnailStore.load(path, 480)!!
+        org.junit.Assert.assertEquals(360, sampled.width)
+        org.junit.Assert.assertEquals(162, sampled.height)
     }
 
     private fun solidBitmap(color: Int): Bitmap {

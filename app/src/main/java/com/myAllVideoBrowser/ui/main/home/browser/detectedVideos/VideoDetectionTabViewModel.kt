@@ -18,6 +18,9 @@ import com.myAllVideoBrowser.data.local.room.entity.toDownloadRequestData
 import com.myAllVideoBrowser.data.repository.VideoRepository
 import com.myAllVideoBrowser.ui.main.base.BaseViewModel
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserFragment
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserDownloadRequest
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserMediaClassifier
+import com.myAllVideoBrowser.ui.main.home.browser.ContentType
 import com.myAllVideoBrowser.ui.main.home.browser.DownloadButtonState
 import com.myAllVideoBrowser.ui.main.home.browser.DownloadButtonStateCanDownload
 import com.myAllVideoBrowser.ui.main.home.browser.DownloadButtonStateCanNotDownload
@@ -1107,7 +1110,12 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 Request.Builder().url(finalUrlPair.first).headers(finalHeaders.toHeaders()).build()
 
             okHttpProxyClient.getProxyOkHttpClient().newCall(request).execute().use { response ->
-                val contentType = response.body.contentType().toString()
+                val contentType = response.header("Content-Type").orEmpty()
+                val mediaType = BrowserMediaClassifier.classify(
+                    url = response.request.url.toString(),
+                    contentType = contentType,
+                    contentDisposition = response.header("Content-Disposition").orEmpty()
+                )
                 val contentLength = response.contentLengthOrUnknown()
                     .takeIf { it > 0 }
                     ?: probeContentLength(finalUrlPair.first, finalHeaders)
@@ -1128,8 +1136,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 val isTikTok = url.contains(".tiktok.com/")
                 val isRegularStreamDetectionOn = settingsModel.isForceStreamDetection.get()
 
-                val isVideo = contentType.contains("video", true)
-                val isAudio = contentType.contains("audio", true)
+                val isVideo = mediaType == ContentType.VIDEO
+                val isAudio = mediaType == ContentType.AUDIO
 
                 val tikTokThreshold = 1024 * 1024 / 3 // ~333KB
                 val isLargeEnoughForTikTok = isTikTok && contentLength > tikTokThreshold
@@ -1202,7 +1210,12 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 .headers(finalHeaders.toHeaders())
                 .build()
             okHttpProxyClient.getProxyOkHttpClient().newCall(request).execute().use { response ->
-                val contentType = response.body.contentType().toString()
+                val contentType = response.header("Content-Type").orEmpty()
+                val mediaType = BrowserMediaClassifier.classify(
+                    url = response.request.url.toString(),
+                    contentType = contentType,
+                    contentDisposition = response.header("Content-Disposition").orEmpty()
+                )
                 val contentLength = response.contentLengthOrUnknown()
                     .takeIf { it > 0 }
                     ?: probeContentLength(finalUrlPairEmpty.first, finalHeaders)
@@ -1211,9 +1224,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
                     return
                 }
                 when {
-                    contentType.contains(
-                        "video", true
-                    ) && isCheckOnVideo && contentLength > threshold.toLong() -> {
+                    mediaType == ContentType.VIDEO &&
+                        isCheckOnVideo && contentLength > threshold.toLong() -> {
                         setMediaInfoWrapperFromUrl(
                             finalUrlPairEmpty.first,
                             pageUrl,
@@ -1224,7 +1236,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                         )
                     }
 
-                    contentType.contains("audio", true) && isCheckOnAudio -> {
+                    mediaType == ContentType.AUDIO && isCheckOnAudio -> {
                         setMediaInfoWrapperFromUrl(
                             finalUrlPairEmpty.first,
                             pageUrl,
@@ -1243,12 +1255,43 @@ open class VideoDetectionTabViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Android WebView 已把该请求判定为下载时，不再额外 GET 整个媒体文件。
+     * 流清单继续交给既有解析器；普通音视频直接生成现有候选模型。
+     */
+    fun handleBrowserDownloadRequest(downloadRequest: BrowserDownloadRequest) {
+        val mediaType = downloadRequest.mediaType()
+        if (mediaType == ContentType.OTHER) return
+
+        val mediaUrl = downloadRequest.url.toHttpUrlOrNull()?.toUrl() ?: return
+        if (mediaType == ContentType.M3U8 || mediaType == ContentType.MPD) {
+            val request = runCatching {
+                Request.Builder()
+                    .url(mediaUrl)
+                    .headers(downloadRequest.allowedDownloadHeaders().toHeaders())
+                    .build()
+            }.getOrNull() ?: return
+            verifyLinkStatus(
+                request,
+                downloadRequest.suggestedTitle(),
+                mediaType == ContentType.M3U8,
+                mediaType == ContentType.MPD
+            )
+            return
+        }
+
+        downloadRequest.toDirectMediaVideoInfo(webTabModel?.currentTitle?.get())
+            ?.let(::pushNewVideoInfoToAll)
+    }
+
     private fun setMediaInfoWrapperFromUrl(
         url: URL,
         originalUrl: String?,
         alternativeHeaders: Map<String, String> = emptyMap(),
         contentLength: Long,
         isAudio: Boolean = false,
+        titleOverride: String? = null,
+        extensionOverride: String? = null,
         shouldPublish: () -> Boolean = { true },
         onVideoDetected: (VideoInfo) -> Unit = { pushNewVideoInfoToAll(it) }
     ) {
@@ -1264,6 +1307,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
             val inferredWidth = inferWidthFromUrl(urlString)
             val normalizedContentLength = contentLength.takeIf { it > 0 } ?: 0L
             val qualityLabel = inferredHeight.takeIf { it > 0 }?.let { "${it}p" }
+            val mediaExtension = extensionOverride?.takeIf { it.isNotBlank() }
+                ?: if (isAudio) "mp3" else "mp4"
 
             val requestData = Request.Builder()
                 .url(urlString)
@@ -1276,11 +1321,12 @@ open class VideoDetectionTabViewModel @Inject constructor(
             val video = VideoInfoWrapper(
                 VideoInfo(
                     downloadUrls = downloadUrls,
-                    title = webTabModel?.currentTitle?.get()?.takeIf { it.isNotBlank() }
+                    title = titleOverride?.takeIf { it.isNotBlank() }
+                        ?: webTabModel?.currentTitle?.get()?.takeIf { it.isNotBlank() }
                         ?: sourcePageUrl?.toHttpUrlOrNull()?.host
                         ?: url.host.takeIf { it.isNotBlank() }
                         ?: "no_title",
-                    ext = if (isAudio) "mp3" else "mp4",
+                    ext = mediaExtension,
                     originalUrl = sourcePageUrl ?: urlString,
                     // TODO format regular file link
                     formats = VideFormatEntityList(
@@ -1291,7 +1337,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                                     ?: ContextUtils.getApplicationContext()
                                     .getString(R.string.player_resolution),
                                 formatNote = qualityLabel,
-                                ext = if (isAudio) "mp3" else "mp4",
+                                ext = mediaExtension,
                                 url = requestData.url,
                                 httpHeaders = requestData.headers,
                                 width = inferredWidth,

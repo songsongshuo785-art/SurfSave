@@ -1,24 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layout xmlns:android="http://schemas.android.com/apk/res/android"
+<layout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     tools:context=".ui.main.bookmarks.BookmarksFragment">
-
     <data>
-
         <import type="android.view.View" />
-
-        <variable
-            name="mainVModel"
-            type="com.myAllVideoBrowser.ui.main.home.MainViewModel" />
+        <variable name="mainVModel" type="com.myAllVideoBrowser.ui.main.home.MainViewModel" />
     </data>
-
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/bookmarks_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@color/sxSurface">
-
         <LinearLayout
             android:id="@+id/bookmarks_header"
             android:layout_width="0dp"
@@ -31,18 +25,17 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent">
-
             <com.google.android.material.appbar.MaterialToolbar
                 android:id="@+id/bookmarks_toolbar"
                 android:layout_width="match_parent"
-                android:layout_height="56dp"
+                android:layout_height="64dp"
                 android:contentInsetStart="0dp"
                 android:contentInsetEnd="0dp"
                 app:contentInsetStart="0dp"
                 app:contentInsetEnd="0dp"
                 app:title="@string/bookmarks_list"
-                app:titleTextColor="@color/sxTextPrimary">
-
+                app:titleTextColor="@color/sxTextPrimary"
+                app:titleTextAppearance="@style/TextAppearance.Surf.ScreenTitle">
                 <ImageButton
                     android:id="@+id/add_bookmark"
                     android:layout_width="48dp"
@@ -53,7 +46,6 @@
                     android:padding="12dp"
                     android:src="@drawable/bookmark_add_24px"
                     app:tint="@color/colorPrimary" />
-
                 <ImageButton
                     android:id="@+id/refresh_bookmarks"
                     android:layout_width="48dp"
@@ -65,7 +57,6 @@
                     android:src="@drawable/ic_refresh_24dp"
                     app:tint="@color/sxTextPrimary" />
             </com.google.android.material.appbar.MaterialToolbar>
-
             <com.google.android.material.textview.MaterialTextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -73,7 +64,6 @@
                 android:textColor="@color/sxTextSecondary"
                 android:textSize="@dimen/text_small" />
         </LinearLayout>
-
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/bookmarks_list"
             android:layout_width="0dp"
@@ -86,7 +76,6 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/bookmarks_header" />
-
         <include
             android:id="@+id/state_empty"
             layout="@layout/state_empty"

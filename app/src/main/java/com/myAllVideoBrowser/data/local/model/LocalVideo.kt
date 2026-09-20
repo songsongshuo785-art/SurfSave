@@ -11,8 +11,11 @@ data class LocalVideo(
 ) {
 
     var size: String = ""
+    var mimeType: String = ""
     var quality: String = ""
     var sourceUrl: String = ""
+    /** Source-provided cover URL, if the completed download still has one. */
+    var originalThumbnailUrl: String = ""
     var thumbnailFrameMicros: Long = 1_000_000L
     var sortTimeMillis: Long = 0L
 
@@ -22,6 +25,9 @@ data class LocalVideo(
 
     val thumbnailPath: Uri
         get() = uri
+
+    val usableOriginalThumbnailUrl: String?
+        get() = originalThumbnailUrl.trim().takeIf { it.isNotBlank() }
 
     val hasQuality: Boolean
         get() = quality.isNotBlank()

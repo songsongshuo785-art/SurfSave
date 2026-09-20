@@ -88,6 +88,28 @@ class MainActivity : BaseActivity() {
 
     private lateinit var dataBinding: ActivityMainBinding
 
+    private val downloadBadgeCallback = object : Observable.OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            updateDownloadBadge()
+        }
+    }
+
+    private fun updateDownloadBadge() {
+        val count = progressViewModel.progressInfos.get().orEmpty().count {
+            it.isActive || it.downloadStatus in listOf(
+                VideoTaskState.PENDING, VideoTaskState.PAUSING,
+                VideoTaskState.CANCELING, VideoTaskState.FINALIZING
+            )
+        } + progressViewModel.browserFileDownloads.get().orEmpty().count { it.isActive }
+        if (count == 0) dataBinding.bottomBar.removeBadge(R.id.tab_progress)
+        else dataBinding.bottomBar.getOrCreateBadge(R.id.tab_progress).apply {
+            number = count
+            backgroundColor = getColor(R.color.colorPrimary)
+            badgeTextColor = getColor(R.color.colorOnPrimary)
+            isVisible = true
+        }
+    }
+
     private lateinit var mainAdapter: MainAdapter
 
     private val screenOrientationCallback = object : Observable.OnPropertyChangedCallback() {
@@ -156,6 +178,9 @@ class MainActivity : BaseActivity() {
         settingsViewModel.start()
         mainViewModel.start()
         progressViewModel.start()
+        progressViewModel.progressInfos.addOnPropertyChangedCallback(downloadBadgeCallback)
+        progressViewModel.browserFileDownloads.addOnPropertyChangedCallback(downloadBadgeCallback)
+        updateDownloadBadge()
 
         observeDownloadEvents()
 
@@ -447,6 +472,8 @@ class MainActivity : BaseActivity() {
     }
 
     override fun onDestroy() {
+        progressViewModel.progressInfos.removeOnPropertyChangedCallback(downloadBadgeCallback)
+        progressViewModel.browserFileDownloads.removeOnPropertyChangedCallback(downloadBadgeCallback)
         if (isFinishing) {
             mainViewModel.stop()
             settingsViewModel.isLockPortrait.removeOnPropertyChangedCallback(

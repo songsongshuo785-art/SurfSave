@@ -37,6 +37,14 @@ interface ProgressRepository {
         isLive: Boolean
     )
 
+    fun updateFinalMediaUri(id: String, uri: String): Int
+
+    fun updateFinalMediaUriForExecution(id: String, token: String, uri: String): Int
+
+    fun replaceFinalMediaUri(oldUri: String, newUri: String): Int
+
+    fun clearFinalMediaUri(uri: String): Int
+
     fun updateQueuePosition(id: String, position: Long)
 
     fun updateQueueState(id: String, status: Int, queuedForLater: Boolean, infoLine: String, logPath: String)
@@ -160,6 +168,18 @@ class ProgressRepositoryImpl @Inject constructor(
             isLive
         )
     }
+
+    override fun updateFinalMediaUri(id: String, uri: String): Int =
+        localDataSource.updateFinalMediaUri(id, uri)
+
+    override fun updateFinalMediaUriForExecution(id: String, token: String, uri: String): Int =
+        localDataSource.updateFinalMediaUriForExecution(id, token, uri)
+
+    override fun replaceFinalMediaUri(oldUri: String, newUri: String): Int =
+        localDataSource.replaceFinalMediaUri(oldUri, newUri)
+
+    override fun clearFinalMediaUri(uri: String): Int =
+        localDataSource.clearFinalMediaUri(uri)
 
     override fun updateQueuePosition(id: String, position: Long) {
         localDataSource.updateQueuePosition(id, position)
