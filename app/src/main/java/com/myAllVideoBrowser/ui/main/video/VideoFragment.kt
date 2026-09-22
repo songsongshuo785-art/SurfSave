@@ -21,6 +21,7 @@ import androidx.core.content.FileProvider
 import androidx.core.net.toFile
 import androidx.core.net.toUri
 import androidx.core.view.get
+import androidx.core.view.doOnLayout
 import androidx.lifecycle.ViewModelProvider
 import androidx.media3.common.util.UnstableApi
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -41,6 +42,7 @@ import com.myAllVideoBrowser.ui.main.video.VideoViewModel.Companion.FILE_EXIST_E
 import com.myAllVideoBrowser.util.AppUtil
 import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.IntentUtil
+import com.myAllVideoBrowser.util.UrlInputNormalizer
 import io.reactivex.rxjava3.disposables.Disposable
 import io.reactivex.rxjava3.schedulers.Schedulers
 import java.io.File
@@ -78,6 +80,21 @@ class VideoFragment : BaseFragment() {
     private var libraryQuery = ""
     private var libraryFilter = R.id.library_all
     private var librarySortOrder = VideoLibraryOrdering.SortOrder.NEWEST
+    private var videoGridLayoutListener: View.OnLayoutChangeListener? = null
+
+    private fun updateVideoGridSpanCount() {
+        if (!::dataBinding.isInitialized) return
+        val manager = dataBinding.rvVideo.layoutManager as? GridLayoutManager ?: return
+        val spanCount = if (resources.configuration.fontScale > 1.3f) {
+            1
+        } else {
+            val availableWidth = (dataBinding.rvVideo.width -
+                dataBinding.rvVideo.paddingLeft - dataBinding.rvVideo.paddingRight).coerceAtLeast(1)
+            val minCardWidth = resources.getDimensionPixelSize(R.dimen.video_card_min_width)
+            (availableWidth / minCardWidth).coerceIn(1, 4)
+        }
+        if (manager.spanCount != spanCount) manager.spanCount = spanCount
+    }
     private val libraryCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) { renderLibrary() }
     }
@@ -133,13 +150,17 @@ class VideoFragment : BaseFragment() {
         videoAdapter = VideoAdapter(emptyList(), videoListener)
 
         dataBinding = FragmentVideoBinding.inflate(inflater, container, false).apply {
-            val managerL =
-                GridLayoutManager(context, if (resources.configuration.fontScale > 1.3f) 1 else (resources.configuration.screenWidthDp / 180).coerceIn(1, 4))
+            val managerL = GridLayoutManager(context, 1)
 
             this.viewModel = videoViewModel
             this.mainViewModel = mainActivity.mainViewModel
             this.rvVideo.layoutManager = managerL
             this.rvVideo.adapter = videoAdapter
+            videoGridLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                updateVideoGridSpanCount()
+            }
+            this.rvVideo.addOnLayoutChangeListener(videoGridLayoutListener!!)
+            this.rvVideo.doOnLayout { updateVideoGridSpanCount() }
             // Empty-state CTA: jump back to the browser tab
             this.emptyActionButton.setOnClickListener {
                 mainActivity.mainViewModel.currentItem.set(0)
@@ -205,6 +226,8 @@ class VideoFragment : BaseFragment() {
 
     override fun onDestroyView() {
         videoViewModel.localVideos.removeOnPropertyChangedCallback(libraryCallback)
+        videoGridLayoutListener?.let(dataBinding.rvVideo::removeOnLayoutChangeListener)
+        videoGridLayoutListener = null
         dataBinding.rvVideo.adapter = null
         videoViewModel.stop()
         disposable?.dispose()
@@ -249,7 +272,7 @@ class VideoFragment : BaseFragment() {
 
         override fun onSourceClicked(localVideo: LocalVideo) {
             val sourceUrl = videoViewModel.getSourceUrl(localVideo)
-            if (sourceUrl.isBlank()) {
+            if (!UrlInputNormalizer.isBrowsableWebAddress(sourceUrl)) {
                 Toast.makeText(
                     requireContext(),
                     getString(R.string.video_source_unavailable),

@@ -76,4 +76,23 @@ class ProgressTextHumanizerTest {
                 .contains(context.getString(R.string.download_status_downloading_audio))
         )
     }
+
+    @Test
+    fun videoDownloadUsesNeutralMediaLabelUntilStreamStageIsKnown() {
+        val context = RuntimeEnvironment.getApplication()
+        val info = ProgressInfo(
+            videoInfo = VideoInfo(title = "clip", ext = "mp4"),
+            progressDownloaded = 4,
+            progressTotal = 10,
+            downloadStatus = VideoTaskState.DOWNLOADING
+        )
+
+        val line = ProgressTextHumanizer.progressLine(context, info)
+        assertTrue(
+            line.contains(context.getString(R.string.download_status_downloading_media))
+        )
+        assertFalse(
+            line.contains(context.getString(R.string.download_status_downloading_video))
+        )
+    }
 }

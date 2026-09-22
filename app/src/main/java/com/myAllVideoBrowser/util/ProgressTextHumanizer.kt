@@ -57,7 +57,7 @@ object ProgressTextHumanizer {
             VideoTaskState.DOWNLOADING,
             VideoTaskState.PROXYREADY -> context.getString(
                 if (isAudio(info)) R.string.download_status_downloading_audio
-                else R.string.download_status_downloading_video
+                else R.string.download_status_downloading_media
             )
             else -> statusText(context, info.downloadStatus)
         }

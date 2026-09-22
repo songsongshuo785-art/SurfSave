@@ -98,6 +98,13 @@ class MainActivity : BaseActivity() {
     private val navigationBar: NavigationBarView
         get() = findViewById(R.id.bottom_bar)
 
+    /** NavigationRail fills the tablet height, so it must not be used as a Snackbar anchor. */
+    private val snackbarAnchor: View?
+        get() = if (isTabletLike()) null else navigationBar
+
+    private fun isTabletLike(): Boolean =
+        resources.configuration.smallestScreenWidthDp >= 600
+
     private val downloadBadgeCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
             updateDownloadBadge()
@@ -125,7 +132,7 @@ class MainActivity : BaseActivity() {
     private val screenOrientationCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
             val isLock = settingsViewModel.isLockPortrait.get()
-            requestedOrientation = if (isLock) {
+            requestedOrientation = if (!isTabletLike() && isLock) {
                 ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             } else {
                 ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -435,7 +442,7 @@ class MainActivity : BaseActivity() {
     private fun observeDownloadEvents() {
         progressViewModel.downloadStartedEvent.observe(this) { messageRes ->
             Snackbar.make(dataBinding.viewPager, getString(messageRes), Snackbar.LENGTH_LONG)
-                .setAnchorView(navigationBar)
+                .apply { snackbarAnchor?.let { setAnchorView(it) } }
                 .setAction(getString(R.string.action_view)) {
                     dataBinding.viewPager.currentItem = 1
                     navigationBar.selectedItemId = R.id.tab_progress
@@ -444,7 +451,7 @@ class MainActivity : BaseActivity() {
         }
         progressViewModel.downloadRejectedEvent.observe(this) { messageRes ->
             Snackbar.make(dataBinding.viewPager, getString(messageRes), Snackbar.LENGTH_SHORT)
-                .setAnchorView(navigationBar)
+                .apply { snackbarAnchor?.let { setAnchorView(it) } }
                 .show()
         }
         progressViewModel.downloadDuplicateEvent.observe(this) { event ->
@@ -472,7 +479,7 @@ class MainActivity : BaseActivity() {
                 ),
                 Snackbar.LENGTH_LONG
             )
-                .setAnchorView(navigationBar)
+                .apply { snackbarAnchor?.let { setAnchorView(it) } }
                 .setAction(getString(R.string.action_view)) {
                     dataBinding.viewPager.currentItem = 1
                     navigationBar.selectedItemId = R.id.tab_progress
@@ -502,7 +509,7 @@ class MainActivity : BaseActivity() {
 
     private fun handleScreenOrientationSettingsInit() {
         // INIT
-        requestedOrientation = if (settingsViewModel.isLockPortrait.get()) {
+        requestedOrientation = if (!isTabletLike() && settingsViewModel.isLockPortrait.get()) {
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else {
             ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED

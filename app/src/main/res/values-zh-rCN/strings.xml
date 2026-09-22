@@ -491,6 +491,7 @@
     <string name="download_status_downloading">下载中</string>
     <string name="download_status_downloading_video">正在下载视频</string>
     <string name="download_status_downloading_audio">正在下载音频</string>
+    <string name="download_status_downloading_media">正在下载媒体</string>
     <string name="download_status_paused">已暂停</string>
     <string name="download_status_pending">排队中</string>
     <string name="download_status_waiting">等待下载</string>

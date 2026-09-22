@@ -17,6 +17,7 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.widget.PopupMenu
+import androidx.core.view.doOnLayout
 import androidx.databinding.Observable
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Observer
@@ -44,6 +45,7 @@ import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabFactory
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ErrorLogRecorder
 import com.myAllVideoBrowser.util.UserFacingError
+import com.myAllVideoBrowser.util.UrlInputNormalizer
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
 import javax.inject.Inject
 import java.io.File
@@ -70,6 +72,17 @@ class ProgressFragment : BaseFragment() {
     private lateinit var progressAdapter: ProgressAdapter
     private lateinit var fileDownloadAdapter: BrowserFileDownloadAdapter
     private var selectedFilter = R.id.downloads_all
+    private var progressGridLayoutListener: View.OnLayoutChangeListener? = null
+
+    private fun updateProgressGridSpanCount() {
+        if (!::dataBinding.isInitialized) return
+        val manager = dataBinding.rvProgress.layoutManager as? GridLayoutManager ?: return
+        val availableWidth = (dataBinding.rvProgress.width -
+            dataBinding.rvProgress.paddingLeft - dataBinding.rvProgress.paddingRight).coerceAtLeast(1)
+        val minCardWidth = resources.getDimensionPixelSize(R.dimen.download_card_min_width)
+        val spanCount = (availableWidth / minCardWidth).coerceIn(1, 2)
+        if (manager.spanCount != spanCount) manager.spanCount = spanCount
+    }
 
     private val selectedSectionCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
@@ -99,15 +112,16 @@ class ProgressFragment : BaseFragment() {
         fileDownloadAdapter = BrowserFileDownloadAdapter(emptyList(), fileDownloadListener)
 
         dataBinding = FragmentProgressBinding.inflate(inflater, container, false).apply {
-            val managerL = if (resources.configuration.smallestScreenWidthDp >= 600) {
-                GridLayoutManager(context, 2, RecyclerView.VERTICAL, false)
-            } else {
-                WrapContentLinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
-            }
+            val managerL = GridLayoutManager(context, 1, RecyclerView.VERTICAL, false)
             this.mainViewModel = mainActivity.mainViewModel
             this.viewModel = progressViewModel
             this.rvProgress.layoutManager = managerL
             this.rvProgress.adapter = progressAdapter
+            progressGridLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                updateProgressGridSpanCount()
+            }
+            this.rvProgress.addOnLayoutChangeListener(progressGridLayoutListener!!)
+            this.rvProgress.doOnLayout { updateProgressGridSpanCount() }
             this.rvFileDownloads.layoutManager = WrapContentLinearLayoutManager(
                 context,
                 LinearLayoutManager.VERTICAL,
@@ -158,6 +172,8 @@ class ProgressFragment : BaseFragment() {
         progressViewModel.selectedDownloadSection.removeOnPropertyChangedCallback(selectedSectionCallback)
         progressViewModel.browserFileDownloads.removeOnPropertyChangedCallback(fileDownloadsCallback)
         progressViewModel.progressInfos.removeOnPropertyChangedCallback(mediaDownloadsCallback)
+        progressGridLayoutListener?.let(dataBinding.rvProgress::removeOnLayoutChangeListener)
+        progressGridLayoutListener = null
         dataBinding.rvProgress.adapter = null
         dataBinding.rvFileDownloads.adapter = null
         super.onDestroyView()
@@ -448,7 +464,7 @@ class ProgressFragment : BaseFragment() {
 
                 R.id.item_source -> {
                     val sourceUrl = menuCandidate?.videoInfo?.originalUrl?.trim().orEmpty()
-                    if (sourceUrl.isBlank()) {
+                    if (!UrlInputNormalizer.isBrowsableWebAddress(sourceUrl)) {
                         Snackbar.make(
                             dataBinding.root,
                             R.string.video_source_unavailable,

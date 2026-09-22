@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.os.SystemClock
+import android.provider.Settings
 import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -118,8 +119,14 @@ class VideoPlayerFragment : BaseFragment() {
     private var seeking = false
     private var seekStartPos = 0L
     private var wasPlayingBeforeSeek = false
-    private enum class VerticalAdjustment { BRIGHTNESS, VOLUME }
-    private var verticalAdjustment: VerticalAdjustment? = null
+    private enum class GestureMode {
+        NONE,
+        SEEK,
+        BRIGHTNESS,
+        VOLUME,
+        LONG_PRESS_SPEED
+    }
+    private var gestureMode = GestureMode.NONE
     private var verticalStartValue = 0f
     private var longPressOriginalSpeed: Float? = null
     private var gestureFeedbackHideRunnable: Runnable? = null
@@ -184,6 +191,7 @@ class VideoPlayerFragment : BaseFragment() {
 
             override fun onLongPress(e: MotionEvent) {
                 if (isPipMode || isBottomControlsTouch(e.y) || longPressOriginalSpeed != null) return
+                gestureMode = GestureMode.LONG_PRESS_SPEED
                 longPressOriginalSpeed = player.playbackParameters.speed
                 player.playbackParameters = player.playbackParameters.withSpeed(LONG_PRESS_SPEED)
                 showGestureFeedback(
@@ -206,32 +214,69 @@ class VideoPlayerFragment : BaseFragment() {
                 // 右滑(totalDx>0)快进、左滑快退；用总位移判断主方向（避免增量 distanceX 抖动）
                 val totalDx = e2.x - e1.x
                 val totalDy = e2.y - e1.y
-                if (longPressOriginalSpeed != null) return true
+                if (longPressOriginalSpeed != null || gestureMode == GestureMode.LONG_PRESS_SPEED) {
+                    return true
+                }
+
+                // Once a gesture crosses the slop threshold, its mode is fixed
+                // until ACTION_UP/ACTION_CANCEL. This prevents a diagonal or
+                // shaky finger path from switching between seek and volume/brightness.
+                when (gestureMode) {
+                    GestureMode.BRIGHTNESS,
+                    GestureMode.VOLUME -> {
+                        updateVerticalAdjustment(totalDy)
+                        return true
+                    }
+
+                    GestureMode.SEEK -> {
+                        return updateSeek(totalDx)
+                    }
+
+                    GestureMode.NONE -> Unit
+                    GestureMode.LONG_PRESS_SPEED -> return true
+                }
+
                 if (abs(totalDy) > abs(totalDx) * 1.25f) {
-                    updateVerticalAdjustment(e1.x, totalDy)
+                    gestureMode = if (e1.x < view.width / 2f) {
+                        GestureMode.BRIGHTNESS
+                    } else {
+                        GestureMode.VOLUME
+                    }
+                    verticalStartValue = when (gestureMode) {
+                        GestureMode.BRIGHTNESS -> currentBrightness()
+                        GestureMode.VOLUME -> currentVolumeFraction()
+                        else -> 0f
+                    }
+                    updateVerticalAdjustment(totalDy)
                     return true
                 }
                 if (abs(totalDx) < abs(totalDy) * 1.5f) return false
-                val width = view.width
-                val duration = player.duration.coerceAtLeast(0L)
-                if (width <= 0 || duration <= 0L) return false
-                // 首次进入滑动 seek：暂停播放 + 记录起点（之后基于起点算总位移，避免累加抖动）
-                if (!seeking) {
-                    seeking = true
-                    seekStartPos = player.currentPosition
-                    wasPlayingBeforeSeek = player.playWhenReady
-                    player.playWhenReady = false
-                    if (!view.isControllerFullyVisible) view.showController()
-                }
-                // 滑满整屏最多 ±30 秒（不按视频总时长百分比，避免长视频一拉跳很远）
-                val maxSeekMs = 30_000L
-                val target = (seekStartPos + (totalDx / width.toFloat() * maxSeekMs.toFloat()).toLong())
-                    .coerceIn(0L, duration)
-                player.seekTo(target)
-                showSeekPreview(target)
-                return true
+                gestureMode = GestureMode.SEEK
+                return updateSeek(totalDx)
             }
         })
+    }
+
+    private fun updateSeek(totalDx: Float): Boolean {
+        val view = dataBinding.videoView
+        val duration = player.duration.coerceAtLeast(0L)
+        if (view.width <= 0 || duration <= 0L) return false
+        val width = view.width
+        // 首次进入滑动 seek：暂停播放 + 记录起点（之后基于起点算总位移，避免累加抖动）
+        if (!seeking) {
+            seeking = true
+            seekStartPos = player.currentPosition
+            wasPlayingBeforeSeek = player.playWhenReady
+            player.playWhenReady = false
+            if (!view.isControllerFullyVisible) view.showController()
+        }
+        // 滑满整屏最多 ±30 秒（不按视频总时长百分比，避免长视频一拉跳很远）
+        val maxSeekMs = 30_000L
+        val target = (seekStartPos + (totalDx / width.toFloat() * maxSeekMs.toFloat()).toLong())
+            .coerceIn(0L, duration)
+        player.seekTo(target)
+        showSeekPreview(target)
+        return true
     }
 
     private fun isBottomControlsTouch(y: Float): Boolean {
@@ -241,41 +286,29 @@ class VideoPlayerFragment : BaseFragment() {
         return view.isControllerFullyVisible && controllerH > 0 && y > view.height - controllerH
     }
 
-    private fun updateVerticalAdjustment(startX: Float, totalDy: Float) {
+    private fun updateVerticalAdjustment(totalDy: Float) {
         val view = dataBinding.videoView
         if (view.width <= 0 || view.height <= 0) return
-        if (verticalAdjustment == null) {
-            verticalAdjustment = if (startX < view.width / 2f) {
-                VerticalAdjustment.BRIGHTNESS
-            } else {
-                VerticalAdjustment.VOLUME
-            }
-            verticalStartValue = when (verticalAdjustment) {
-                VerticalAdjustment.BRIGHTNESS -> currentBrightness()
-                VerticalAdjustment.VOLUME -> currentVolumeFraction()
-                null -> 0f
-            }
-        }
 
         val value = (verticalStartValue - totalDy / view.height.toFloat()).coerceIn(0f, 1f)
-        when (verticalAdjustment) {
-            VerticalAdjustment.BRIGHTNESS -> setBrightness(value)
-            VerticalAdjustment.VOLUME -> setVolume(value)
-            null -> return
+        when (gestureMode) {
+            GestureMode.BRIGHTNESS -> setBrightness(value)
+            GestureMode.VOLUME -> setVolume(value)
+            else -> return
         }
-        val label = when (verticalAdjustment) {
-            VerticalAdjustment.BRIGHTNESS -> getString(
+        val label = when (gestureMode) {
+            GestureMode.BRIGHTNESS -> getString(
                 R.string.player_gesture_brightness,
                 (value * 100).roundToInt()
             )
-            VerticalAdjustment.VOLUME -> getString(
+            GestureMode.VOLUME -> getString(
                 R.string.player_gesture_volume,
                 (value * 100).roundToInt()
             )
-            null -> return
+            else -> return
         }
         showGestureFeedback(
-            if (verticalAdjustment == VerticalAdjustment.BRIGHTNESS) {
+            if (gestureMode == GestureMode.BRIGHTNESS) {
                 R.drawable.ic_light_mode_24px
             } else {
                 R.drawable.ic_volume_up_24px
@@ -285,9 +318,15 @@ class VideoPlayerFragment : BaseFragment() {
     }
 
     private fun currentBrightness(): Float {
-        return activity?.window?.attributes?.screenBrightness
+        val windowBrightness = activity?.window?.attributes?.screenBrightness
             ?.takeIf { it >= 0f }
-            ?: 0.5f
+        if (windowBrightness != null) return windowBrightness
+
+        val resolver = context?.contentResolver ?: return 0.5f
+        val systemBrightness = runCatching {
+            Settings.System.getInt(resolver, Settings.System.SCREEN_BRIGHTNESS)
+        }.getOrNull()
+        return ((systemBrightness ?: 128) / 255f).coerceIn(0f, 1f)
     }
 
     private fun setBrightness(value: Float) {
@@ -350,7 +389,6 @@ class VideoPlayerFragment : BaseFragment() {
             player.playWhenReady = wasPlayingBeforeSeek
             hideSeekPreview()
         }
-        verticalAdjustment = null
         val originalSpeed = longPressOriginalSpeed
         longPressOriginalSpeed = null
         if (originalSpeed != null) {
@@ -362,6 +400,7 @@ class VideoPlayerFragment : BaseFragment() {
                 )
             }
         }
+        gestureMode = GestureMode.NONE
     }
 
     private lateinit var videoPlayerViewModel: VideoPlayerViewModel

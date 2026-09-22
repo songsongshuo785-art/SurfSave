@@ -494,6 +494,7 @@
   <string name="download_status_downloading">Downloading</string>
   <string name="download_status_downloading_video">Downloading video</string>
   <string name="download_status_downloading_audio">Downloading audio</string>
+  <string name="download_status_downloading_media">Downloading media</string>
   <string name="download_status_paused">Paused</string>
   <string name="download_status_pending">Waiting</string>
   <string name="download_status_waiting">Waiting for download</string>
