@@ -93,7 +93,9 @@ class VideoAdapter(
                 old == new && old.size == new.size && old.quality == new.quality &&
                     old.sourceUrl == new.sourceUrl &&
                     old.originalThumbnailUrl == new.originalThumbnailUrl &&
-                    old.thumbnailFrameMicros == new.thumbnailFrameMicros
+                    old.thumbnailFrameMicros == new.thumbnailFrameMicros &&
+                    old.sizeBytes == new.sizeBytes &&
+                    old.durationMillis == new.durationMillis
             }
         ) {
             this.localVideos = localVideos

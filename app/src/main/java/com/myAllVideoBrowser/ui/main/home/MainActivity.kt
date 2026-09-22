@@ -46,6 +46,7 @@ import com.myAllVideoBrowser.util.fragment.FragmentFactory
 import com.myAllVideoBrowser.util.scheduler.BaseSchedulers
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.navigation.NavigationBarView
 import javax.inject.Inject
 
 //@OpenForTesting
@@ -88,6 +89,15 @@ class MainActivity : BaseActivity() {
 
     private lateinit var dataBinding: ActivityMainBinding
 
+    /**
+     * Both the phone bottom bar and the tablet navigation rail expose the same
+     * Material NavigationBarView contract. Keeping the lookup here lets the
+     * resource-qualified layouts change shape without duplicating navigation
+     * behavior in the activity.
+     */
+    private val navigationBar: NavigationBarView
+        get() = findViewById(R.id.bottom_bar)
+
     private val downloadBadgeCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
             updateDownloadBadge()
@@ -101,8 +111,8 @@ class MainActivity : BaseActivity() {
                 VideoTaskState.CANCELING, VideoTaskState.FINALIZING
             )
         } + progressViewModel.browserFileDownloads.get().orEmpty().count { it.isActive }
-        if (count == 0) dataBinding.bottomBar.removeBadge(R.id.tab_progress)
-        else dataBinding.bottomBar.getOrCreateBadge(R.id.tab_progress).apply {
+        if (count == 0) navigationBar.removeBadge(R.id.tab_progress)
+        else navigationBar.getOrCreateBadge(R.id.tab_progress).apply {
             number = count
             backgroundColor = getColor(R.color.colorPrimary)
             badgeTextColor = getColor(R.color.colorOnPrimary)
@@ -151,7 +161,7 @@ class MainActivity : BaseActivity() {
         dataBinding.viewPager.isUserInputEnabled = false
         dataBinding.viewPager.adapter = mainAdapter
         dataBinding.viewPager.registerOnPageChangeCallback(onPageChangeListener)
-        dataBinding.bottomBar.setOnItemSelectedListener { menuItem ->
+        navigationBar.setOnItemSelectedListener { menuItem ->
             val isBrowser = mainViewModel.currentItem.get() == 0
             var goingToBrowser = false
             when (menuItem.itemId) {
@@ -204,7 +214,7 @@ class MainActivity : BaseActivity() {
         ) {
             dataBinding.viewPager.currentItem = requestedStartPage
             mainViewModel.currentItem.set(requestedStartPage)
-            dataBinding.bottomBar.selectedItemId = if (requestedStartPage == EXTRA_START_PAGE_VIDEO_LIBRARY) {
+            navigationBar.selectedItemId = if (requestedStartPage == EXTRA_START_PAGE_VIDEO_LIBRARY) {
                 R.id.tab_video
             } else {
                 R.id.tab_browser
@@ -375,7 +385,7 @@ class MainActivity : BaseActivity() {
     }
 
     private fun updateBottomBarVisibility(pageIndex: Int) {
-        dataBinding.bottomBar.visibility = View.VISIBLE
+        navigationBar.visibility = View.VISIBLE
     }
 
     private fun maybeOpenMigrationCenter(savedInstanceState: Bundle?) {
@@ -425,16 +435,16 @@ class MainActivity : BaseActivity() {
     private fun observeDownloadEvents() {
         progressViewModel.downloadStartedEvent.observe(this) { messageRes ->
             Snackbar.make(dataBinding.viewPager, getString(messageRes), Snackbar.LENGTH_LONG)
-                .setAnchorView(dataBinding.bottomBar)
+                .setAnchorView(navigationBar)
                 .setAction(getString(R.string.action_view)) {
                     dataBinding.viewPager.currentItem = 1
-                    dataBinding.bottomBar.selectedItemId = R.id.tab_progress
+                    navigationBar.selectedItemId = R.id.tab_progress
                 }
                 .show()
         }
         progressViewModel.downloadRejectedEvent.observe(this) { messageRes ->
             Snackbar.make(dataBinding.viewPager, getString(messageRes), Snackbar.LENGTH_SHORT)
-                .setAnchorView(dataBinding.bottomBar)
+                .setAnchorView(navigationBar)
                 .show()
         }
         progressViewModel.downloadDuplicateEvent.observe(this) { event ->
@@ -443,7 +453,7 @@ class MainActivity : BaseActivity() {
                 .setMessage(getString(event.messageRes))
                 .setPositiveButton(R.string.action_view) { _, _ ->
                     dataBinding.viewPager.currentItem = 1
-                    dataBinding.bottomBar.selectedItemId = R.id.tab_progress
+                    navigationBar.selectedItemId = R.id.tab_progress
                 }
                 .setNegativeButton(R.string.download_again) { _, _ ->
                     progressViewModel.forceDownloadVideo(event.incomingVideoInfo)
@@ -462,10 +472,10 @@ class MainActivity : BaseActivity() {
                 ),
                 Snackbar.LENGTH_LONG
             )
-                .setAnchorView(dataBinding.bottomBar)
+                .setAnchorView(navigationBar)
                 .setAction(getString(R.string.action_view)) {
                     dataBinding.viewPager.currentItem = 1
-                    dataBinding.bottomBar.selectedItemId = R.id.tab_progress
+                    navigationBar.selectedItemId = R.id.tab_progress
                 }
                 .show()
         }

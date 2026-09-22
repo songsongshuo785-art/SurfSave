@@ -63,6 +63,7 @@ class VideoViewModel @Inject constructor(
     private var pendingDelete: PendingDelete? = null
     private var pendingRename: PendingRename? = null
     private val thumbnailFrameMicrosCache = mutableMapOf<String, Long>()
+    private val mediaDurationMillisCache = mutableMapOf<String, Long>()
     private val mediaSortTimeMillisCache = mutableMapOf<String, Long>()
     private var refreshJob: Job? = null
     private var progressSubscription: Disposable? = null
@@ -144,6 +145,7 @@ class VideoViewModel @Inject constructor(
                 fileUri,
                 entry.displayName
             )
+            video.sizeBytes = fileSize
             video.size = readableSize
             video.mimeType = try {
                 context.contentResolver.getType(fileUri).orEmpty()
@@ -157,12 +159,14 @@ class VideoViewModel @Inject constructor(
             video.quality = progressInfo?.let { resolveQuality(it) }.orEmpty()
             video.sourceUrl = progressInfo?.let { resolveSourceUrl(it) }.orEmpty()
             video.originalThumbnailUrl = progressInfo?.videoInfo?.thumbnail.orEmpty()
+            video.durationMillis = resolveMediaDurationMillis(context, fileUri)
             video.thumbnailFrameMicros =
                 resolveThumbnailFrameMicros(context, fileUri)
             video.sortTimeMillis = resolveMediaSortTimeMillis(context, fileUri)
             listVideos.add(video)
         }
         thumbnailFrameMicrosCache.keys.retainAll(validCacheKeys)
+        mediaDurationMillisCache.keys.retainAll(validCacheKeys)
         mediaSortTimeMillisCache.keys.retainAll(validCacheKeys)
 
         return listVideos.toList()
@@ -226,24 +230,34 @@ class VideoViewModel @Inject constructor(
         val cacheKey = uri.toString()
         thumbnailFrameMicrosCache[cacheKey]?.let { return it }
 
-        val frameMicros = runCatching {
+        val frameMicros = recommendedThumbnailFrameMicros(
+            resolveMediaDurationMillis(context, uri).takeIf { it > 0L }
+        )
+        thumbnailFrameMicrosCache[cacheKey] = frameMicros
+        return frameMicros
+    }
+
+    private fun resolveMediaDurationMillis(context: Context, uri: Uri): Long {
+        val cacheKey = uri.toString()
+        mediaDurationMillisCache[cacheKey]?.let { return it }
+
+        val durationMillis = runCatching {
             val retriever = MediaMetadataRetriever()
             try {
                 retriever.setDataSource(context, uri)
-                val durationMillis = retriever.extractMetadata(
+                retriever.extractMetadata(
                     MediaMetadataRetriever.METADATA_KEY_DURATION
-                )?.toLongOrNull()
-                recommendedThumbnailFrameMicros(durationMillis)
+                )?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
             } finally {
                 retriever.release()
             }
         }.getOrElse { error ->
-            AppLogger.w("Video thumbnail frame fallback for $uri: ${error.message}")
-            DEFAULT_VIDEO_FRAME_MICROS
+            AppLogger.w("Video duration fallback for $uri: ${error.message}")
+            0L
         }
 
-        thumbnailFrameMicrosCache[cacheKey] = frameMicros
-        return frameMicros
+        mediaDurationMillisCache[cacheKey] = durationMillis
+        return durationMillis
     }
 
     private fun recommendedThumbnailFrameMicros(durationMillis: Long?): Long {
@@ -458,6 +472,7 @@ class VideoViewModel @Inject constructor(
     private fun removeCachedVideoMetadata(uri: Uri) {
         val cacheKey = uri.toString()
         thumbnailFrameMicrosCache.remove(cacheKey)
+        mediaDurationMillisCache.remove(cacheKey)
         mediaSortTimeMillisCache.remove(cacheKey)
     }
 

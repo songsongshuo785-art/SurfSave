@@ -59,6 +59,32 @@ class VideoLibraryOrderingTest {
         assertEquals(listOf("known.mp4", "unknown.mp4"), ordered.map { it.name })
     }
 
+    @Test
+    fun sizeSortIsDescendingAndUnknownSizesAreLast() {
+        val videos = listOf(
+            video("unknown.mp4", "content://media/downloads/1", 0L).apply { sizeBytes = -1L },
+            video("small.mp4", "content://media/downloads/2", 0L).apply { sizeBytes = 10L },
+            video("large.mp4", "content://media/downloads/3", 0L).apply { sizeBytes = 100L }
+        )
+
+        val ordered = VideoLibraryOrdering.sort(videos, VideoLibraryOrdering.SortOrder.SIZE)
+
+        assertEquals(listOf("large.mp4", "small.mp4", "unknown.mp4"), ordered.map { it.name })
+    }
+
+    @Test
+    fun durationSortIsDescendingAndUnknownDurationsAreLast() {
+        val videos = listOf(
+            video("unknown.mp4", "content://media/downloads/1", 0L).apply { durationMillis = 0L },
+            video("short.mp4", "content://media/downloads/2", 0L).apply { durationMillis = 1_000L },
+            video("long.mp4", "content://media/downloads/3", 0L).apply { durationMillis = 30_000L }
+        )
+
+        val ordered = VideoLibraryOrdering.sort(videos, VideoLibraryOrdering.SortOrder.DURATION)
+
+        assertEquals(listOf("long.mp4", "short.mp4", "unknown.mp4"), ordered.map { it.name })
+    }
+
     private fun video(name: String, uri: String, sortTimeMillis: Long): LocalVideo {
         return LocalVideo(0L, Uri.parse(uri), name).apply {
             this.sortTimeMillis = sortTimeMillis

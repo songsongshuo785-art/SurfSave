@@ -97,6 +97,15 @@
                         android:text="@string/surf_filter_audio" />
                 </com.google.android.material.chip.ChipGroup>
             </HorizontalScrollView>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/sort_library_button"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:minHeight="48dp"
+                android:text="@string/video_sort_newest"
+                android:textAllCaps="false" />
         </LinearLayout>
         <FrameLayout
             android:id="@+id/finished_native_ad_container"

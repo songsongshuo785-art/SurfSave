@@ -21,6 +21,11 @@
   <string name="title_browser">Browse</string>
   <string name="progress_subtitle">Your saves, in one place.</string>
   <string name="video_library_subtitle">Saved and ready to play.</string>
+  <string name="video_sort_newest">Newest</string>
+  <string name="video_sort_oldest">Oldest</string>
+  <string name="video_sort_name">Name</string>
+  <string name="video_sort_size">File size</string>
+  <string name="video_sort_duration">Duration</string>
   <string name="detected_videos_title">Videos on this page</string>
   <string name="media_import_tab_title">Shared content</string>
   <string name="media_import_panel_title">Shared content</string>
@@ -102,6 +107,7 @@
   <string name="settings_message_open_folder">You don\'t have any file explorer app installed on your device</string>
   <string name="progress_menu_cancel">Cancel</string>
   <string name="progress_menu_details">Details and log</string>
+  <string name="progress_menu_source">Open source page</string>
   <string name="progress_menu_move_top">Move to top</string>
   <string name="progress_menu_move_up">Move up</string>
   <string name="progress_menu_move_down">Move down</string>
@@ -356,6 +362,12 @@
   <string name="player_error_network">The media server could not be reached. Check the network or proxy and try again.</string>
   <string name="player_back">Back</string>
   <string name="player_more">More</string>
+  <string name="player_gesture_rewind">Back %1$d seconds</string>
+  <string name="player_gesture_forward">Forward %1$d seconds</string>
+  <string name="player_gesture_brightness">Brightness %1$d%%</string>
+  <string name="player_gesture_volume">Volume %1$d%%</string>
+  <string name="player_gesture_speed">%1$s× speed</string>
+  <string name="player_gesture_speed_restored">Speed %1$s×</string>
   <string name="player_overflow">⋮</string>
   <string name="player_aspect_title">Aspect ratio</string>
   <string name="player_aspect_fit">Fit</string>
@@ -480,10 +492,15 @@
 
   <!-- Download status, localized -->
   <string name="download_status_downloading">Downloading</string>
+  <string name="download_status_downloading_video">Downloading video</string>
+  <string name="download_status_downloading_audio">Downloading audio</string>
   <string name="download_status_paused">Paused</string>
   <string name="download_status_pending">Waiting</string>
+  <string name="download_status_waiting">Waiting for download</string>
   <string name="download_status_preparing">Preparing</string>
-  <string name="download_status_merging">Finishing up</string>
+  <string name="download_status_fetching">Getting video information</string>
+  <string name="download_status_merging">Merging and saving video</string>
+  <string name="download_progress_finalizing">%1$d%% · %2$s</string>
   <string name="download_status_canceling">Canceling</string>
   <string name="download_status_failed">Failed</string>
 

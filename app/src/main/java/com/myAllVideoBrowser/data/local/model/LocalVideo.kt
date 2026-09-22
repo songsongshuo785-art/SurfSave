@@ -18,6 +18,10 @@ data class LocalVideo(
     var originalThumbnailUrl: String = ""
     var thumbnailFrameMicros: Long = 1_000_000L
     var sortTimeMillis: Long = 0L
+    /** Raw byte size; non-positive means the provider could not report it. */
+    var sizeBytes: Long = -1L
+    /** Media duration in milliseconds; non-positive means unknown. */
+    var durationMillis: Long = 0L
 
     /** Humanized display name (extension/separator cleanup); raw name untouched */
     val displayName: String

@@ -22,6 +22,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.RecyclerView.Recycler
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -38,6 +39,8 @@ import com.myAllVideoBrowser.ui.component.adapter.BrowserFileDownloadListener
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.ui.main.home.MainActivity
 import com.myAllVideoBrowser.ui.main.home.MainViewModel
+import com.myAllVideoBrowser.ui.main.home.browser.HOME_TAB_INDEX
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabFactory
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ErrorLogRecorder
 import com.myAllVideoBrowser.util.UserFacingError
@@ -96,8 +99,11 @@ class ProgressFragment : BaseFragment() {
         fileDownloadAdapter = BrowserFileDownloadAdapter(emptyList(), fileDownloadListener)
 
         dataBinding = FragmentProgressBinding.inflate(inflater, container, false).apply {
-            val managerL =
+            val managerL = if (resources.configuration.smallestScreenWidthDp >= 600) {
+                GridLayoutManager(context, 2, RecyclerView.VERTICAL, false)
+            } else {
                 WrapContentLinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
+            }
             this.mainViewModel = mainActivity.mainViewModel
             this.viewModel = progressViewModel
             this.rvProgress.layoutManager = managerL
@@ -387,6 +393,8 @@ class ProgressFragment : BaseFragment() {
         popupMenu.menu.findItem(R.id.item_move_down).isVisible = canMove
         popupMenu.menu.findItem(R.id.item_later).isVisible =
             menuCandidate?.downloadStatus == VideoTaskState.PENDING || isActive
+        popupMenu.menu.findItem(R.id.item_source).isVisible =
+            !menuCandidate?.videoInfo?.originalUrl.isNullOrBlank()
 
         popupMenu.setForceShowIcon(true)
         popupMenu.show()
@@ -435,6 +443,29 @@ class ProgressFragment : BaseFragment() {
 
                 R.id.item_later -> {
                     progressViewModel.markDownloadLater(downloadId)
+                    true
+                }
+
+                R.id.item_source -> {
+                    val sourceUrl = menuCandidate?.videoInfo?.originalUrl?.trim().orEmpty()
+                    if (sourceUrl.isBlank()) {
+                        Snackbar.make(
+                            dataBinding.root,
+                            R.string.video_source_unavailable,
+                            Snackbar.LENGTH_LONG
+                        ).show()
+                    } else {
+                        mainViewModel.currentItem.set(HOME_TAB_INDEX)
+                        val provider = mainViewModel.browserServicesProvider
+                        if (provider != null) {
+                            provider.getOpenTabEvent().value = WebTabFactory.createWebTabFromInput(
+                                sourceUrl,
+                                searchUrlPattern = mainActivity.sharedPrefHelper.getSearchUrlPattern()
+                            )
+                        } else {
+                            mainViewModel.openedUrl.set(sourceUrl)
+                        }
+                    }
                     true
                 }
 

@@ -57,6 +57,39 @@
                 android:textColor="@android:color/white"
                 android:textSize="12sp" />
         </FrameLayout>
+        <LinearLayout
+            android:id="@+id/gesture_feedback"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_player_control_chip"
+            android:clickable="false"
+            android:focusable="false"
+            android:gravity="center"
+            android:minHeight="72dp"
+            android:orientation="horizontal"
+            android:paddingHorizontal="20dp"
+            android:paddingVertical="14dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/gesture_feedback_icon"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                app:tint="@android:color/white" />
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/gesture_feedback_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
         <com.google.android.material.progressindicator.CircularProgressIndicator
             android:id="@+id/loading_bar"
             android:layout_width="wrap_content"

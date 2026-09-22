@@ -77,12 +77,16 @@ class VideoFragment : BaseFragment() {
     private lateinit var videoAdapter: VideoAdapter
     private var libraryQuery = ""
     private var libraryFilter = R.id.library_all
+    private var librarySortOrder = VideoLibraryOrdering.SortOrder.NEWEST
     private val libraryCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) { renderLibrary() }
     }
 
     private fun renderLibrary() {
-        val all = videoViewModel.localVideos.get().orEmpty()
+        val all = VideoLibraryOrdering.sort(
+            videoViewModel.localVideos.get().orEmpty(),
+            librarySortOrder
+        )
         val filtered = MediaLibraryPresentation.filter(all, libraryQuery, when (libraryFilter) {
             R.id.library_audio -> LibraryMediaType.AUDIO
             R.id.library_video -> LibraryMediaType.VIDEO
@@ -90,6 +94,7 @@ class VideoFragment : BaseFragment() {
         })
         videoAdapter.setData(filtered)
         dataBinding.librarySubtitle.text = getString(R.string.surf_library_count, all.size)
+        dataBinding.sortLibraryButton.setText(sortLabel(librarySortOrder))
         dataBinding.layoutEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
         val filtering = libraryQuery.isNotBlank() || libraryFilter != R.id.library_all
         dataBinding.tvEmptyText.setText(if (filtering) R.string.surf_no_results else R.string.empty_video_title)
@@ -106,6 +111,7 @@ class VideoFragment : BaseFragment() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("library_query", libraryQuery)
         outState.putInt("library_filter", libraryFilter)
+        outState.putString("library_sort", librarySortOrder.name)
         super.onSaveInstanceState(outState)
     }
 
@@ -138,6 +144,7 @@ class VideoFragment : BaseFragment() {
             this.emptyActionButton.setOnClickListener {
                 mainActivity.mainViewModel.currentItem.set(0)
             }
+            this.sortLibraryButton.setOnClickListener { showSortMenu(it) }
         }
 
         videoViewModel.shareEvent.observe(viewLifecycleOwner) { uri ->
@@ -171,6 +178,9 @@ class VideoFragment : BaseFragment() {
 
         libraryQuery = savedInstanceState?.getString("library_query") ?: libraryQuery
         libraryFilter = savedInstanceState?.getInt("library_filter") ?: libraryFilter
+        librarySortOrder = savedInstanceState?.getString("library_sort")
+            ?.let { value -> runCatching { VideoLibraryOrdering.SortOrder.valueOf(value) }.getOrNull() }
+            ?: VideoLibraryOrdering.SortOrder.NEWEST
         dataBinding.searchLibrary.setText(libraryQuery)
         dataBinding.libraryFilters.check(libraryFilter)
         dataBinding.searchLibrary.doAfterTextChanged {
@@ -334,6 +344,45 @@ class VideoFragment : BaseFragment() {
                 else -> false
             }
         }
+    }
+
+    private fun showSortMenu(anchor: View) {
+        val popup = PopupMenu(requireContext(), anchor)
+        popup.menuInflater.inflate(R.menu.menu_video_sort, popup.menu)
+        popup.menu.findItem(sortMenuItemId(librarySortOrder)).isChecked = true
+        popup.setOnMenuItemClickListener { item ->
+            val selected = sortOrderForMenuItem(item.itemId)
+                ?: return@setOnMenuItemClickListener false
+            librarySortOrder = selected
+            renderLibrary()
+            true
+        }
+        popup.show()
+    }
+
+    private fun sortMenuItemId(order: VideoLibraryOrdering.SortOrder): Int = when (order) {
+        VideoLibraryOrdering.SortOrder.NEWEST -> R.id.sort_newest
+        VideoLibraryOrdering.SortOrder.OLDEST -> R.id.sort_oldest
+        VideoLibraryOrdering.SortOrder.NAME -> R.id.sort_name
+        VideoLibraryOrdering.SortOrder.SIZE -> R.id.sort_size
+        VideoLibraryOrdering.SortOrder.DURATION -> R.id.sort_duration
+    }
+
+    private fun sortOrderForMenuItem(itemId: Int): VideoLibraryOrdering.SortOrder? = when (itemId) {
+        R.id.sort_newest -> VideoLibraryOrdering.SortOrder.NEWEST
+        R.id.sort_oldest -> VideoLibraryOrdering.SortOrder.OLDEST
+        R.id.sort_name -> VideoLibraryOrdering.SortOrder.NAME
+        R.id.sort_size -> VideoLibraryOrdering.SortOrder.SIZE
+        R.id.sort_duration -> VideoLibraryOrdering.SortOrder.DURATION
+        else -> null
+    }
+
+    private fun sortLabel(order: VideoLibraryOrdering.SortOrder): Int = when (order) {
+        VideoLibraryOrdering.SortOrder.NEWEST -> R.string.video_sort_newest
+        VideoLibraryOrdering.SortOrder.OLDEST -> R.string.video_sort_oldest
+        VideoLibraryOrdering.SortOrder.NAME -> R.string.video_sort_name
+        VideoLibraryOrdering.SortOrder.SIZE -> R.string.video_sort_size
+        VideoLibraryOrdering.SortOrder.DURATION -> R.string.video_sort_duration
     }
 
     @OptIn(UnstableApi::class)

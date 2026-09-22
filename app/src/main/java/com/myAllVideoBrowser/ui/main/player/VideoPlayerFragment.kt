@@ -3,11 +3,13 @@ package com.myAllVideoBrowser.ui.main.player
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.os.SystemClock
 import android.view.GestureDetector
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.LayoutInflater
 import android.view.View
@@ -62,6 +64,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import javax.inject.Inject
 
 
@@ -89,6 +93,7 @@ class VideoPlayerFragment : BaseFragment() {
         private const val MENU_ASPECT = 3
         private const val MENU_PIP = 4
         private const val POSITION_SAVE_INTERVAL_MS = 10_000L
+        private const val LONG_PRESS_SPEED = 2f
     }
 
     @Inject
@@ -113,6 +118,11 @@ class VideoPlayerFragment : BaseFragment() {
     private var seeking = false
     private var seekStartPos = 0L
     private var wasPlayingBeforeSeek = false
+    private enum class VerticalAdjustment { BRIGHTNESS, VOLUME }
+    private var verticalAdjustment: VerticalAdjustment? = null
+    private var verticalStartValue = 0f
+    private var longPressOriginalSpeed: Float? = null
+    private var gestureFeedbackHideRunnable: Runnable? = null
     // PiP 模式标志：小窗内不响应水平滑动 seek
     private var isPipMode = false
     // 滑动 seek 预览气泡节流：避免每个 move 都 Glide 取帧造成请求堆积卡顿
@@ -147,11 +157,40 @@ class VideoPlayerFragment : BaseFragment() {
 
     private val gestureDetector by lazy {
         GestureDetector(requireContext(), object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean {
+                return !isPipMode && !isBottomControlsTouch(e.y)
+            }
+
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 // 双击左半屏快退、右半屏快进（幅度同 seekBack/Forward 的 10s）
+                if (isPipMode || isBottomControlsTouch(e.y)) return false
                 val width = dataBinding.videoView.width
-                if (width > 0 && e.x < width / 2f) player.seekBack() else player.seekForward()
+                if (width > 0 && e.x < width / 2f) {
+                    player.seekBack()
+                    showGestureFeedback(
+                        R.drawable.surf_player_rewind,
+                        getString(R.string.player_gesture_rewind, SEEK_INCREMENT_MS / 1000L)
+                    )
+                } else {
+                    player.seekForward()
+                    showGestureFeedback(
+                        R.drawable.surf_player_forward,
+                        getString(R.string.player_gesture_forward, SEEK_INCREMENT_MS / 1000L)
+                    )
+                }
+                dataBinding.videoView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 return true
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                if (isPipMode || isBottomControlsTouch(e.y) || longPressOriginalSpeed != null) return
+                longPressOriginalSpeed = player.playbackParameters.speed
+                player.playbackParameters = player.playbackParameters.withSpeed(LONG_PRESS_SPEED)
+                showGestureFeedback(
+                    R.drawable.ic_speed_24px,
+                    getString(R.string.player_gesture_speed, formatSpeed(LONG_PRESS_SPEED))
+                )
+                dataBinding.videoView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             }
 
             override fun onScroll(
@@ -163,12 +202,16 @@ class VideoPlayerFragment : BaseFragment() {
                 if (e1 == null || isPipMode) return false
                 val view = dataBinding.videoView
                 // 触摸落在底部进度条区域 → 不抢事件，交给 PlayerView 自带 TimeBar（避免双 seek 打架）
-                val controllerH = view.findViewById<View>(R.id.player_bottom_controls).height
-                if (view.isControllerFullyVisible && e2.y > view.height - controllerH) return false
+                if (isBottomControlsTouch(e2.y)) return false
                 // 右滑(totalDx>0)快进、左滑快退；用总位移判断主方向（避免增量 distanceX 抖动）
                 val totalDx = e2.x - e1.x
                 val totalDy = e2.y - e1.y
-                if (Math.abs(totalDx) < Math.abs(totalDy) * 1.5f) return false
+                if (longPressOriginalSpeed != null) return true
+                if (abs(totalDy) > abs(totalDx) * 1.25f) {
+                    updateVerticalAdjustment(e1.x, totalDy)
+                    return true
+                }
+                if (abs(totalDx) < abs(totalDy) * 1.5f) return false
                 val width = view.width
                 val duration = player.duration.coerceAtLeast(0L)
                 if (width <= 0 || duration <= 0L) return false
@@ -189,6 +232,136 @@ class VideoPlayerFragment : BaseFragment() {
                 return true
             }
         })
+    }
+
+    private fun isBottomControlsTouch(y: Float): Boolean {
+        if (!::dataBinding.isInitialized) return false
+        val view = dataBinding.videoView
+        val controllerH = view.findViewById<View>(R.id.player_bottom_controls).height
+        return view.isControllerFullyVisible && controllerH > 0 && y > view.height - controllerH
+    }
+
+    private fun updateVerticalAdjustment(startX: Float, totalDy: Float) {
+        val view = dataBinding.videoView
+        if (view.width <= 0 || view.height <= 0) return
+        if (verticalAdjustment == null) {
+            verticalAdjustment = if (startX < view.width / 2f) {
+                VerticalAdjustment.BRIGHTNESS
+            } else {
+                VerticalAdjustment.VOLUME
+            }
+            verticalStartValue = when (verticalAdjustment) {
+                VerticalAdjustment.BRIGHTNESS -> currentBrightness()
+                VerticalAdjustment.VOLUME -> currentVolumeFraction()
+                null -> 0f
+            }
+        }
+
+        val value = (verticalStartValue - totalDy / view.height.toFloat()).coerceIn(0f, 1f)
+        when (verticalAdjustment) {
+            VerticalAdjustment.BRIGHTNESS -> setBrightness(value)
+            VerticalAdjustment.VOLUME -> setVolume(value)
+            null -> return
+        }
+        val label = when (verticalAdjustment) {
+            VerticalAdjustment.BRIGHTNESS -> getString(
+                R.string.player_gesture_brightness,
+                (value * 100).roundToInt()
+            )
+            VerticalAdjustment.VOLUME -> getString(
+                R.string.player_gesture_volume,
+                (value * 100).roundToInt()
+            )
+            null -> return
+        }
+        showGestureFeedback(
+            if (verticalAdjustment == VerticalAdjustment.BRIGHTNESS) {
+                R.drawable.ic_light_mode_24px
+            } else {
+                R.drawable.ic_volume_up_24px
+            },
+            label
+        )
+    }
+
+    private fun currentBrightness(): Float {
+        return activity?.window?.attributes?.screenBrightness
+            ?.takeIf { it >= 0f }
+            ?: 0.5f
+    }
+
+    private fun setBrightness(value: Float) {
+        val window = activity?.window ?: return
+        val attributes = window.attributes
+        attributes.screenBrightness = value
+        window.attributes = attributes
+    }
+
+    private fun audioManager(): AudioManager? =
+        requireContext().getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+
+    private fun currentVolumeFraction(): Float {
+        val manager = audioManager() ?: return 0f
+        val max = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        return if (max > 0) manager.getStreamVolume(AudioManager.STREAM_MUSIC) / max.toFloat() else 0f
+    }
+
+    private fun setVolume(value: Float) {
+        val manager = audioManager() ?: return
+        val max = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (max > 0) {
+            manager.setStreamVolume(AudioManager.STREAM_MUSIC, (value * max).roundToInt(), 0)
+        }
+    }
+
+    private fun showGestureFeedback(iconRes: Int, text: String) {
+        if (!::dataBinding.isInitialized) return
+        gestureFeedbackHideRunnable?.let(dataBinding.root::removeCallbacks)
+        dataBinding.gestureFeedbackIcon.setImageResource(iconRes)
+        dataBinding.gestureFeedbackText.text = text
+        dataBinding.gestureFeedback.contentDescription = text
+        dataBinding.gestureFeedback.visibility = View.VISIBLE
+        dataBinding.gestureFeedback.animate().cancel()
+        dataBinding.gestureFeedback.alpha = 1f
+        dataBinding.gestureFeedback.scaleX = 0.92f
+        dataBinding.gestureFeedback.scaleY = 0.92f
+        dataBinding.gestureFeedback.animate()
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(resources.getInteger(R.integer.motion_micro_ms).toLong())
+            .start()
+        val hide = Runnable {
+            dataBinding.gestureFeedback.animate()
+                .alpha(0f)
+                .setDuration(resources.getInteger(R.integer.motion_micro_ms).toLong())
+                .withEndAction {
+                    dataBinding.gestureFeedback.visibility = View.GONE
+                    dataBinding.gestureFeedback.alpha = 1f
+                }
+                .start()
+        }
+        gestureFeedbackHideRunnable = hide
+        dataBinding.root.postDelayed(hide, 850L)
+    }
+
+    private fun finishTouchGestures(showFeedback: Boolean = true) {
+        if (seeking) {
+            seeking = false
+            player.playWhenReady = wasPlayingBeforeSeek
+            hideSeekPreview()
+        }
+        verticalAdjustment = null
+        val originalSpeed = longPressOriginalSpeed
+        longPressOriginalSpeed = null
+        if (originalSpeed != null) {
+            player.playbackParameters = player.playbackParameters.withSpeed(originalSpeed)
+            if (showFeedback) {
+                showGestureFeedback(
+                    R.drawable.ic_speed_24px,
+                    getString(R.string.player_gesture_speed_restored, formatSpeed(originalSpeed))
+                )
+            }
+        }
     }
 
     private lateinit var videoPlayerViewModel: VideoPlayerViewModel
@@ -359,11 +532,7 @@ class VideoPlayerFragment : BaseFragment() {
             currentBinding.videoView.setOnTouchListener { _, e ->
                 gestureDetector.onTouchEvent(e)
                 if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
-                    if (seeking) {
-                        seeking = false
-                        player.playWhenReady = wasPlayingBeforeSeek
-                        hideSeekPreview()
-                    }
+                    finishTouchGestures()
                 }
                 false
             }
@@ -471,6 +640,8 @@ class VideoPlayerFragment : BaseFragment() {
     }
 
     override fun onDestroyView() {
+        gestureFeedbackHideRunnable?.let { dataBinding.root.removeCallbacks(it) }
+        finishTouchGestures(showFeedback = false)
         persistPlaybackPosition(force = true)
         stopPlaybackPositionPersistence()
         surfaceRecoveryGeneration++

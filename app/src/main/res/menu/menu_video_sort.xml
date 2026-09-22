@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group android:checkableBehavior="single">
+        <item android:id="@+id/sort_newest" android:title="@string/video_sort_newest" android:checkable="true" />
+        <item android:id="@+id/sort_oldest" android:title="@string/video_sort_oldest" android:checkable="true" />
+        <item android:id="@+id/sort_name" android:title="@string/video_sort_name" android:checkable="true" />
+        <item android:id="@+id/sort_size" android:title="@string/video_sort_size" android:checkable="true" />
+        <item android:id="@+id/sort_duration" android:title="@string/video_sort_duration" android:checkable="true" />
+    </group>
+</menu>

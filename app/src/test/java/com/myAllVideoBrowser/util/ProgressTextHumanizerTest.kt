@@ -44,4 +44,36 @@ class ProgressTextHumanizerTest {
 
         assertFalse(info.isProgressIndeterminate)
     }
+
+    @Test
+    fun finalizingShowsCompleteCopyAndUsesIndeterminateProgress() {
+        val context = RuntimeEnvironment.getApplication()
+        val info = ProgressInfo(
+            videoInfo = VideoInfo(title = "clip", ext = "mp4"),
+            progressDownloaded = 10,
+            progressTotal = 10,
+            downloadStatus = VideoTaskState.FINALIZING
+        )
+
+        val line = ProgressTextHumanizer.progressLine(context, info)
+        assertTrue(line.startsWith("100%"))
+        assertTrue(info.isProgressIndeterminate)
+        assertTrue(line.contains(context.getString(R.string.download_status_merging)))
+    }
+
+    @Test
+    fun audioDownloadUsesAudioStageLabel() {
+        val context = RuntimeEnvironment.getApplication()
+        val info = ProgressInfo(
+            videoInfo = VideoInfo(title = "clip", ext = "m4a"),
+            progressDownloaded = 4,
+            progressTotal = 10,
+            downloadStatus = VideoTaskState.DOWNLOADING
+        )
+
+        assertTrue(
+            ProgressTextHumanizer.progressLine(context, info)
+                .contains(context.getString(R.string.download_status_downloading_audio))
+        )
+    }
 }
