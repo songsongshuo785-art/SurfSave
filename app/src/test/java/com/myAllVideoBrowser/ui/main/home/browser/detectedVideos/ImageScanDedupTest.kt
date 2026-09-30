@@ -102,13 +102,25 @@ class ImageScanDedupTest {
     }
 
     @Test
-    fun trailingSlashIsNormalized() {
+    fun trailingSlashIsSignificant() {
         val existing = listOf(image("https://cdn.example/photo.jpg/"))
 
-        assertTrue(
+        assertFalse(
             VideoDetectionTabViewModel.isImageAlreadyDetected(
                 existing,
                 "https://cdn.example/photo.jpg"
+            )
+        )
+    }
+
+    @Test
+    fun queryParameterOrderIsSignificant() {
+        val existing = listOf(image("https://cdn.example/photo.jpg?a=1&b=2"))
+
+        assertFalse(
+            VideoDetectionTabViewModel.isImageAlreadyDetected(
+                existing,
+                "https://cdn.example/photo.jpg?b=2&a=1"
             )
         )
     }

@@ -66,8 +66,8 @@ class MediaUrlIdentityTest {
     }
 
     @Test
-    fun queryPartsAreSorted() {
-        assertEquals(
+    fun queryParameterOrderIsSignificant() {
+        assertNotEquals(
             MediaUrlIdentity.of("https://cdn.example/a.jpg?a=1&b=2"),
             MediaUrlIdentity.of("https://cdn.example/a.jpg?b=2&a=1")
         )
@@ -86,10 +86,14 @@ class MediaUrlIdentityTest {
     }
 
     @Test
-    fun trailingSlashAndFragmentAreNormalized() {
+    fun fragmentIsDroppedButTrailingSlashIsKept() {
         assertEquals(
-            MediaUrlIdentity.of("https://cdn.example/a.jpg"),
+            "https://cdn.example/a.jpg/",
             MediaUrlIdentity.of("https://cdn.example/a.jpg/#top")
+        )
+        assertNotEquals(
+            MediaUrlIdentity.of("https://cdn.example/a.jpg"),
+            MediaUrlIdentity.of("https://cdn.example/a.jpg/")
         )
     }
 

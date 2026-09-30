@@ -18,6 +18,9 @@ import java.util.Locale
  *
  * Only the query keys that carry per-request signatures are removed, and the keys
  * are compared case-insensitively while the surviving query text is left untouched.
+ * The surviving query keeps its original parameter order, and path trailing
+ * slashes are kept, because HTTP gives no guarantee that either is
+ * semantically insignificant.
  */
 internal object MediaUrlIdentity {
     private val TEMPORARY_QUERY_KEYS = setOf(
@@ -57,11 +60,10 @@ internal object MediaUrlIdentity {
         }
 
         val port = if (uri.port == -1) "" else ":${uri.port}"
-        val path = uri.rawPath.orEmpty().trimEnd('/')
+        val path = uri.rawPath.orEmpty()
         val stableQuery = uri.rawQuery
             ?.split("&")
             ?.filterNot(::isTemporaryQueryPart)
-            ?.sorted()
             ?.joinToString("&")
             .orEmpty()
 
@@ -81,6 +83,6 @@ internal object MediaUrlIdentity {
 
     /** Best-effort identity for URLs that cannot be parsed or have no host. */
     private fun loose(value: String): String {
-        return value.substringBefore("#").trimEnd('/')
+        return value.substringBefore("#")
     }
 }

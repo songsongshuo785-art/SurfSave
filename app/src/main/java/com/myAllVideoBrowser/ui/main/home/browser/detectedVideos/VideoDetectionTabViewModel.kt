@@ -42,6 +42,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -50,7 +52,6 @@ import java.net.HttpCookie
 import java.net.URI
 import java.net.URL
 import java.util.LinkedHashSet
-import java.util.concurrent.Semaphore
 import java.util.concurrent.Executors
 import javax.inject.Inject
 import kotlin.math.abs
@@ -641,38 +642,39 @@ open class VideoDetectionTabViewModel @Inject constructor(
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            var acquired = false
-            var probeIdentity: String? = null
-            imageProbePermits.acquire()
-            acquired = true
+            if (isImageCandidateAlreadyDetected(request.url)) {
+                return@launch
+            }
+
+            // Claim the probe identity before competing for a permit, so duplicate
+            // candidates for the same image never occupy one of the probe permits.
+            val probeIdentity = normalizeMediaUrl(request.url)
+            if (!imageProbeGate.tryAcquire(probeIdentity)) {
+                return@launch
+            }
+
             try {
-                if (isImageCandidateAlreadyDetected(request.url)) {
-                    return@launch
-                }
-
-                val candidateIdentity = normalizeMediaUrl(request.url)
-                if (!imageProbeGate.tryAcquire(candidateIdentity)) {
-                    return@launch
-                }
-                probeIdentity = candidateIdentity
-
-                val resolvedRequest = resolveImageResponseMetadata(request)
-                val imageInfo = resolvedRequest.toDirectMediaVideoInfo(fallbackTitle)
-                if (imageInfo != null &&
-                    (pageGeneration == null || isCurrentPageGeneration(pageGeneration))
-                ) {
-                    // Publish on the main thread before releasing the probe gate, so the
-                    // detected list already contains the image when the next scan asks
-                    // whether it still needs to be probed.
-                    withContext(Dispatchers.Main.immediate) {
-                        if (pageGeneration == null || isCurrentPageGeneration(pageGeneration)) {
-                            pushNewImageInfo(imageInfo)
+                // The coroutines Semaphore suspends waiters instead of blocking a
+                // Dispatchers.IO thread, so a large scan cannot park threads while
+                // waiting for one of the four probe slots.
+                imageProbePermits.withPermit {
+                    val resolvedRequest = resolveImageResponseMetadata(request)
+                    val imageInfo = resolvedRequest.toDirectMediaVideoInfo(fallbackTitle)
+                    if (imageInfo != null &&
+                        (pageGeneration == null || isCurrentPageGeneration(pageGeneration))
+                    ) {
+                        // Publish on the main thread before releasing the probe gate, so
+                        // the detected list already contains the image when the next scan
+                        // asks whether it still needs to be probed.
+                        withContext(Dispatchers.Main.immediate) {
+                            if (pageGeneration == null || isCurrentPageGeneration(pageGeneration)) {
+                                pushNewImageInfo(imageInfo)
+                            }
                         }
                     }
                 }
             } finally {
-                if (acquired) imageProbePermits.release()
-                probeIdentity?.let(imageProbeGate::release)
+                imageProbeGate.release(probeIdentity)
             }
         }
     }
