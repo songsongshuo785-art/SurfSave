@@ -75,7 +75,7 @@ class DetectedVideosTabFragment : BaseFragment() {
     ): View {
         val model = detectedVideosTabViewModel
         val listener = candidateFormatListener
-        if (!runtimeDependenciesAvailable(model, listener)) {
+        if (model == null || listener == null) {
             missingRuntimeDependencies = parentFragmentManager.isStateSaved
             Toast.makeText(context, R.string.detected_videos_unavailable, Toast.LENGTH_SHORT).show()
             if (!parentFragmentManager.isStateSaved) {
