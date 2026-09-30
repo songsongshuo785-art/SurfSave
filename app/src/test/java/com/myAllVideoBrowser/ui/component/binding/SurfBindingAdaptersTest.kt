@@ -68,8 +68,10 @@ class SurfBindingAdaptersTest {
             navigation.menu.add(0, R.id.tab_video, 2, "Video")
         }
 
-        BottomNavigationViewBinding.setSelectedItemId(bottom, 1)
-        BottomNavigationViewBinding.setSelectedItemId(rail, 2)
+        with(BottomNavigationViewBinding) {
+            bottom.setSelectedItemId(1)
+            rail.setSelectedItemId(2)
+        }
 
         assertEquals(R.id.tab_progress, bottom.selectedItemId)
         assertEquals(R.id.tab_video, rail.selectedItemId)
