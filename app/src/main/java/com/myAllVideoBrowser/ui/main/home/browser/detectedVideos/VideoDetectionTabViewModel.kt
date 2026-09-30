@@ -1231,19 +1231,21 @@ open class VideoDetectionTabViewModel @Inject constructor(
                     return
                 }
 
-                val isTikTok = url.contains(".tiktok.com/")
                 val isRegularStreamDetectionOn = settingsModel.isForceStreamDetection.get()
 
                 val isVideo = mediaType == ContentType.VIDEO
                 val isAudio = mediaType == ContentType.AUDIO
 
-                val tikTokThreshold = 1024 * 1024 / 3 // ~333KB
-                val isLargeEnoughForTikTok = isTikTok && contentLength > tikTokThreshold
+                val siteRule = SiteDetectionRules.forUrl(url)
+                val isLargeEnoughForSiteRule = siteRule?.minimumContentLength
+                    ?.takeIf { it > 0L }
+                    ?.let { contentLength > it }
+                    ?: false
                 val isAboveUserThreshold = contentLength > threshold
                 val isStreamDetectionOn = isRegularStreamDetectionOn
 
                 val isVideoContent =
-                    isVideo && isCheckOnVideo && (isAboveUserThreshold || isLargeEnoughForTikTok || isStreamDetectionOn)
+                    isVideo && isCheckOnVideo && (isAboveUserThreshold || isLargeEnoughForSiteRule || isStreamDetectionOn)
 
                 val isAudioContent = isAudio && isCheckOnAudio
 

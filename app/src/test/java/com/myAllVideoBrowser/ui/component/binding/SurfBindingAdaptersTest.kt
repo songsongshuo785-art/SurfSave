@@ -3,6 +3,8 @@ package com.myAllVideoBrowser.ui.component.binding
 import android.app.Application
 import android.view.ContextThemeWrapper
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.navigationrail.NavigationRailView
 import com.google.android.material.slider.Slider
 import com.myAllVideoBrowser.R
 import org.junit.Assert.assertEquals
@@ -53,5 +55,22 @@ class SurfBindingAdaptersTest {
         SliderBinding.setSurfOnChangeListener(slider, null)
         slider.value = 3f
         assertEquals(1, secondCalls)
+    }
+
+    @Test
+    fun selectedItemIdMapsPositionForBottomNavigationAndRail() {
+        val bottom = BottomNavigationView(context)
+        val rail = NavigationRailView(context)
+        listOf(bottom, rail).forEach { navigation ->
+            navigation.menu.add(0, R.id.tab_browser, 0, "Browser")
+            navigation.menu.add(0, R.id.tab_progress, 1, "Progress")
+            navigation.menu.add(0, R.id.tab_video, 2, "Video")
+        }
+
+        BottomNavigationViewBinding.setSelectedItemId(bottom, 1)
+        BottomNavigationViewBinding.setSelectedItemId(rail, 2)
+
+        assertEquals(R.id.tab_progress, bottom.selectedItemId)
+        assertEquals(R.id.tab_video, rail.selectedItemId)
     }
 }

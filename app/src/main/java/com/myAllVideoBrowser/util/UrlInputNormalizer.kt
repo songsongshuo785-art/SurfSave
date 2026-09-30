@@ -111,6 +111,19 @@ object UrlInputNormalizer {
         return authority.isNotBlank()
     }
 
+    /**
+     * Validates a persisted media source. Unlike address-bar input, a stored
+     * source must be an explicit HTTP(S) URL with a non-empty host.
+     */
+    fun isPersistedSourceUrl(input: String): Boolean {
+        val cleaned = cleanCandidate(input)
+        if (!cleaned.startsWith("http://", ignoreCase = true) &&
+            !cleaned.startsWith("https://", ignoreCase = true)
+        ) return false
+        val uri = runCatching { cleaned.toUri() }.getOrNull() ?: return false
+        return !uri.host.isNullOrBlank()
+    }
+
     fun toDisplayHost(url: String): String {
         val cleaned = url.trim()
         if (cleaned.isBlank()) {

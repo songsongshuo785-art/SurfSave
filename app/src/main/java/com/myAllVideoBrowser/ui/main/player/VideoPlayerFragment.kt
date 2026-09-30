@@ -155,6 +155,8 @@ class VideoPlayerFragment : BaseFragment() {
     private var refreshAttempted = false
     private var refreshInProgress = false
     private var playbackErrorDialogShown = false
+    private var touchGestureConsumed = false
+    private var touchGestureTracking = false
 
     private val surfaceRecoveryListener = object : Player.Listener {
         override fun onRenderedFirstFrame() {
@@ -186,6 +188,13 @@ class VideoPlayerFragment : BaseFragment() {
                     )
                 }
                 dataBinding.videoView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                touchGestureConsumed = true
+                return true
+            }
+
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (isPipMode) return false
+                dataBinding.videoView.performClick()
                 return true
             }
 
@@ -210,7 +219,7 @@ class VideoPlayerFragment : BaseFragment() {
                 if (e1 == null || isPipMode) return false
                 val view = dataBinding.videoView
                 // 触摸落在底部进度条区域 → 不抢事件，交给 PlayerView 自带 TimeBar（避免双 seek 打架）
-                if (isBottomControlsTouch(e2.y)) return false
+                if (gestureMode == GestureMode.NONE && isBottomControlsTouch(e1.y)) return false
                 // 右滑(totalDx>0)快进、左滑快退；用总位移判断主方向（避免增量 distanceX 抖动）
                 val totalDx = e2.x - e1.x
                 val totalDy = e2.y - e1.y
@@ -569,11 +578,24 @@ class VideoPlayerFragment : BaseFragment() {
             // 双击/滑动 seek 由 gestureDetector 处理；返回 false 不消费触摸，让 PlayerView controller 正常显示/隐藏。
             // 松手（UP/CANCEL）时若处于滑动 seek，恢复播放状态。
             currentBinding.videoView.setOnTouchListener { _, e ->
-                gestureDetector.onTouchEvent(e)
-                if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
-                    finishTouchGestures()
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                    touchGestureConsumed = false
                 }
-                false
+                val handled = gestureDetector.onTouchEvent(e)
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                    touchGestureTracking = handled
+                }
+                if (handled && e.actionMasked != MotionEvent.ACTION_DOWN) {
+                    touchGestureConsumed = true
+                }
+                if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
+                    val consumed = touchGestureTracking || touchGestureConsumed || gestureMode != GestureMode.NONE
+                    finishTouchGestures()
+                    touchGestureConsumed = false
+                    touchGestureTracking = false
+                    return@setOnTouchListener consumed
+                }
+                touchGestureTracking || touchGestureConsumed || gestureMode != GestureMode.NONE
             }
 
             player.addListener(object : Player.Listener {

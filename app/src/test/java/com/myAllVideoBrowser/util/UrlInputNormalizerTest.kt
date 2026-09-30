@@ -52,4 +52,15 @@ class UrlInputNormalizerTest {
         assertTrue(UrlInputNormalizer.isBrowsableWebAddress("http://example.com"))
         assertTrue(UrlInputNormalizer.isBrowsableWebAddress("www.example.com/watch"))
     }
+
+    @Test
+    fun persistedSourceUrl_requiresExplicitHttpSchemeAndHost() {
+        assertTrue(UrlInputNormalizer.isPersistedSourceUrl("https://example.com/watch"))
+        assertTrue(UrlInputNormalizer.isPersistedSourceUrl("http://127.0.0.1:8080/video"))
+        assertFalse(UrlInputNormalizer.isPersistedSourceUrl("example.com/watch"))
+        assertFalse(UrlInputNormalizer.isPersistedSourceUrl("abc"))
+        assertFalse(UrlInputNormalizer.isPersistedSourceUrl("123"))
+        assertFalse(UrlInputNormalizer.isPersistedSourceUrl("https://"))
+        assertFalse(UrlInputNormalizer.isPersistedSourceUrl("content://media/video/1"))
+    }
 }

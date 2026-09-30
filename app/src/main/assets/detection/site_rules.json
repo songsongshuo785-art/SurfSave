@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "hosts": ["tiktok.com", "tiktokcdn.com"],
+      "minimumContentLength": 349525
+    }
+  ]
+}

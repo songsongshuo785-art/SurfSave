@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import androidx.core.net.toUri
 import androidx.databinding.ObservableField
 import androidx.lifecycle.viewModelScope
 //import com.allVideoDownloaderXmaster.OpenForTesting
@@ -60,6 +61,8 @@ class VideoViewModel @Inject constructor(
     val deleteFailedEvent = SingleLiveEvent<Unit>()
     val deleteSuccessEvent = SingleLiveEvent<Unit>()
     val deleteAuthCancelledEvent = SingleLiveEvent<Unit>()
+    val moveSuccessEvent = SingleLiveEvent<Unit>()
+    val moveFailedEvent = SingleLiveEvent<Unit>()
     private var pendingDelete: PendingDelete? = null
     private var pendingRename: PendingRename? = null
     private val thumbnailFrameMicrosCache = mutableMapOf<String, Long>()
@@ -336,6 +339,43 @@ class VideoViewModel @Inject constructor(
                     deleteFailedEvent.value = Unit
                 }
             }
+        }
+    }
+
+    fun moveVideoToDownloads(context: Context, video: LocalVideo) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val target = fileUtil.uniqueMediaTarget(
+                        context,
+                        File(fileUtil.publicDownloadsDir, video.name)
+                    )
+                    if (!fileUtil.moveMedia(context, video.uri, target.toUri())) {
+                        return@runCatching null
+                    }
+                    target.toUri()
+                }.getOrNull()
+            }
+            val newUri = result
+            if (newUri == null) {
+                moveFailedEvent.value = Unit
+                return@launch
+            }
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    progressRepository.replaceFinalMediaUri(video.uri.toString(), newUri.toString())
+                }.onFailure { error ->
+                    AppLogger.e("Failed to update moved video metadata binding", error)
+                }
+            }
+            val list = localVideos.get()?.toMutableList() ?: mutableListOf()
+            list.firstOrNull { sameUri(it.uri, video.uri) }?.let { moved ->
+                removeCachedVideoMetadata(moved.uri)
+                moved.uri = newUri
+                mediaSortTimeMillisCache.remove(newUri.toString())
+            }
+            localVideos.set(list)
+            moveSuccessEvent.value = Unit
         }
     }
 

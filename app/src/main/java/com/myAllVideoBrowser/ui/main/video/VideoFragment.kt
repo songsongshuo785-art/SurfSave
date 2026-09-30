@@ -183,6 +183,12 @@ class VideoFragment : BaseFragment() {
         videoViewModel.deleteSuccessEvent.observe(viewLifecycleOwner) {
             Toast.makeText(requireContext(), R.string.video_delete_success, Toast.LENGTH_SHORT).show()
         }
+        videoViewModel.moveSuccessEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(requireContext(), R.string.media_move_success, Toast.LENGTH_SHORT).show()
+        }
+        videoViewModel.moveFailedEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(requireContext(), R.string.media_move_error, Toast.LENGTH_SHORT).show()
+        }
         videoViewModel.deleteFailedEvent.observe(viewLifecycleOwner) {
             Toast.makeText(requireContext(), R.string.video_delete_failed, Toast.LENGTH_LONG).show()
         }
@@ -275,7 +281,7 @@ class VideoFragment : BaseFragment() {
 
         override fun onSourceClicked(localVideo: LocalVideo) {
             val sourceUrl = videoViewModel.getSourceUrl(localVideo)
-            if (!UrlInputNormalizer.isBrowsableWebAddress(sourceUrl)) {
+            if (!UrlInputNormalizer.isPersistedSourceUrl(sourceUrl)) {
                 Toast.makeText(
                     requireContext(),
                     getString(R.string.video_source_unavailable),
@@ -341,29 +347,7 @@ class VideoFragment : BaseFragment() {
                 }
 
                 R.id.item_move_to_downloads -> {
-                    try {
-                        val target = fileUtil.uniqueMediaTarget(
-                            requireContext(),
-                            File(fileUtil.publicDownloadsDir, video.name)
-                        )
-                        val isSuccess =
-                            fileUtil.moveMedia(requireContext(), video.uri, target.toUri())
-                        if (isSuccess) {
-                            Toast.makeText(
-                                requireContext(),
-                                getString(R.string.media_move_success),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            return@setOnMenuItemClickListener true
-                        }
-                    } catch (e: Throwable) {
-                        e.printStackTrace()
-                    }
-                    Toast.makeText(
-                        requireContext(),
-                        getString(R.string.media_move_error),
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    videoViewModel.moveVideoToDownloads(requireContext(), video)
                     true
                 }
 
