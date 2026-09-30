@@ -8,6 +8,7 @@ import com.google.android.material.navigationrail.NavigationRailView
 import com.google.android.material.slider.Slider
 import com.myAllVideoBrowser.R
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -72,5 +73,28 @@ class SurfBindingAdaptersTest {
 
         assertEquals(R.id.tab_progress, bottom.selectedItemId)
         assertEquals(R.id.tab_video, rail.selectedItemId)
+    }
+
+    @Test
+    fun imageThumbnailHeadersExposeOnlyBrowserSafeHeaders() {
+        val headers = ImageBinding.safeImageHeaders(
+            linkedMapOf(
+                "User-Agent" to "SurfSave",
+                "Referer" to "https://page.example",
+                "Cookie" to "session=abc",
+                "Authorization" to "secret",
+                "X-Newline" to "bad\r\nvalue"
+            )
+        )
+
+        assertEquals(
+            mapOf(
+                "User-Agent" to "SurfSave",
+                "Referer" to "https://page.example",
+                "Cookie" to "session=abc"
+            ),
+            headers
+        )
+        assertFalse(headers.containsKey("Authorization"))
     }
 }

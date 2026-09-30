@@ -49,6 +49,7 @@ import java.net.HttpCookie
 import java.net.URI
 import java.net.URL
 import java.util.LinkedHashSet
+import java.util.concurrent.Semaphore
 import java.util.concurrent.Executors
 import javax.inject.Inject
 import kotlin.math.abs
@@ -173,6 +174,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
     private val hasCheckLoadingsRegular = ObservableBoolean(false)
 
     private val executorRegular = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private val imageProbePermits = Semaphore(4)
 
     @Volatile
     private var lastUrl = ""
@@ -610,6 +612,104 @@ open class VideoDetectionTabViewModel @Inject constructor(
             add(newInfo)
         })
         clearDetectionStatus()
+    }
+
+    /**
+     * WebView image scans cannot see cross-origin response headers. Probe the
+     * image with the same restricted browser headers before creating the
+     * candidate so extension and MIME metadata match the actual resource.
+     */
+    fun resolveAndPushImageInfo(
+        request: BrowserDownloadRequest,
+        fallbackTitle: String?,
+        pageGeneration: Long? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            var acquired = false
+            imageProbePermits.acquire()
+            acquired = true
+            try {
+                val resolvedRequest = resolveImageResponseMetadata(request)
+                val imageInfo = resolvedRequest.toDirectMediaVideoInfo(fallbackTitle)
+                if (imageInfo != null &&
+                    (pageGeneration == null || isCurrentPageGeneration(pageGeneration))
+                ) {
+                    runOnMain {
+                        if (pageGeneration == null || isCurrentPageGeneration(pageGeneration)) {
+                            pushNewImageInfo(imageInfo)
+                        }
+                    }
+                }
+            } finally {
+                if (acquired) imageProbePermits.release()
+            }
+        }
+    }
+
+    fun isCurrentPageGeneration(pageGeneration: Long): Boolean =
+        protectedMediaPageTracker.snapshot().generation == pageGeneration
+
+    private fun resolveImageResponseMetadata(
+        request: BrowserDownloadRequest
+    ): BrowserDownloadRequest {
+        if (!request.isHttpRequest() || request.mediaType() != ContentType.IMAGE) {
+            return request
+        }
+
+        val headers = request.allowedDownloadHeaders().toHeaders()
+        val client = okHttpProxyClient.getProxyOkHttpClient()
+        val probeRequests = listOf(
+            Request.Builder()
+                .url(request.url)
+                .headers(headers)
+                .head()
+                .build(),
+            Request.Builder()
+                .url(request.url)
+                .headers(headers)
+                .header("Range", "bytes=0-0")
+                .get()
+                .build()
+        )
+
+        probeRequests.forEach { probeRequest ->
+            val resolved = runCatching {
+                client.newCall(probeRequest).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@use null
+                    }
+
+                    val responseMimeType = response.header("Content-Type")
+                    val responseContentDisposition = response.header("Content-Disposition")
+                    val candidate = request.withResponseMetadata(
+                        responseMimeType = responseMimeType,
+                        responseContentDisposition = responseContentDisposition,
+                        responseContentLength = response.contentLengthOrUnknown()
+                    )
+                    val hasAuthoritativeImageMime = responseMimeType
+                        ?.substringBefore(';')
+                        ?.trim()
+                        ?.startsWith("image/", ignoreCase = true) == true
+                    val hasImageDisposition = responseContentDisposition
+                        ?.let {
+                            BrowserMediaClassifier.classify(
+                                url = request.url,
+                                contentDisposition = it
+                            ) == ContentType.IMAGE
+                        } == true
+
+                    if (hasAuthoritativeImageMime || hasImageDisposition) candidate else null
+                }
+            }.getOrNull()
+            if (resolved != null) {
+                return resolved
+            }
+        }
+
+        // A few CDNs reject both HEAD and range requests. Keep the original
+        // candidate as a last-resort fallback rather than hiding a detected
+        // image solely because metadata probing was unavailable.
+        return request
     }
 
     fun requestImageScan() {

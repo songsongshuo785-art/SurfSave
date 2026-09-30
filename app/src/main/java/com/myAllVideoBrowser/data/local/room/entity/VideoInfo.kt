@@ -75,6 +75,9 @@ data class VideoInfo(
             return ""
         }
 
+    val thumbnailHeaders: Map<String, String>
+        get() = downloadUrls.firstOrNull()?.headers.orEmpty()
+
     val name
         get() = "$title.$ext"
 

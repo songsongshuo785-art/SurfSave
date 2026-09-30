@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.Toast
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import androidx.activity.addCallback
@@ -48,6 +49,7 @@ class DetectedVideosTabFragment : BaseFragment() {
     private lateinit var layoutMngr: WrapContentLinearLayoutManager
     private lateinit var imageAdapter: ImageInfoAdapter
     private var imageTabVisible = false
+    private var missingRuntimeDependencies = false
 
     private val imageSelectionCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
@@ -71,30 +73,36 @@ class DetectedVideosTabFragment : BaseFragment() {
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
-        if (detectedVideosTabViewModel == null || candidateFormatListener == null) {
+        val model = detectedVideosTabViewModel
+        val listener = candidateFormatListener
+        if (!runtimeDependenciesAvailable(model, listener)) {
+            missingRuntimeDependencies = parentFragmentManager.isStateSaved
             Toast.makeText(context, R.string.detected_videos_unavailable, Toast.LENGTH_SHORT).show()
-            parentFragmentManager.popBackStack()
+            if (!parentFragmentManager.isStateSaved) {
+                parentFragmentManager.popBackStack()
+            }
+            // FragmentManager can recreate this fragment after the process has
+            // been killed, before WebTabFragment has restored its runtime-only
+            // callback fields. Return a harmless root instead of continuing to
+            // requireNotNull below and crashing during task restoration.
+            return FrameLayout(requireContext())
         }
 
-        val adapter = detectedVideosTabViewModel?.let {
-            candidateFormatListener?.let { it1 ->
-                VideoInfoAdapter(
-                    detectedVideosTabViewModel?.sortedDetectedVideosList?.get() ?: emptyList(),
-                    it,
-                    it1,
-                    appUtil,
-                )
-            }
-        }
+        val adapter = VideoInfoAdapter(
+            model.sortedDetectedVideosList?.get() ?: emptyList(),
+            model,
+            listener,
+            appUtil,
+        )
         imageAdapter = ImageInfoAdapter(
-            requireNotNull(detectedVideosTabViewModel?.sortedDetectedImagesList?.get()),
-            requireNotNull(detectedVideosTabViewModel),
-            requireNotNull(candidateFormatListener)
+            model.sortedDetectedImagesList?.get() ?: emptyList(),
+            model,
+            listener
         )
 
         layoutMngr = WrapContentLinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
 
-        val pageUrl = detectedVideosTabViewModel?.webTabModel?.getTabTextInput()?.get().orEmpty()
+        val pageUrl = model.webTabModel?.getTabTextInput()?.get().orEmpty()
         binding = FragmentDetectedVideosTabBinding.inflate(inflater, container, false).apply {
             // Title stays static; the source host moves to the subtitle row.
             val host = sourceLabel(pageUrl)
@@ -102,13 +110,13 @@ class DetectedVideosTabFragment : BaseFragment() {
                 detectedSubtitle.text = getString(R.string.detected_videos_from_host, host)
                 detectedSubtitle.visibility = View.VISIBLE
             }
-            viewModel = detectedVideosTabViewModel
+            viewModel = model
             videoInfoList.layoutManager = layoutMngr
             videoInfoList.isNestedScrollingEnabled = true
             videoInfoList.adapter = adapter
             imageInfoList.layoutManager = GridLayoutManager(requireContext(), 2)
             imageInfoList.adapter = imageAdapter
-            dialogListener = candidateFormatListener
+            dialogListener = listener
             detectedBackdrop.setOnClickListener { closeDetectedVideos() }
             detectedSheet.setOnClickListener { /* Keep sheet taps from closing the overlay. */ }
             tvCancel.setOnClickListener { closeDetectedVideos() }
@@ -158,6 +166,13 @@ class DetectedVideosTabFragment : BaseFragment() {
         }
 
         return binding.root
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (missingRuntimeDependencies && !parentFragmentManager.isStateSaved) {
+            parentFragmentManager.popBackStack()
+        }
     }
 
     private fun showVideoTab() {
@@ -327,6 +342,11 @@ class DetectedVideosTabFragment : BaseFragment() {
 
     companion object {
         const val DOWNLOADS_TAB_TAG = "DOWNLOADS_TAB"
+
+        internal fun runtimeDependenciesAvailable(
+            model: VideoDetectionTabViewModel?,
+            listener: DownloadTabListener?
+        ): Boolean = model != null && listener != null
 
         fun newInstance() = DetectedVideosTabFragment()
     }

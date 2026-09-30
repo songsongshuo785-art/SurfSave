@@ -37,6 +37,14 @@ data class BrowserDownloadRequest(
     }
 
     fun suggestedExtension(): String? {
+        val expectedType = mediaType()
+        val declaredMimeExtension = EXTENSION_BY_MIME[declaredMimeType()]
+        if (declaredMimeExtension != null &&
+            BrowserMediaClassifier.classify("https://download.invalid/file.$declaredMimeExtension") == expectedType
+        ) {
+            return declaredMimeExtension
+        }
+
         val extension = preferredFileName()
             ?.substringAfterLast('.', "")
             ?.trim()
@@ -44,7 +52,6 @@ data class BrowserDownloadRequest(
             .orEmpty()
         if (extension.isBlank()) return null
 
-        val expectedType = mediaType()
         return extension.takeIf {
             BrowserMediaClassifier.classify("https://download.invalid/file.$extension") == expectedType
         }
@@ -88,6 +95,29 @@ data class BrowserDownloadRequest(
             } ?: return@mapNotNull null
             canonicalName to safeValue
         }.toMap(linkedMapOf())
+    }
+
+    /**
+     * Applies authoritative response metadata discovered after the WebView
+     * reported a candidate. The original URL and browser headers are retained
+     * so signed URLs and referrer-gated downloads continue to work.
+     */
+    fun withResponseMetadata(
+        responseMimeType: String?,
+        responseContentDisposition: String?,
+        responseContentLength: Long
+    ): BrowserDownloadRequest {
+        val normalizedMime = responseMimeType
+            ?.substringBefore(';')
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        return copy(
+            mimeType = normalizedMime ?: mimeType,
+            contentDisposition = responseContentDisposition
+                ?.takeIf { it.isNotBlank() }
+                ?: contentDisposition,
+            contentLength = responseContentLength.takeIf { it > 0L } ?: contentLength
+        )
     }
 
     fun toDirectMediaVideoInfo(fallbackTitle: String? = null): VideoInfo? {

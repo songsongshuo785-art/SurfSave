@@ -2891,8 +2891,11 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
                     URLUtil.guessFileName(url, null, contentType)
                 }.getOrNull()
             )
-            request.toDirectMediaVideoInfo(event.optString("title", ""))
-                ?.let(videoDetectionTabViewModel::pushNewImageInfo)
+            videoDetectionTabViewModel.resolveAndPushImageInfo(
+                request,
+                event.optString("title", ""),
+                mediaPageGeneration
+            )
             return
         }
 

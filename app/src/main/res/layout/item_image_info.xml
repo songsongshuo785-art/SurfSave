@@ -35,7 +35,8 @@
                     android:adjustViewBounds="true"
                     android:contentDescription="@string/detected_image_download"
                     android:scaleType="centerCrop"
-                    app:imageUrl="@{imageInfo.thumbnail}" />
+                    app:imageUrl="@{imageInfo.thumbnail}"
+                    app:imageHeaders="@{imageInfo.thumbnailHeaders}" />
                 <com.google.android.material.checkbox.MaterialCheckBox
                     android:id="@+id/image_checkbox"
                     android:layout_width="48dp"
