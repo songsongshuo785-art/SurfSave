@@ -131,6 +131,21 @@ class BrowserDownloadRequestTest {
     }
 
     @Test
+    fun declaredJpegMimeUsesCanonicalJpgExtension() {
+        val request = BrowserDownloadRequest(
+            url = "https://cdn.example/image?id=1",
+            pageUrl = null,
+            headers = emptyMap(),
+            contentDisposition = null,
+            mimeType = "image/jpeg",
+            contentLength = 0L,
+            suggestedFileName = "image"
+        )
+
+        assertEquals("jpg", requireNotNull(request.toDirectMediaVideoInfo()).ext)
+    }
+
+    @Test
     fun nonMediaAttachment_isNotClaimedByBrowserMediaPipeline() {
         val request = BrowserDownloadRequest(
             url = "https://cdn.example/download?id=2",

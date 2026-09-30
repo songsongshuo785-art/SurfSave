@@ -2,6 +2,7 @@ package com.myAllVideoBrowser.util
 
 import android.app.Application
 import android.net.Uri
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -60,6 +61,58 @@ class DownloadedMediaValidatorTest {
             file.writeBytes(bytes)
             assertNull("$extension should be accepted", DownloadedMediaValidator.validate(file))
         }
+    }
+
+    @Test
+    fun detectImageExtension_mapsKnownSignaturesAndIgnoresOthers() {
+        assertEquals(
+            "jpg",
+            DownloadedMediaValidator.detectImageExtension(
+                byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
+            )
+        )
+        assertEquals(
+            "png",
+            DownloadedMediaValidator.detectImageExtension(
+                byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+            )
+        )
+        assertEquals(
+            "webp",
+            DownloadedMediaValidator.detectImageExtension(
+                "RIFF0000WEBP".toByteArray(Charsets.US_ASCII)
+            )
+        )
+        assertNull(DownloadedMediaValidator.detectImageExtension("not-media".toByteArray()))
+    }
+
+    @Test
+    fun imageMimeTypeForExtension_mapsCanonicalImageTypes() {
+        assertEquals("image/jpeg", DownloadedMediaValidator.imageMimeTypeForExtension("jpg"))
+        assertEquals("image/jpeg", DownloadedMediaValidator.imageMimeTypeForExtension("JPEG"))
+        assertEquals("image/png", DownloadedMediaValidator.imageMimeTypeForExtension("png"))
+        assertEquals("image/webp", DownloadedMediaValidator.imageMimeTypeForExtension("webp"))
+        assertEquals("image/heic", DownloadedMediaValidator.imageMimeTypeForExtension("heif"))
+        assertNull(DownloadedMediaValidator.imageMimeTypeForExtension("mp4"))
+    }
+
+    @Test
+    fun validate_rejectsImageWhoseExtensionContradictsItsSignature() {
+        val file = temporaryFolder.newFile("photo.jpg")
+        file.writeBytes("RIFF0000WEBP".toByteArray(Charsets.US_ASCII))
+
+        val error = DownloadedMediaValidator.validate(file)
+
+        assertTrue(error.orEmpty().contains("webp"))
+        assertTrue(error.orEmpty().contains("jpg"))
+    }
+
+    @Test
+    fun validate_acceptsJpegAliasExtensionForJpegContent() {
+        val file = temporaryFolder.newFile("photo.jpeg")
+        file.writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()))
+
+        assertNull(DownloadedMediaValidator.validate(file))
     }
 
     @Test

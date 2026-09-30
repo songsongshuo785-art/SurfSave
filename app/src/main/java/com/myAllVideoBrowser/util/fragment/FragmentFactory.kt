@@ -40,5 +40,5 @@ class FragmentFactoryImpl @Inject constructor() : FragmentFactory {
 
     override fun createWebTabFragment() = WebTabFragment.newInstance()
 
-    override fun createDetectedVideosTabFragment() = DetectedVideosTabFragment.newInstance()
+    override fun createDetectedVideosTabFragment() = DetectedVideosTabFragment.createForRestore()
 }

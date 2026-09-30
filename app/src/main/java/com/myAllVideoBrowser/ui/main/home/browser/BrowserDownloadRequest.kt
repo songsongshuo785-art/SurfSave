@@ -236,7 +236,14 @@ data class BrowserDownloadRequest(
             "bmp" to "image/bmp",
             "svg" to "image/svg+xml"
         )
-        private val EXTENSION_BY_MIME = MIME_BY_EXTENSION.entries
-            .associate { (extension, mimeType) -> mimeType to extension }
+        // Several extensions can share one MIME type (image/jpeg -> jpg|jpeg).
+        // Prefer the shortest canonical extension ("jpg", not "jpeg") so the
+        // generated name stays consistent with defaultMediaExtension().
+        private val EXTENSION_BY_MIME: Map<String, String> =
+            linkedMapOf<String, String>().apply {
+                MIME_BY_EXTENSION.entries
+                    .sortedBy { (extension) -> extension.length }
+                    .forEach { (extension, mimeType) -> putIfAbsent(mimeType, extension) }
+            }
     }
 }

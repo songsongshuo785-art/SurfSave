@@ -85,6 +85,12 @@ class FileUtil @Inject constructor() {
             "svg"
         )
 
+        /** Extensions that a binary image signature can authoritatively override. */
+        private val IMAGE_SIGNATURE_EXTENSIONS = setOf(
+            "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif"
+        )
+        private const val IMAGE_SIGNATURE_PROBE_BYTES = 64
+
         fun getFileSizeReadable(length: Double): String {
 
             val decimalFormat = DecimalFormat("#.##")
@@ -1297,7 +1303,10 @@ class FileUtil @Inject constructor() {
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-            put(MediaStore.MediaColumns.MIME_TYPE, mimeTypeForName(displayName))
+            put(
+                MediaStore.MediaColumns.MIME_TYPE,
+                mimeTypeForPublishedMedia(context, sourceUri, displayName)
+            )
             put(MediaStore.MediaColumns.RELATIVE_PATH, PUBLIC_RELATIVE_PATH)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
@@ -1521,6 +1530,55 @@ class FileUtil @Inject constructor() {
         return MimeTypeMap.getSingleton()
             .getMimeTypeFromExtension(displayName.substringAfterLast('.', ""))
             ?: "application/octet-stream"
+    }
+
+    /**
+     * The WebView cannot always see the real Content-Type for an image, so the
+     * candidate name may carry the wrong image extension. When the binary
+     * signature disagrees with the extension, publish the signature-derived
+     * MIME type so MediaStore never records e.g. image/jpeg for WebP bytes.
+     *
+     * The display name is intentionally kept as-is: callers resolve the
+     * published row by `target.name`, so renaming here would make the file
+     * unfindable after the move.
+     */
+    private fun mimeTypeForPublishedMedia(
+        context: Context,
+        sourceUri: Uri,
+        displayName: String
+    ): String {
+        val declared = displayName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        if (declared !in IMAGE_SIGNATURE_EXTENSIONS) return mimeTypeForName(displayName)
+
+        val detected = detectSourceImageExtension(context, sourceUri)
+            ?: return mimeTypeForName(displayName)
+        if (canonicalImageExtension(declared) == canonicalImageExtension(detected)) {
+            return mimeTypeForName(displayName)
+        }
+
+        return DownloadedMediaValidator.imageMimeTypeForExtension(detected)
+            ?: mimeTypeForName(displayName)
+    }
+
+    private fun detectSourceImageExtension(context: Context, sourceUri: Uri): String? {
+        return runCatching {
+            openSourceInputStream(context, sourceUri).use { input ->
+                val buffer = ByteArray(IMAGE_SIGNATURE_PROBE_BYTES)
+                var total = 0
+                while (total < buffer.size) {
+                    val read = input.read(buffer, total, buffer.size - total)
+                    if (read <= 0) break
+                    total += read
+                }
+                DownloadedMediaValidator.detectImageExtension(buffer.copyOf(total))
+            }
+        }.getOrNull()
+    }
+
+    private fun canonicalImageExtension(extension: String): String = when (extension) {
+        "jpeg" -> "jpg"
+        "heif" -> "heic"
+        else -> extension
     }
 
     private data class MediaStoreRecord(

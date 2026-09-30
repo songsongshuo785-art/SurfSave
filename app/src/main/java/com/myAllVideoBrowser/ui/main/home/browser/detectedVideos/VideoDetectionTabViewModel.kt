@@ -33,6 +33,7 @@ import com.myAllVideoBrowser.util.CookieUtils
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.util.UserFacingError
 import com.myAllVideoBrowser.util.VideoFormatUi
+import com.myAllVideoBrowser.util.contentLengthOrUnknown
 import com.myAllVideoBrowser.util.telegram.TelegramPostResolution
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import com.myAllVideoBrowser.util.scheduler.BaseSchedulers
@@ -44,7 +45,6 @@ import kotlinx.coroutines.launch
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
-import okhttp3.Response
 import java.net.HttpCookie
 import java.net.URI
 import java.net.URL
@@ -1554,24 +1554,6 @@ open class VideoDetectionTabViewModel @Inject constructor(
             AppLogger.e("Detection: setMediaInfo failed", e)
             setDetectionError(e, shouldPublish = shouldPublish)
         }
-    }
-
-    private fun Response.contentLengthOrUnknown(): Long {
-        val bodyLength = body.contentLength()
-        if (bodyLength > 0) {
-            return bodyLength
-        }
-
-        header("Content-Length")?.toLongOrNull()?.takeIf { it > 0 }?.let {
-            return it
-        }
-
-        val rangeTotal = header("Content-Range")
-            ?.substringAfterLast("/", "")
-            ?.toLongOrNull()
-            ?.takeIf { it > 0 }
-
-        return rangeTotal ?: 0L
     }
 
     private fun probeContentLength(url: URL, headersMap: Map<String, String>): Long {

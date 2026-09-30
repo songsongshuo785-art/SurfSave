@@ -99,6 +99,7 @@ import com.myAllVideoBrowser.ui.main.home.browser.TabManagerProvider
 import com.myAllVideoBrowser.ui.main.home.browser.WorkerEventProvider
 import com.myAllVideoBrowser.ui.main.home.browser.WebTabBackAction
 import com.myAllVideoBrowser.ui.main.home.browser.WebViewMediaController
+import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.DetectedMediaPanelRegistry
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.DetectedVideosTabFragment
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.PageMediaMetadataParser
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel
@@ -142,7 +143,7 @@ import javax.inject.Inject
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class WebTabFragment : BaseWebTabFragment() {
+class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
 
     companion object {
         fun newInstance() = WebTabFragment()
@@ -1414,6 +1415,10 @@ class WebTabFragment : BaseWebTabFragment() {
         tabViewModel.thisTabIndex.set(thisTabIndex)
 
         webTab = pageTabProvider.getPageTab(thisTabIndex)
+        // The detected-media panel is a sibling activity fragment that survives
+        // process death. Register the runtime-only dependencies so a restored
+        // panel can re-bind instead of being dismissed.
+        DetectedMediaPanelRegistry.registerHost(thisTabIndex, this)
         telegramImportSession = TelegramImportSession(
             autoOpenRequested = webTab.navigationPurpose == WebTabNavigationPurpose.MEDIA_IMPORT
         )
@@ -1854,6 +1859,9 @@ dataBinding.fab.animate().cancel()
 
     override fun onDestroy() {
         AppLogger.d("onDestroy Webview::::::::: ${webTab.getUrl()}")
+        if (::tabViewModel.isInitialized) {
+            DetectedMediaPanelRegistry.unregisterHost(tabViewModel.thisTabIndex.get())
+        }
         pendingLegacySystemDownload = null
         super.onDestroy()
         translateJob?.cancel()
@@ -4090,7 +4098,9 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
                     R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
                     R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
                 )
-                val fragment = DetectedVideosTabFragment.newInstance()
+                val fragment = DetectedVideosTabFragment.newInstance(
+                    tabViewModel.thisTabIndex.get()
+                )
                 fragment.detectedVideosTabViewModel = videoDetectionTabViewModel
                 fragment.candidateFormatListener = downloadListener
                 transaction.add(it.id, fragment, DetectedVideosTabFragment.DOWNLOADS_TAB_TAG)
@@ -4229,6 +4239,12 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             ) as? DetectedVideosTabFragment
         return fragment != null && fragment.isAdded && fragment.isVisible && fragment.isResumed
     }
+
+    override val detectedMediaTabViewModel: VideoDetectionTabViewModel
+        get() = videoDetectionTabViewModel
+
+    override val detectedMediaTabListener: DownloadTabListener
+        get() = downloadListener
 
     private val downloadListener = object : DownloadTabListener {
         override fun onCancel() {

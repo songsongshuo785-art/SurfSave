@@ -34,7 +34,7 @@ import kotlinx.coroutines.withContext
 import java.net.URI
 import javax.inject.Inject
 
-class DetectedVideosTabFragment : BaseFragment() {
+class DetectedVideosTabFragment : BaseFragment(), DetectedMediaPanelRegistry.Panel {
     var detectedVideosTabViewModel: VideoDetectionTabViewModel? = null
     var candidateFormatListener: DownloadTabListener? = null
 
@@ -46,10 +46,15 @@ class DetectedVideosTabFragment : BaseFragment() {
 
     private lateinit var binding: FragmentDetectedVideosTabBinding
 
-    private lateinit var layoutMngr: WrapContentLinearLayoutManager
+    /**
+     * Root shown while the runtime-only dependencies are still missing after a
+     * process death. It is replaced with the real content once the host
+     * registers through [DetectedMediaPanelRegistry].
+     */
+    private var placeholderRoot: FrameLayout? = null
+
     private lateinit var imageAdapter: ImageInfoAdapter
     private var imageTabVisible = false
-    private var missingRuntimeDependencies = false
 
     private val imageSelectionCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
@@ -70,25 +75,83 @@ class DetectedVideosTabFragment : BaseFragment() {
         }
     }
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (tabIndex() >= 0) {
+            DetectedMediaPanelRegistry.registerPanel(tabIndex(), this)
+        }
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
         val model = detectedVideosTabViewModel
         val listener = candidateFormatListener
         if (model == null || listener == null) {
-            missingRuntimeDependencies = parentFragmentManager.isStateSaved
-            Toast.makeText(context, R.string.detected_videos_unavailable, Toast.LENGTH_SHORT).show()
-            if (!parentFragmentManager.isStateSaved) {
-                parentFragmentManager.popBackStack()
-            }
             // FragmentManager can recreate this fragment after the process has
             // been killed, before WebTabFragment has restored its runtime-only
-            // callback fields. Return a harmless root instead of continuing to
-            // requireNotNull below and crashing during task restoration.
-            return FrameLayout(requireContext())
+            // callback fields. Show a harmless placeholder and let the registry
+            // re-bind the panel once the host comes back, instead of crashing.
+            val placeholder = FrameLayout(requireContext())
+            placeholderRoot = placeholder
+            val index = tabIndex()
+            if (index >= 0) {
+                DetectedMediaPanelRegistry.registerPanel(index, this)
+                DetectedMediaPanelRegistry.resolveHost(index)?.let { host ->
+                    applyRuntimeDependencies(
+                        host.detectedMediaTabViewModel,
+                        host.detectedMediaTabListener
+                    )
+                }
+            }
+            return placeholder
         }
 
-        val adapter = VideoInfoAdapter(
+        return createContentView(container, model, listener)
+    }
+
+    private fun createContentView(
+        container: ViewGroup?,
+        model: VideoDetectionTabViewModel,
+        listener: DownloadTabListener
+    ): View {
+        binding = FragmentDetectedVideosTabBinding.inflate(layoutInflater, container, false)
+        wireBinding(model, listener)
+        return binding.root
+    }
+
+    /**
+     * Binds the runtime-only dependencies. Called by the registry when the host
+     * arrives after this fragment was already restored without them.
+     */
+    override val panelAttached: Boolean
+        get() = isAdded
+
+    override fun applyRuntimeDependencies(
+        model: VideoDetectionTabViewModel?,
+        listener: DownloadTabListener?
+    ) {
+        if (model == null || listener == null) return
+
+        detectedVideosTabViewModel = model
+        candidateFormatListener = listener
+
+        val placeholder = placeholderRoot ?: return
+        if (::binding.isInitialized) return
+
+        // Defer inflation until the placeholder is attached so viewLifecycleOwner
+        // is available for the back-press callback.
+        placeholder.post {
+            if (!isAdded || view == null || ::binding.isInitialized) return@post
+            placeholderRoot = null
+            binding = FragmentDetectedVideosTabBinding.inflate(layoutInflater, placeholder, true)
+            wireBinding(model, listener)
+        }
+    }
+
+    private fun wireBinding(model: VideoDetectionTabViewModel, listener: DownloadTabListener) {
+        val pageUrl = model.webTabModel?.getTabTextInput()?.get().orEmpty()
+        val videoAdapter = VideoInfoAdapter(
             model.sortedDetectedVideosList?.get() ?: emptyList(),
             model,
             listener,
@@ -99,11 +162,8 @@ class DetectedVideosTabFragment : BaseFragment() {
             model,
             listener
         )
-
-        layoutMngr = WrapContentLinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
-
-        val pageUrl = model.webTabModel?.getTabTextInput()?.get().orEmpty()
-        binding = FragmentDetectedVideosTabBinding.inflate(inflater, container, false).apply {
+        val layoutMngr = WrapContentLinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
+        binding.apply {
             // Title stays static; the source host moves to the subtitle row.
             val host = sourceLabel(pageUrl)
             if (host.isNotBlank()) {
@@ -113,7 +173,7 @@ class DetectedVideosTabFragment : BaseFragment() {
             viewModel = model
             videoInfoList.layoutManager = layoutMngr
             videoInfoList.isNestedScrollingEnabled = true
-            videoInfoList.adapter = adapter
+            videoInfoList.adapter = videoAdapter
             imageInfoList.layoutManager = GridLayoutManager(requireContext(), 2)
             imageInfoList.adapter = imageAdapter
             dialogListener = listener
@@ -147,8 +207,8 @@ class DetectedVideosTabFragment : BaseFragment() {
                 if (shouldShowPlaylistAction(pageUrl)) View.VISIBLE else View.GONE
             updateImageSelectionControls()
         }
-        detectedVideosTabViewModel?.selectedImageIds?.addOnPropertyChangedCallback(imageSelectionCallback)
-        detectedVideosTabViewModel?.hasDetectedImages?.addOnPropertyChangedCallback(imageContentCallback)
+        model.selectedImageIds.addOnPropertyChangedCallback(imageSelectionCallback)
+        model.hasDetectedImages.addOnPropertyChangedCallback(imageContentCallback)
 
         BottomSheetBehavior.from(binding.detectedSheet).apply {
             state = BottomSheetBehavior.STATE_EXPANDED
@@ -156,6 +216,7 @@ class DetectedVideosTabFragment : BaseFragment() {
                 override fun onStateChanged(bottomSheet: View, newState: Int) {
                     if (newState == BottomSheetBehavior.STATE_HIDDEN) closeDetectedVideos()
                 }
+
                 override fun onSlide(bottomSheet: View, slideOffset: Float) {
                     binding.detectedBackdrop.alpha = (1f + slideOffset).coerceIn(0f, 1f)
                 }
@@ -164,15 +225,29 @@ class DetectedVideosTabFragment : BaseFragment() {
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner) {
             closeDetectedVideos()
         }
-
-        return binding.root
     }
 
     override fun onResume() {
         super.onResume()
-        if (missingRuntimeDependencies && !parentFragmentManager.isStateSaved) {
-            parentFragmentManager.popBackStack()
+        if (detectedVideosTabViewModel == null || candidateFormatListener == null) {
+            // The host should re-bind shortly after restoration. If no tab comes
+            // back (for example the tab was closed), drop the orphaned overlay.
+            view?.postDelayed({
+                if (isAdded &&
+                    (detectedVideosTabViewModel == null || candidateFormatListener == null)
+                ) {
+                    closeDetectedVideos()
+                }
+            }, RESTORE_BIND_TIMEOUT_MS)
         }
+    }
+
+    override fun onDestroy() {
+        val index = tabIndex()
+        if (index >= 0) {
+            DetectedMediaPanelRegistry.unregisterPanel(index, this)
+        }
+        super.onDestroy()
     }
 
     private fun showVideoTab() {
@@ -216,6 +291,7 @@ class DetectedVideosTabFragment : BaseFragment() {
     override fun onDestroyView() {
         detectedVideosTabViewModel?.selectedImageIds?.removeOnPropertyChangedCallback(imageSelectionCallback)
         detectedVideosTabViewModel?.hasDetectedImages?.removeOnPropertyChangedCallback(imageContentCallback)
+        placeholderRoot = null
         super.onDestroyView()
     }
 
@@ -340,14 +416,25 @@ class DetectedVideosTabFragment : BaseFragment() {
             Regex("""https?://([^/]+\.)?youtube\.com/@[^/?#]+""").containsMatchIn(lower)
     }
 
+    private fun tabIndex(): Int =
+        arguments?.getInt(ARG_TAB_INDEX, INVALID_TAB_INDEX) ?: INVALID_TAB_INDEX
+
     companion object {
         const val DOWNLOADS_TAB_TAG = "DOWNLOADS_TAB"
+        private const val ARG_TAB_INDEX = "detected_media_tab_index"
+        private const val INVALID_TAB_INDEX = -1
+        private const val RESTORE_BIND_TIMEOUT_MS = 1000L
 
         internal fun runtimeDependenciesAvailable(
             model: VideoDetectionTabViewModel?,
             listener: DownloadTabListener?
         ): Boolean = model != null && listener != null
 
-        fun newInstance() = DetectedVideosTabFragment()
+        fun newInstance(tabIndex: Int) = DetectedVideosTabFragment().apply {
+            arguments = Bundle().apply { putInt(ARG_TAB_INDEX, tabIndex) }
+        }
+
+        /** Restoration path: FragmentManager re-applies the saved arguments. */
+        internal fun createForRestore() = DetectedVideosTabFragment()
     }
 }

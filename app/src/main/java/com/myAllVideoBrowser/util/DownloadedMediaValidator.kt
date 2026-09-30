@@ -24,11 +24,16 @@ object DownloadedMediaValidator {
             return "Downloaded file is not readable"
         }
 
-        return validateSource(file.length()) { file.inputStream() }
+        return validateSource(file.length(), file.name) { file.inputStream() }
     }
 
     @Suppress("UNUSED_PARAMETER")
-    fun validate(context: Context, uri: Uri, isLive: Boolean = false): String? {
+    fun validate(
+        context: Context,
+        uri: Uri,
+        isLive: Boolean = false,
+        declaredFileName: String? = null
+    ): String? {
         if (uri.scheme.equals(ContentResolver.SCHEME_FILE, ignoreCase = true)) {
             val path = uri.path ?: return "Downloaded file URI has no path"
             return validate(File(path), isLive)
@@ -37,10 +42,43 @@ object DownloadedMediaValidator {
         val resolver = context.contentResolver
         val length = ContentLengthResolver.resolve(context, uri).length
             ?: return "Downloaded media size is unavailable"
-        return validateSource(length) { resolver.openInputStream(uri) }
+        return validateSource(length, declaredFileName) { resolver.openInputStream(uri) }
     }
 
-    private fun validateSource(length: Long, openStream: () -> InputStream?): String? {
+    /**
+     * Canonical image extension derived from the leading bytes of [bytes], or
+     * `null` when the probe is not a recognised image signature. Callers use it
+     * to keep a file name/MediaStore MIME consistent with the real content.
+     */
+    fun detectImageExtension(bytes: ByteArray): String? = when {
+        isJpeg(bytes) -> "jpg"
+        isPng(bytes) -> "png"
+        isGif(bytes) -> "gif"
+        isWebp(bytes) -> "webp"
+        isBmp(bytes) -> "bmp"
+        isAvif(bytes) -> "avif"
+        isHeif(bytes) -> "heic"
+        else -> null
+    }
+
+    /** MIME type for a signature-derived image extension, or `null` if unknown. */
+    fun imageMimeTypeForExtension(extension: String): String? =
+        when (extension.lowercase(Locale.ROOT)) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "bmp" -> "image/bmp"
+            "avif" -> "image/avif"
+            "heic", "heif" -> "image/heic"
+            else -> null
+        }
+
+    private fun validateSource(
+        length: Long,
+        declaredFileName: String?,
+        openStream: () -> InputStream?
+    ): String? {
         if (length < 0L) {
             return "Downloaded media size is unavailable"
         }
@@ -70,7 +108,7 @@ object DownloadedMediaValidator {
         }
 
         if (hasKnownMediaSignature(probe)) {
-            return null
+            return imageExtensionMismatch(declaredFileName, probe)
         }
 
         val text = decodeTextProbe(probe)
@@ -141,6 +179,42 @@ object DownloadedMediaValidator {
     private fun isAvifOrHeif(bytes: ByteArray): Boolean {
         if (bytes.size < 12 || !asciiAt(bytes, 4, "ftyp")) return false
         return asciiAtAny(bytes, 8, "avif", "avis", "heic", "heix", "hevc", "hevx", "mif1")
+    }
+
+    private fun isAvif(bytes: ByteArray): Boolean {
+        if (bytes.size < 12 || !asciiAt(bytes, 4, "ftyp")) return false
+        return asciiAtAny(bytes, 8, "avif", "avis")
+    }
+
+    private fun isHeif(bytes: ByteArray): Boolean {
+        if (bytes.size < 12 || !asciiAt(bytes, 4, "ftyp")) return false
+        return asciiAtAny(bytes, 8, "heic", "heix", "hevc", "hevx")
+    }
+
+    /**
+     * Flags an image whose declared extension contradicts its real signature.
+     * The check is limited to unambiguous image signatures so audio/video
+     * container aliases (m4a/ADTS, mp4 variants, ...) cannot false-positive.
+     */
+    private fun imageExtensionMismatch(
+        declaredFileName: String?,
+        probe: ByteArray
+    ): String? {
+        if (declaredFileName.isNullOrBlank()) return null
+
+        val declared = declaredFileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        if (declared !in IMAGE_EXTENSIONS) return null
+
+        val detected = detectImageExtension(probe) ?: return null
+        if (canonicalImageExtension(declared) == canonicalImageExtension(detected)) return null
+
+        return "Downloaded image content is .$detected but the file is named .$declared"
+    }
+
+    private fun canonicalImageExtension(extension: String): String = when (extension) {
+        "jpeg" -> "jpg"
+        "heif" -> "heic"
+        else -> extension
     }
 
     private fun isBmp(bytes: ByteArray): Boolean = startsWithAscii(bytes, "BM")
@@ -286,4 +360,8 @@ object DownloadedMediaValidator {
 
     private const val MPEG_TS_PACKET_BYTES = 188
     private const val MPEG_TS_SYNC_BYTE = 0x47
+
+    private val IMAGE_EXTENSIONS = setOf(
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif"
+    )
 }
