@@ -575,7 +575,7 @@ class VideoPlayerFragment : BaseFragment() {
 
             currentBinding.btnMore.setOnClickListener { showOverflowMenu() }
 
-            // 双击/滑动 seek 由 gestureDetector 处理；返回 false 不消费触摸，让 PlayerView controller 正常显示/隐藏。
+            // 双击/滑动 seek 由 gestureDetector 处理；已识别手势由这里消费，普通单击由 onSingleTapConfirmed 触发。
             // 松手（UP/CANCEL）时若处于滑动 seek，恢复播放状态。
             currentBinding.videoView.setOnTouchListener { _, e ->
                 if (e.actionMasked == MotionEvent.ACTION_DOWN) {

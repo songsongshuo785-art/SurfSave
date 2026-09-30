@@ -175,7 +175,7 @@ class WebTabFragment : BaseWebTabFragment() {
 
                     var seen = {};
                     var sent = 0;
-                    var maxImages = 240;
+                    var maxImagesPerRun = 240;
                     var minimumSize = 120;
 
                     function absoluteUrl(raw) {
@@ -199,7 +199,7 @@ class WebTabFragment : BaseWebTabFragment() {
                     }
 
                     function emit(raw, title, width, height, allowUnknownSize) {
-                        if (sent >= maxImages) return;
+                        if (sent >= maxImagesPerRun) return;
                         var url = absoluteUrl(raw);
                         if (!/^https?:\/\//i.test(url) || seen[url]) return;
                         width = Number(width || 0);
@@ -227,7 +227,7 @@ class WebTabFragment : BaseWebTabFragment() {
                     }
 
                     function scanImage(image) {
-                        if (!image || sent >= maxImages) return;
+                        if (!image || sent >= maxImagesPerRun) return;
                         var candidates = [];
                         addImageCandidate(candidates, image.currentSrc, false);
                         addImageCandidate(candidates, image.src, false);
@@ -245,13 +245,13 @@ class WebTabFragment : BaseWebTabFragment() {
                         var width = image.naturalWidth || image.width || Number(image.getAttribute('width') || 0);
                         var height = image.naturalHeight || image.height || Number(image.getAttribute('height') || 0);
                         var title = image.alt || image.title || document.title || '';
-                        for (var index = 0; index < candidates.length && sent < maxImages; index++) {
+                        for (var index = 0; index < candidates.length && sent < maxImagesPerRun; index++) {
                             emit(candidates[index].value, title, width, height, candidates[index].allowUnknownSize);
                         }
                     }
 
                     function scanBackground(node, pseudo) {
-                        if (!node || sent >= maxImages) return;
+                        if (!node || sent >= maxImagesPerRun) return;
                         var style = null;
                         try { style = window.getComputedStyle(node, pseudo || null); } catch (e) {}
                         var background = style && style.backgroundImage ? style.backgroundImage : '';
@@ -259,7 +259,7 @@ class WebTabFragment : BaseWebTabFragment() {
                         var bounds = node.getBoundingClientRect ? node.getBoundingClientRect() : { width: 0, height: 0 };
                         var matcher = /url\(\s*(['"]?)(.*?)\1\s*\)/g;
                         var match;
-                        while ((match = matcher.exec(background)) !== null && sent < maxImages) {
+                        while ((match = matcher.exec(background)) !== null && sent < maxImagesPerRun) {
                             emit(match[2], node.getAttribute('aria-label') || node.title || document.title || '',
                                 bounds.width, bounds.height, false);
                         }
@@ -267,13 +267,13 @@ class WebTabFragment : BaseWebTabFragment() {
 
                     function scanDocument() {
                         var images = document.images || [];
-                        for (var imageIndex = 0; imageIndex < images.length && sent < maxImages; imageIndex++) {
+                        for (var imageIndex = 0; imageIndex < images.length && sent < maxImagesPerRun; imageIndex++) {
                             scanImage(images[imageIndex]);
                         }
 
                         var elements = document.querySelectorAll ? document.querySelectorAll('*') : [];
                         var elementLimit = Math.min(elements.length, 800);
-                        for (var elementIndex = 0; elementIndex < elementLimit && sent < maxImages; elementIndex++) {
+                        for (var elementIndex = 0; elementIndex < elementLimit && sent < maxImagesPerRun; elementIndex++) {
                             var node = elements[elementIndex];
                             if (node.tagName && node.tagName.toLowerCase() !== 'img') {
                                 scanBackground(node, null);
@@ -293,31 +293,15 @@ class WebTabFragment : BaseWebTabFragment() {
                         }
                     }
 
-                    window.__superxImageScanRun = scanDocument;
-                    if (window.MutationObserver && document.documentElement) {
-                        var scanTimer = 0;
-                        var observer = new MutationObserver(function(mutations) {
-                            var relevant = false;
-                            for (var mutationIndex = 0; mutationIndex < mutations.length; mutationIndex++) {
-                                if (mutations[mutationIndex].type === 'childList' || mutations[mutationIndex].type === 'attributes') {
-                                    relevant = true;
-                                    break;
-                                }
-                            }
-                            if (!relevant || scanTimer) return;
-                            scanTimer = window.setTimeout(function() {
-                                scanTimer = 0;
-                                scanDocument();
-                            }, 350);
-                        });
-                        observer.observe(document.documentElement, {
-                            subtree: true,
-                            childList: true,
-                            attributes: true,
-                            attributeFilter: ['src', 'srcset', 'style', 'data-src', 'data-original', 'data-lazy-src', 'data-background', 'data-bg', 'data-bg-src']
-                        });
-                    }
-                    scanDocument();
+                    // This entry point is intentionally manual. Each tap starts
+                    // a fresh bounded scan instead of installing a page-lifetime
+                    // MutationObserver or exhausting the cap permanently.
+                    window.__superxImageScanRun = function() {
+                        seen = {};
+                        sent = 0;
+                        scanDocument();
+                    };
+                    window.__superxImageScanRun();
                 } catch (e) {}
             })();
         """.trimIndent()

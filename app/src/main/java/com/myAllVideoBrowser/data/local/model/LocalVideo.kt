@@ -57,6 +57,10 @@ data class LocalVideo(
         get() = mimeType.startsWith("image/", ignoreCase = true) ||
             imageExtensions.contains(name.substringAfterLast('.', "").lowercase(Locale.ROOT))
 
+    val isSvg: Boolean
+        get() = mimeType.equals("image/svg+xml", ignoreCase = true) ||
+            name.substringAfterLast('.', "").equals("svg", ignoreCase = true)
+
     val isAudio: Boolean
         get() = mimeType.startsWith("audio/", ignoreCase = true) ||
             audioExtensions.contains(name.substringAfterLast('.', "").lowercase(Locale.ROOT))

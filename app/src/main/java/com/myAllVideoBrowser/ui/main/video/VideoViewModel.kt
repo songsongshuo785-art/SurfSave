@@ -344,7 +344,7 @@ class VideoViewModel @Inject constructor(
 
     fun moveVideoToDownloads(context: Context, video: LocalVideo) {
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
+            val movedMedia = withContext(Dispatchers.IO) {
                 runCatching {
                     val target = fileUtil.uniqueMediaTarget(
                         context,
@@ -353,17 +353,19 @@ class VideoViewModel @Inject constructor(
                     if (!fileUtil.moveMedia(context, video.uri, target.toUri())) {
                         return@runCatching null
                     }
-                    target.toUri()
+                    MovedMedia(
+                        uri = fileUtil.resolveMediaUri(context, target) ?: target.toUri(),
+                        name = target.name
+                    )
                 }.getOrNull()
             }
-            val newUri = result
-            if (newUri == null) {
+            if (movedMedia == null) {
                 moveFailedEvent.value = Unit
                 return@launch
             }
             withContext(Dispatchers.IO) {
                 runCatching {
-                    progressRepository.replaceFinalMediaUri(video.uri.toString(), newUri.toString())
+                    progressRepository.replaceFinalMediaUri(video.uri.toString(), movedMedia.uri.toString())
                 }.onFailure { error ->
                     AppLogger.e("Failed to update moved video metadata binding", error)
                 }
@@ -371,8 +373,9 @@ class VideoViewModel @Inject constructor(
             val list = localVideos.get()?.toMutableList() ?: mutableListOf()
             list.firstOrNull { sameUri(it.uri, video.uri) }?.let { moved ->
                 removeCachedVideoMetadata(moved.uri)
-                moved.uri = newUri
-                mediaSortTimeMillisCache.remove(newUri.toString())
+                moved.uri = movedMedia.uri
+                moved.name = movedMedia.name
+                mediaSortTimeMillisCache.remove(movedMedia.uri.toString())
             }
             localVideos.set(list)
             moveSuccessEvent.value = Unit
@@ -553,6 +556,11 @@ class VideoViewModel @Inject constructor(
         val video: LocalVideo,
         val retryUri: Uri?,
         val verificationUri: Uri
+    )
+
+    private data class MovedMedia(
+        val uri: Uri,
+        val name: String
     )
 
     private data class PendingRename(

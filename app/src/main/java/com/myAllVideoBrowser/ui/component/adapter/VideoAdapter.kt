@@ -53,7 +53,9 @@ class VideoAdapter(
                 val requestManager = Glide.with(this@VideoViewHolder.itemView.context)
                 val thumbnailRequest = if (localVideo.isImage) {
                     requestManager
-                        .load(localVideo.uri)
+                        // Glide has no bundled SVG decoder; keep SVG downloadable
+                        // and openable, but show a safe placeholder in the library.
+                        .load(if (localVideo.isSvg) null else localVideo.uri)
                         .apply(RequestOptions()
                             .override(VIDEO_THUMBNAIL_WIDTH_PX, VIDEO_THUMBNAIL_HEIGHT_PX)
                             .centerInside()
@@ -66,7 +68,7 @@ class VideoAdapter(
                         .format(DecodeFormat.PREFER_ARGB_8888)
                         .override(VIDEO_THUMBNAIL_WIDTH_PX, VIDEO_THUMBNAIL_HEIGHT_PX)
                         .centerCrop()
-                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+                        .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                     val videoFrameFallback = requestManager
                         .load(localVideo.uri)
                         .apply(thumbnailOptions)
