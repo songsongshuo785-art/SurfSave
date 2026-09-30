@@ -54,16 +54,41 @@ data class LocalVideo(
         get() = sourceLabel.isNotBlank()
 
     val isImage: Boolean
-        get() = mimeType.startsWith("image/", ignoreCase = true) ||
-            imageExtensions.contains(name.substringAfterLast('.', "").lowercase(Locale.ROOT))
+        get() {
+            val normalizedMime = normalizedMimeType()
+            return when {
+                normalizedMime.startsWith("image/") -> true
+                normalizedMime.isBlank() || normalizedMime.isGeneric ->
+                    imageExtensions.contains(fileExtension())
+                else -> false
+            }
+        }
 
     val isSvg: Boolean
         get() = mimeType.equals("image/svg+xml", ignoreCase = true) ||
             name.substringAfterLast('.', "").equals("svg", ignoreCase = true)
 
     val isAudio: Boolean
-        get() = mimeType.startsWith("audio/", ignoreCase = true) ||
-            audioExtensions.contains(name.substringAfterLast('.', "").lowercase(Locale.ROOT))
+        get() {
+            val normalizedMime = normalizedMimeType()
+            return when {
+                normalizedMime.startsWith("audio/") -> true
+                normalizedMime.isBlank() || normalizedMime.isGeneric ->
+                    audioExtensions.contains(fileExtension())
+                else -> false
+            }
+        }
+
+    private fun fileExtension(): String =
+        name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+
+    private fun normalizedMimeType(): String = mimeType.trim().lowercase(Locale.ROOT)
+
+    private val String.isGeneric: Boolean
+        get() = this == "application/octet-stream" ||
+            this == "binary/octet-stream" ||
+            this == "*/*" ||
+            this == "application/*"
 
     companion object {
         private val imageExtensions = setOf(

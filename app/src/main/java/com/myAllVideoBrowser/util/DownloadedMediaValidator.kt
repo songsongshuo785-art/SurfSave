@@ -175,7 +175,13 @@ object DownloadedMediaValidator {
     }
 
     private fun inspectMpegTransportStream(bytes: ByteArray): TransportStreamProbe {
-        if (bytes.isEmpty() || (bytes[0].toInt() and 0xFF) != 0x47) {
+        // A short signature such as GIF's leading 'G' (0x47) is not enough to
+        // classify the content as MPEG-TS. Keep the truncated-TS guard for a
+        // real packet-sized probe, while allowing tiny image signatures to be
+        // checked by hasKnownMediaSignature below.
+        if (bytes.size < MPEG_TS_PACKET_BYTES ||
+            (bytes[0].toInt() and 0xFF) != MPEG_TS_SYNC_BYTE
+        ) {
             return TransportStreamProbe.NOT_TS
         }
         if (bytes.size < MPEG_TS_PACKET_BYTES * 2) {

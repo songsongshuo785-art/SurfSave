@@ -2,6 +2,7 @@ package com.myAllVideoBrowser.util
 
 import android.util.Patterns
 import androidx.core.net.toUri
+import java.net.URI
 import java.net.URLEncoder
 import java.util.Locale
 
@@ -120,8 +121,9 @@ object UrlInputNormalizer {
         if (!cleaned.startsWith("http://", ignoreCase = true) &&
             !cleaned.startsWith("https://", ignoreCase = true)
         ) return false
-        val uri = runCatching { cleaned.toUri() }.getOrNull() ?: return false
-        return !uri.host.isNullOrBlank()
+        val host = runCatching { URI(cleaned).host }.getOrNull()
+            ?: runCatching { cleaned.toUri().host }.getOrNull()
+        return !host.isNullOrBlank()
     }
 
     fun toDisplayHost(url: String): String {

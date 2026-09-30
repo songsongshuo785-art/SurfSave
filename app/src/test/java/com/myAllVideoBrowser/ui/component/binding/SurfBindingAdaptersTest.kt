@@ -69,8 +69,8 @@ class SurfBindingAdaptersTest {
         }
 
         with(BottomNavigationViewBinding) {
-            bottom.setSelectedItemId(1)
-            rail.setSelectedItemId(2)
+            bottom.bindSelectedItemId(1)
+            rail.bindSelectedItemId(2)
         }
 
         assertEquals(R.id.tab_progress, bottom.selectedItemId)

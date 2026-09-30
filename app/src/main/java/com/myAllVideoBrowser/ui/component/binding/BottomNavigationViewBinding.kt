@@ -8,7 +8,7 @@ object BottomNavigationViewBinding {
 
     @BindingAdapter("selectedItemId")
     @JvmStatic
-    fun NavigationBarView.setSelectedItemId(position: Int) {
+    fun NavigationBarView.bindSelectedItemId(position: Int) {
         selectedItemId = when (position) {
             0 -> R.id.tab_browser
             1 -> R.id.tab_progress
