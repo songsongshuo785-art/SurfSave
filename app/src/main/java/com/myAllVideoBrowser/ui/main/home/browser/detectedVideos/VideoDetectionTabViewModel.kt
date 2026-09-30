@@ -42,6 +42,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
@@ -60,29 +61,6 @@ open class VideoDetectionTabViewModel @Inject constructor(
     private val okHttpProxyClient: OkHttpProxyClient,
 ) : BaseViewModel(), IVideoDetector {
     companion object {
-        private val TEMP_URL_QUERY_KEYS = setOf(
-            "x-amz-signature",
-            "x-amz-credential",
-            "x-amz-date",
-            "x-amz-expires",
-            "x-amz-security-token",
-            "signature",
-            "sig",
-            "token",
-            "expires",
-            "expire",
-            "e",
-            "st",
-            "se",
-            "sp",
-            "sv",
-            "hash",
-            "key",
-            "auth",
-            "policy",
-            "range"
-        )
-
         internal fun mergeTelegramResolvedVideo(
             existing: VideoInfo,
             resolved: VideoInfo
@@ -118,44 +96,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 .toSet()
         }
 
-        internal fun normalizeMediaUrl(rawUrl: String?): String {
-            val value = rawUrl?.trim().orEmpty()
-            if (value.isBlank()) {
-                return ""
-            }
-
-            return runCatching {
-                val uri = URI(value)
-                val host = uri.host?.lowercase()?.removePrefix("www.").orEmpty()
-                val path = uri.path.orEmpty().trimEnd('/')
-                val stableQuery = uri.query
-                    ?.split("&")
-                    ?.filterNot { queryPart ->
-                        val key = queryPart.substringBefore("=").lowercase()
-                        key in TEMP_URL_QUERY_KEYS ||
-                            key.startsWith("utm_") ||
-                            key.contains("token") ||
-                            key.contains("signature") ||
-                            key.contains("expires") ||
-                            key.contains("expire")
-                    }
-                    ?.sorted()
-                    ?.joinToString("&")
-                    .orEmpty()
-
-                val base = "$host$path"
-                if (stableQuery.isBlank()) {
-                    base.lowercase()
-                } else {
-                    "$base?$stableQuery".lowercase()
-                }
-            }.getOrElse {
-                value.substringBefore("#")
-                    .substringBefore("?")
-                    .trimEnd('/')
-                    .lowercase()
-            }
-        }
+        internal fun normalizeMediaUrl(rawUrl: String?): String = MediaUrlIdentity.of(rawUrl)
     }
 
     // key: videoInfo.id, value: format - string
@@ -238,6 +179,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     private val executorRegular = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     private val imageProbePermits = Semaphore(4)
+    private val imageProbeGate = ImageProbeGate()
 
     @Volatile
     private var lastUrl = ""
@@ -681,6 +623,9 @@ open class VideoDetectionTabViewModel @Inject constructor(
      * WebView image scans cannot see cross-origin response headers. Probe the
      * image with the same restricted browser headers before creating the
      * candidate so extension and MIME metadata match the actual resource.
+     *
+     * Candidates whose URL identity is already detected, or already being probed by
+     * a concurrent scan, are skipped without a network round-trip.
      */
     fun resolveAndPushImageInfo(
         request: BrowserDownloadRequest,
@@ -697,6 +642,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.IO) {
             var acquired = false
+            var probeIdentity: String? = null
             imageProbePermits.acquire()
             acquired = true
             try {
@@ -704,12 +650,21 @@ open class VideoDetectionTabViewModel @Inject constructor(
                     return@launch
                 }
 
+                val candidateIdentity = normalizeMediaUrl(request.url)
+                if (!imageProbeGate.tryAcquire(candidateIdentity)) {
+                    return@launch
+                }
+                probeIdentity = candidateIdentity
+
                 val resolvedRequest = resolveImageResponseMetadata(request)
                 val imageInfo = resolvedRequest.toDirectMediaVideoInfo(fallbackTitle)
                 if (imageInfo != null &&
                     (pageGeneration == null || isCurrentPageGeneration(pageGeneration))
                 ) {
-                    runOnMain {
+                    // Publish on the main thread before releasing the probe gate, so the
+                    // detected list already contains the image when the next scan asks
+                    // whether it still needs to be probed.
+                    withContext(Dispatchers.Main.immediate) {
                         if (pageGeneration == null || isCurrentPageGeneration(pageGeneration)) {
                             pushNewImageInfo(imageInfo)
                         }
@@ -717,6 +672,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 }
             } finally {
                 if (acquired) imageProbePermits.release()
+                probeIdentity?.let(imageProbeGate::release)
             }
         }
     }

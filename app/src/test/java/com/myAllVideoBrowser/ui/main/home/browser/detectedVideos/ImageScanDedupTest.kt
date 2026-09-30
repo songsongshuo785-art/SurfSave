@@ -102,13 +102,49 @@ class ImageScanDedupTest {
     }
 
     @Test
-    fun wwwPrefixAndTrailingSlashAreNormalized() {
-        val existing = listOf(image("https://www.cdn.example/photo.jpg/"))
+    fun trailingSlashIsNormalized() {
+        val existing = listOf(image("https://cdn.example/photo.jpg/"))
 
         assertTrue(
             VideoDetectionTabViewModel.isImageAlreadyDetected(
                 existing,
                 "https://cdn.example/photo.jpg"
+            )
+        )
+    }
+
+    @Test
+    fun wwwHostIsNotTreatedAsTheSameResource() {
+        val existing = listOf(image("https://www.cdn.example/photo.jpg"))
+
+        assertFalse(
+            VideoDetectionTabViewModel.isImageAlreadyDetected(
+                existing,
+                "https://cdn.example/photo.jpg"
+            )
+        )
+    }
+
+    @Test
+    fun pathCaseIsSignificant() {
+        val existing = listOf(image("https://cdn.example/Photo.jpg"))
+
+        assertFalse(
+            VideoDetectionTabViewModel.isImageAlreadyDetected(
+                existing,
+                "https://cdn.example/photo.jpg"
+            )
+        )
+    }
+
+    @Test
+    fun queryValueCaseIsSignificant() {
+        val existing = listOf(image("https://cdn.example/photo.jpg?id=ABC123"))
+
+        assertFalse(
+            VideoDetectionTabViewModel.isImageAlreadyDetected(
+                existing,
+                "https://cdn.example/photo.jpg?id=abc123"
             )
         )
     }
