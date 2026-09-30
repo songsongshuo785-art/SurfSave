@@ -75,7 +75,9 @@ object DownloadedMediaValidator {
 
         val text = decodeTextProbe(probe)
         if (text != null) {
-            return if (looksLikeErrorResponse(text)) {
+            return if (isSvgImage(text)) {
+                null
+            } else if (looksLikeErrorResponse(text)) {
                 "Downloaded content looks like a web or error response, not a media file"
             } else {
                 "Downloaded content is text, not a media file"
@@ -112,11 +114,36 @@ object DownloadedMediaValidator {
             startsWithAscii(bytes, "OggS") ||
             startsWithAscii(bytes, "fLaC") ||
             isRiffMedia(bytes) ||
+            isJpeg(bytes) ||
+            isPng(bytes) ||
+            isGif(bytes) ||
+            isWebp(bytes) ||
+            isAvifOrHeif(bytes) ||
+            isBmp(bytes) ||
             startsWithAscii(bytes, "ID3") ||
             isMpegAudio(bytes) ||
             isAacAdts(bytes) ||
             startsWith(bytes, 0x00, 0x00, 0x01, 0xBA) // MPEG program stream
     }
+
+    private fun isJpeg(bytes: ByteArray): Boolean =
+        startsWith(bytes, 0xFF, 0xD8, 0xFF)
+
+    private fun isPng(bytes: ByteArray): Boolean =
+        startsWith(bytes, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+
+    private fun isGif(bytes: ByteArray): Boolean =
+        startsWithAscii(bytes, "GIF87a") || startsWithAscii(bytes, "GIF89a")
+
+    private fun isWebp(bytes: ByteArray): Boolean =
+        bytes.size >= 12 && startsWithAscii(bytes, "RIFF") && asciiAt(bytes, 8, "WEBP")
+
+    private fun isAvifOrHeif(bytes: ByteArray): Boolean {
+        if (bytes.size < 12 || !asciiAt(bytes, 4, "ftyp")) return false
+        return asciiAtAny(bytes, 8, "avif", "avis", "heic", "heix", "hevc", "hevx", "mif1")
+    }
+
+    private fun isBmp(bytes: ByteArray): Boolean = startsWithAscii(bytes, "BM")
 
     private fun isIsoBaseMedia(bytes: ByteArray): Boolean {
         return bytes.size >= 12 &&
@@ -217,6 +244,14 @@ object DownloadedMediaValidator {
             lower.contains("rate limit")
     }
 
+    private fun isSvgImage(text: String): Boolean {
+        val trimmed = text.removePrefix("\uFEFF").trimStart()
+        if (trimmed.startsWith("<svg", ignoreCase = true)) return true
+        if (!trimmed.startsWith("<?xml", ignoreCase = true)) return false
+        return trimmed.substringAfter("?>", "").trimStart()
+            .startsWith("<svg", ignoreCase = true)
+    }
+
     private fun startsWithAscii(bytes: ByteArray, value: String): Boolean =
         asciiAt(bytes, 0, value)
 
@@ -226,6 +261,9 @@ object DownloadedMediaValidator {
         }
         return value.indices.all { index -> bytes[offset + index] == value[index].code.toByte() }
     }
+
+    private fun asciiAtAny(bytes: ByteArray, offset: Int, vararg values: String): Boolean =
+        values.any { value -> asciiAt(bytes, offset, value) }
 
     private fun startsWith(bytes: ByteArray, vararg values: Int): Boolean {
         if (bytes.size < values.size) {

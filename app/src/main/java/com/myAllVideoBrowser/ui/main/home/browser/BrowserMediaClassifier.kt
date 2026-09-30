@@ -6,6 +6,7 @@ import java.util.Locale
 object BrowserMediaClassifier {
     private val videoExtensions = setOf("mp4", "m4v", "webm", "mov", "flv", "3gp", "mkv")
     private val audioExtensions = setOf("mp3", "m4a", "aac", "ogg", "opus", "wav", "flac")
+    private val imageExtensions = setOf("jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "heif", "bmp", "svg")
     private val segmentExtensions = setOf("m4s", "ts")
     private val playbackSupportExtensions = segmentExtensions + setOf(
         "m3u8", "mpd", "cmfv", "cmfa", "ismv", "isma", "vtt", "srt", "ttml", "dfxp"
@@ -45,6 +46,7 @@ object BrowserMediaClassifier {
             extension in videoExtensions || normalizedType.startsWith("video/") ||
                 normalizedType.contains("application/mp4") -> ContentType.VIDEO
             extension in audioExtensions || normalizedType.startsWith("audio/") -> ContentType.AUDIO
+            extension in imageExtensions || normalizedType.startsWith("image/") -> ContentType.IMAGE
             else -> ContentType.OTHER
         }
     }
@@ -60,7 +62,9 @@ object BrowserMediaClassifier {
         ) {
             return true
         }
-        if (classify(normalizedUrl, acceptHeader) != ContentType.OTHER) return true
+        if (classify(normalizedUrl, acceptHeader).let { it != ContentType.OTHER && it != ContentType.IMAGE }) {
+            return true
+        }
         if (pathExtension(normalizedUrl) in playbackSupportExtensions) return true
 
         val normalizedAccept = acceptHeader.lowercase(Locale.US)
@@ -86,5 +90,5 @@ object BrowserMediaClassifier {
     }
 
     private val recognizedMediaExtensions =
-        videoExtensions + audioExtensions + setOf("m3u8", "mpd")
+        videoExtensions + audioExtensions + imageExtensions + setOf("m3u8", "mpd")
 }

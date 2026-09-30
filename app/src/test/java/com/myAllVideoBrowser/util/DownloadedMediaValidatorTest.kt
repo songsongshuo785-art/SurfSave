@@ -42,6 +42,38 @@ class DownloadedMediaValidatorTest {
     }
 
     @Test
+    fun validate_acceptsCommonImageSignatures() {
+        val fixtures = listOf(
+            "jpeg" to byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()),
+            "png" to byteArrayOf(
+                0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
+            ),
+            "gif" to "GIF89a".toByteArray(Charsets.US_ASCII),
+            "webp" to "RIFF0000WEBP".toByteArray(Charsets.US_ASCII),
+            "avif" to "0000ftypavif".toByteArray(Charsets.US_ASCII),
+            "heic" to "0000ftypheic".toByteArray(Charsets.US_ASCII),
+            "bmp" to "BM".toByteArray(Charsets.US_ASCII)
+        )
+
+        fixtures.forEach { (extension, bytes) ->
+            val file = temporaryFolder.newFile("tiny.$extension")
+            file.writeBytes(bytes)
+            assertNull("$extension should be accepted", DownloadedMediaValidator.validate(file))
+        }
+    }
+
+    @Test
+    fun validate_acceptsSvgRootButStillRejectsHtml() {
+        val svg = temporaryFolder.newFile("vector.svg")
+        svg.writeText("<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\"/>", Charsets.UTF_8)
+        val html = temporaryFolder.newFile("page.svg")
+        html.writeText("<!doctype html><html><body>not an image</body></html>", Charsets.UTF_8)
+
+        assertNull(DownloadedMediaValidator.validate(svg))
+        assertTrue(DownloadedMediaValidator.validate(html).orEmpty().contains("error response"))
+    }
+
+    @Test
     fun validate_rejectsHtmlAndJsonErrorResponses() {
         val html = temporaryFolder.newFile("blocked.mp4")
         html.writeText("  <!doctype html><html><body>Access denied</body></html>", Charsets.UTF_8)

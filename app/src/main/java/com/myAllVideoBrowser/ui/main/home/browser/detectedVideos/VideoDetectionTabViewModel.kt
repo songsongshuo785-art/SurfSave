@@ -48,6 +48,7 @@ import okhttp3.Response
 import java.net.HttpCookie
 import java.net.URI
 import java.net.URL
+import java.util.LinkedHashSet
 import java.util.concurrent.Executors
 import javax.inject.Inject
 import kotlin.math.abs
@@ -113,6 +114,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     val videoPushedEvent = SingleLiveEvent<Void?>()
 
+    val imageScanRequestedEvent = SingleLiveEvent<Void?>()
+
     val detectionFeedbackEvent = SingleLiveEvent<String>()
 
     @Volatile
@@ -124,6 +127,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
     lateinit var settingsModel: SettingsViewModel
     val detectedVideosList = ObservableField(setOf<VideoInfo>())
     val sortedDetectedVideosList = ObservableField<List<VideoInfo>>(emptyList())
+    val sortedDetectedImagesList = ObservableField<List<VideoInfo>>(emptyList())
+    val selectedImageIds = ObservableField<Set<String>>(emptySet())
     val hasProtectedMedia = ObservableBoolean(false)
     val detectedPanelTitle = ObservableField<String>()
     val hasTelegramPostPreview = ObservableBoolean(false)
@@ -148,8 +153,14 @@ open class VideoDetectionTabViewModel @Inject constructor(
         Regex("^(.*\\.(apk|html|xml|ico|css|js|png|gif|json|jpg|jpeg|svg|woff|woff2|m3u8|mpd|ts|php|ttf|otf|eot|cur|webp|bmp|tif|tiff|psd|ai|eps|pdf|doc|docx|xls|xlsx|ppt|pptx|csv|md|rtf|vtt|srt|swf|jar|log|txt|m4s))?$")
     val downloadButtonIcon = ObservableInt(R.drawable.invisible_24px)
     val detectedVideosCount = ObservableInt(0)
+    val detectedImagesCount = ObservableInt(0)
     val hasDetectedVideos = ObservableBoolean(false)
+    val hasDetectedImages = ObservableBoolean(false)
+    val hasDetectedMedia = ObservableBoolean(false)
+    val hasSelectedImages = ObservableBoolean(false)
+    val selectedImagesCount = ObservableInt(0)
     val detectedVideosBadgeText = ObservableField("")
+    val detectedImagesBadgeText = ObservableField("")
     val lastDetectionError = ObservableField<String?>()
     val detectionStatusText = ObservableField("")
     val hasDetectionStatus = ObservableBoolean(false)
@@ -268,7 +279,9 @@ open class VideoDetectionTabViewModel @Inject constructor(
             pageMediaMetadata = PageMediaMetadata(pageUrl = url)
             hasProtectedMedia.set(false)
             clearTelegramPostStateNow()
-            sortedDetectedVideosList.set(sortDetectedVideos(detectedVideosList.get().orEmpty()))
+            val videos = detectedVideosList.get().orEmpty().filterNot { it.isImage }.toSet()
+            sortedDetectedVideosList.set(sortDetectedVideos(videos))
+            clearImageSelectionNow()
         }
         return snapshot.generation
     }
@@ -368,7 +381,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 return@runOnMain
             }
             hasProtectedMedia.set(true)
-            if (detectedVideosList.get().isNullOrEmpty()) {
+            if (!hasDetectedVideos.get()) {
                 lastDetectionError.set(null)
                 detectionStatusText.set("")
                 hasDetectionStatus.set(false)
@@ -384,7 +397,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 return@runOnMain
             }
             pageMediaMetadata = metadata
-            sortedDetectedVideosList.set(sortDetectedVideos(detectedVideosList.get().orEmpty()))
+            val videos = detectedVideosList.get().orEmpty().filterNot { it.isImage }.toSet()
+            sortedDetectedVideosList.set(sortDetectedVideos(videos))
         }
     }
 
@@ -420,7 +434,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
     override fun showVideoInfo() {
         AppLogger.d("SHOW")
         if ((hasProtectedMedia.get() || hasTelegramPostPreview.get()) &&
-            detectedVideosList.get().isNullOrEmpty()
+            !hasDetectedVideos.get()
         ) {
             runOnMain {
                 showDetectedVideosEvent.call()
@@ -448,7 +462,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
             }
         }
 
-        if (detectedVideosList.get()?.isNotEmpty() == true) {
+        if (hasDetectedMedia.get()) {
             runOnMain {
                 showDetectedVideosEvent.call()
             }
@@ -487,7 +501,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
         val registered = verifyVideoLinkJobStorage.tryRegister(taskUrl) { holder ->
             updateM3u8Loading(resourceRequest.url.toString(), true)
             showDetectionNotice(R.string.detection_status_checking)
-            if (detectedVideosList.get()?.isEmpty() == true) {
+            if (!hasDetectedVideos.get()) {
                 setButtonState(DownloadButtonStateLoading())
             }
 
@@ -543,6 +557,11 @@ open class VideoDetectionTabViewModel @Inject constructor(
             return
         }
 
+        if (newInfo.isImage) {
+            pushNewImageInfo(newInfo)
+            return
+        }
+
         if (shouldSkipShortVideo(newInfo)) {
             AppLogger.d("SKIP SHORT VIDEO INFO: ${newInfo.duration}ms $newInfo")
             return
@@ -568,6 +587,60 @@ open class VideoDetectionTabViewModel @Inject constructor(
         runOnMain {
             videoPushedEvent.call()
         }
+    }
+
+    @Synchronized
+    fun pushNewImageInfo(newInfo: VideoInfo) {
+        if (!newInfo.isImage || newInfo.id.isBlank() || newInfo.formats.formats.isEmpty()) {
+            return
+        }
+
+        val detectedMedia = detectedVideosList.get().orEmpty()
+        val duplicate = detectedMedia.firstOrNull { existing ->
+            existing.isImage && mediaIdentityUrls(existing).intersect(mediaIdentityUrls(newInfo)).isNotEmpty()
+        }
+        if (duplicate != null) {
+            val merged = mergeDuplicateVideoInfo(duplicate, newInfo)
+            setDetectedVideosNow(detectedMedia - duplicate + merged)
+            return
+        }
+
+        setDetectedVideosNow(LinkedHashSet<VideoInfo>(detectedMedia.size + 1).apply {
+            addAll(detectedMedia)
+            add(newInfo)
+        })
+        clearDetectionStatus()
+    }
+
+    fun requestImageScan() {
+        imageScanRequestedEvent.call()
+    }
+
+    fun toggleImageSelection(imageInfo: VideoInfo) {
+        if (!imageInfo.isImage) return
+        runOnMain {
+            val current = selectedImageIds.get().orEmpty()
+            updateImageSelectionNow(
+                if (imageInfo.id in current) current - imageInfo.id else current + imageInfo.id
+            )
+        }
+    }
+
+    fun selectAllImages() {
+        runOnMain {
+            updateImageSelectionNow(sortedDetectedImagesList.get().orEmpty().map { it.id }.toSet())
+        }
+    }
+
+    fun clearImageSelection() {
+        runOnMain { clearImageSelectionNow() }
+    }
+
+    fun isImageSelected(imageId: String): Boolean = imageId in selectedImageIds.get().orEmpty()
+
+    fun selectedImages(): List<VideoInfo> {
+        val selected = selectedImageIds.get().orEmpty()
+        return sortedDetectedImagesList.get().orEmpty().filter { it.id in selected }
     }
 
     private fun autoSelectBestFormat(videoInfo: VideoInfo) {
@@ -776,16 +849,32 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     private fun setDetectedVideosNow(videos: Set<VideoInfo>) {
         runOnMain {
+            val images = videos.filter { it.isImage }
+            val playableVideos = videos.filterNot { it.isImage }.toSet()
             detectedVideosList.set(videos)
-            sortedDetectedVideosList.set(sortDetectedVideos(videos))
-            detectedVideosCount.set(videos.size)
-            hasDetectedVideos.set(videos.isNotEmpty())
+            sortedDetectedVideosList.set(sortDetectedVideos(playableVideos))
+            sortedDetectedImagesList.set(images)
+            detectedVideosCount.set(playableVideos.size)
+            detectedImagesCount.set(images.size)
+            hasDetectedVideos.set(playableVideos.isNotEmpty())
+            hasDetectedImages.set(images.isNotEmpty())
+            hasDetectedMedia.set(videos.isNotEmpty())
             detectedVideosBadgeText.set(
                 when {
-                    videos.isEmpty() -> ""
-                    videos.size > 99 -> "99+"
-                    else -> videos.size.toString()
+                    playableVideos.isEmpty() -> ""
+                    playableVideos.size > 99 -> "99+"
+                    else -> playableVideos.size.toString()
                 }
+            )
+            detectedImagesBadgeText.set(
+                when {
+                    images.isEmpty() -> ""
+                    images.size > 99 -> "99+"
+                    else -> images.size.toString()
+                }
+            )
+            updateImageSelectionNow(
+                selectedImageIds.get().orEmpty().intersect(images.map { it.id }.toSet())
             )
             if (videos.isNotEmpty()) {
                 lastDetectionError.set(null)
@@ -794,6 +883,16 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 detectionStatusIsError.set(false)
             }
         }
+    }
+
+    private fun updateImageSelectionNow(ids: Set<String>) {
+        selectedImageIds.set(ids)
+        selectedImagesCount.set(ids.size)
+        hasSelectedImages.set(ids.isNotEmpty())
+    }
+
+    private fun clearImageSelectionNow() {
+        updateImageSelectionNow(emptySet())
     }
 
     private fun sortDetectedVideos(videos: Set<VideoInfo>): List<VideoInfo> {
@@ -854,7 +953,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
     }
 
     fun showDetectionNotice(@StringRes messageRes: Int) {
-        if (detectedVideosList.get()?.isNotEmpty() == true) {
+        if (hasDetectedMedia.get()) {
             clearDetectionStatus()
             return
         }
@@ -886,7 +985,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
         if (!shouldPublish()) {
             return
         }
-        if (detectedVideosList.get()?.isNotEmpty() == true) {
+        if (hasDetectedMedia.get()) {
             clearDetectionStatus(shouldPublish)
             return
         }
@@ -911,7 +1010,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
             if (!shouldPublish()) {
                 return@runOnMain
             }
-            if (detectedVideosList.get()?.isNotEmpty() == true) {
+            if (hasDetectedMedia.get()) {
                 lastDetectionError.set(null)
                 detectionStatusText.set("")
                 hasDetectionStatus.set(false)
@@ -947,12 +1046,11 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     private fun shouldShowManualDetectionError(): Boolean {
         return System.currentTimeMillis() - lastManualDetectionRequestAt < 15_000L &&
-            detectedVideosList.get()?.isEmpty() == true
+            !hasDetectedMedia.get()
     }
 
     private fun updateDetectionStatusAfterLoadingChange() {
-        val hasVideos = detectedVideosList.get()?.isNotEmpty() == true
-        if (hasVideos) {
+        if (hasDetectedMedia.get()) {
             clearDetectionStatus()
             return
         }
@@ -987,20 +1085,20 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 }
 
                 is DownloadButtonStateCanNotDownload -> {
-                    val detectedSize = detectedVideosList.get()?.size
-                    if (detectedSize == null || detectedSize == 0) {
+                    val videos = sortedDetectedVideosList.get().orEmpty()
+                    if (videos.isEmpty()) {
                         downloadButtonState.set(DownloadButtonStateCanNotDownload())
                     } else {
                         downloadButtonState.set(
                             DownloadButtonStateCanDownload(
-                                detectedVideosList.get()?.first()
+                                videos.first()
                             )
                         )
                     }
                 }
 
                 is DownloadButtonStateLoading -> {
-                    val list = detectedVideosList.get() ?: emptySet()
+                    val list = sortedDetectedVideosList.get().orEmpty()
                     if (list.isEmpty()) {
                         downloadButtonState.set(DownloadButtonStateLoading())
                     } else {

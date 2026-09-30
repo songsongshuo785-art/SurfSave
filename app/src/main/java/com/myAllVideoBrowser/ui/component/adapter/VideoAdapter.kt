@@ -50,33 +50,39 @@ class VideoAdapter(
                 // 清除残留 transitionName：保证列表中仅被点击项在 startVideo 时持有共享元素名，避免重名冲突
                 this.ivThumbnail.transitionName = null
                 val placeholder = R.drawable.surf_video_placeholder
-                val thumbnailOptions = RequestOptions()
-                    .frame(localVideo.thumbnailFrameMicros)
-                    .format(DecodeFormat.PREFER_ARGB_8888)
-                    .override(VIDEO_THUMBNAIL_WIDTH_PX, VIDEO_THUMBNAIL_HEIGHT_PX)
-                    .centerCrop()
-                    .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-
                 val requestManager = Glide.with(this@VideoViewHolder.itemView.context)
-                val videoFrameFallback = requestManager
-                    .load(localVideo.uri)
-                    .apply(thumbnailOptions)
-                    .error(placeholder)
-                    .placeholder(placeholder)
-                val thumbnailRequest = localVideo.usableOriginalThumbnailUrl
-                    ?.let { thumbnailUrl ->
-                        requestManager
-                            .load(thumbnailUrl)
-                            .error(videoFrameFallback)
-                            .placeholder(placeholder)
-                    }
-                    ?: videoFrameFallback
-
-                thumbnailRequest
-                    .apply(RequestOptions()
+                val thumbnailRequest = if (localVideo.isImage) {
+                    requestManager
+                        .load(localVideo.uri)
+                        .apply(RequestOptions()
+                            .override(VIDEO_THUMBNAIL_WIDTH_PX, VIDEO_THUMBNAIL_HEIGHT_PX)
+                            .centerInside()
+                            .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+                        .error(placeholder)
+                        .placeholder(placeholder)
+                } else {
+                    val thumbnailOptions = RequestOptions()
+                        .frame(localVideo.thumbnailFrameMicros)
+                        .format(DecodeFormat.PREFER_ARGB_8888)
                         .override(VIDEO_THUMBNAIL_WIDTH_PX, VIDEO_THUMBNAIL_HEIGHT_PX)
                         .centerCrop()
                         .diskCacheStrategy(DiskCacheStrategy.RESOURCE))
+                    val videoFrameFallback = requestManager
+                        .load(localVideo.uri)
+                        .apply(thumbnailOptions)
+                        .error(placeholder)
+                        .placeholder(placeholder)
+                    localVideo.usableOriginalThumbnailUrl
+                        ?.let { thumbnailUrl ->
+                            requestManager
+                                .load(thumbnailUrl)
+                                .error(videoFrameFallback)
+                                .placeholder(placeholder)
+                        }
+                        ?: videoFrameFallback
+                }
+
+                thumbnailRequest
                     .into(this.ivThumbnail)
 
                 executePendingBindings()

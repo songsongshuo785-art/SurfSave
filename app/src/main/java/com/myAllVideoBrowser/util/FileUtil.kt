@@ -72,7 +72,17 @@ class FileUtil @Inject constructor() {
             "opus",
             "flac",
             "mov",
-            "3gp"
+            "3gp",
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "webp",
+            "avif",
+            "heic",
+            "heif",
+            "bmp",
+            "svg"
         )
 
         fun getFileSizeReadable(length: Double): String {

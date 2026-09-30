@@ -486,6 +486,24 @@ class MainActivity : BaseActivity() {
                 }
                 .show()
         }
+        progressViewModel.mediaEnqueueSummaryEvent.observe(this) { summary ->
+            Snackbar.make(
+                dataBinding.viewPager,
+                getString(
+                    R.string.media_enqueue_summary,
+                    summary.accepted,
+                    summary.duplicates,
+                    summary.rejected
+                ),
+                Snackbar.LENGTH_LONG
+            )
+                .apply { snackbarAnchor?.let { setAnchorView(it) } }
+                .setAction(getString(R.string.action_view)) {
+                    dataBinding.viewPager.currentItem = 1
+                    navigationBar.selectedItemId = R.id.tab_progress
+                }
+                .show()
+        }
     }
 
     override fun onDestroy() {

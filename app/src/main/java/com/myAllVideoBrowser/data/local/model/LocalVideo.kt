@@ -3,6 +3,7 @@ package com.myAllVideoBrowser.data.local.model
 import android.net.Uri
 import com.myAllVideoBrowser.util.DisplayNameFormatter
 import java.net.URI
+import java.util.Locale
 
 data class LocalVideo(
     var id: Long,
@@ -51,5 +52,22 @@ data class LocalVideo(
 
     val hasSource: Boolean
         get() = sourceLabel.isNotBlank()
+
+    val isImage: Boolean
+        get() = mimeType.startsWith("image/", ignoreCase = true) ||
+            imageExtensions.contains(name.substringAfterLast('.', "").lowercase(Locale.ROOT))
+
+    val isAudio: Boolean
+        get() = mimeType.startsWith("audio/", ignoreCase = true) ||
+            audioExtensions.contains(name.substringAfterLast('.', "").lowercase(Locale.ROOT))
+
+    companion object {
+        private val imageExtensions = setOf(
+            "jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "heif", "bmp", "svg"
+        )
+        private val audioExtensions = setOf(
+            "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "aiff", "amr"
+        )
+    }
 
 }

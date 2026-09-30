@@ -26,6 +26,46 @@ class BrowserDownloadRequestTest {
     }
 
     @Test
+    fun imageAttachment_createsDirectImageCandidate() {
+        val request = BrowserDownloadRequest(
+            url = "https://cdn.example/download?id=cover",
+            pageUrl = "https://page.example/post/1",
+            headers = mapOf("Referer" to "https://page.example/post/1"),
+            contentDisposition = "inline; filename=cover.png",
+            mimeType = "image/png",
+            contentLength = 2048L,
+            suggestedFileName = "cover.png"
+        )
+
+        assertEquals(ContentType.IMAGE, request.mediaType())
+        val info = requireNotNull(request.toDirectMediaVideoInfo())
+        assertTrue(info.isImage)
+        assertEquals("png", info.ext)
+        assertEquals("image", info.formats.formats.single().format)
+    }
+
+    @Test
+    fun imageMime_preservesSpecialtyExtensionWhenUrlHasNoExtension() {
+        listOf(
+            "image/heic" to "heic",
+            "image/heif" to "heif",
+            "image/bmp" to "bmp"
+        ).forEach { (mime, extension) ->
+            val request = BrowserDownloadRequest(
+                url = "https://cdn.example/image?id=$extension",
+                pageUrl = "https://page.example/post/1",
+                headers = emptyMap(),
+                contentDisposition = null,
+                mimeType = mime,
+                contentLength = 32L,
+                suggestedFileName = "download"
+            )
+
+            assertEquals(extension, requireNotNull(request.toDirectMediaVideoInfo()).ext)
+        }
+    }
+
+    @Test
     fun nonMediaAttachment_isNotClaimedByBrowserMediaPipeline() {
         val request = BrowserDownloadRequest(
             url = "https://cdn.example/download?id=2",

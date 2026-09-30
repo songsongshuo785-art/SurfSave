@@ -92,7 +92,9 @@ data class BrowserDownloadRequest(
 
     fun toDirectMediaVideoInfo(fallbackTitle: String? = null): VideoInfo? {
         val type = mediaType()
-        if (!isHttpRequest() || (type != ContentType.VIDEO && type != ContentType.AUDIO)) {
+        if (!isHttpRequest() ||
+            (type != ContentType.VIDEO && type != ContentType.AUDIO && type != ContentType.IMAGE)
+        ) {
             return null
         }
 
@@ -106,7 +108,11 @@ data class BrowserDownloadRequest(
         val requestData = DownloadRequestData(url = url, headers = downloadHeaders)
         val format = VideoFormatEntity(
             formatId = "direct",
-            format = if (type == ContentType.AUDIO) "audio" else "video",
+            format = when (type) {
+                ContentType.AUDIO -> "audio"
+                ContentType.IMAGE -> "image"
+                else -> "video"
+            },
             ext = extension,
             url = url,
             httpHeaders = downloadHeaders,
@@ -131,6 +137,15 @@ data class BrowserDownloadRequest(
             normalizedMime.contains("audio/mp4") -> "m4a"
             normalizedMime.contains("mpeg") && type == ContentType.AUDIO -> "mp3"
             type == ContentType.AUDIO -> "m4a"
+            type == ContentType.IMAGE && normalizedMime.contains("png") -> "png"
+            type == ContentType.IMAGE && normalizedMime.contains("gif") -> "gif"
+            type == ContentType.IMAGE && normalizedMime.contains("webp") -> "webp"
+            type == ContentType.IMAGE && normalizedMime.contains("avif") -> "avif"
+            type == ContentType.IMAGE && normalizedMime.contains("heic") -> "heic"
+            type == ContentType.IMAGE && normalizedMime.contains("heif") -> "heif"
+            type == ContentType.IMAGE && normalizedMime.contains("bmp") -> "bmp"
+            type == ContentType.IMAGE && normalizedMime.contains("svg") -> "svg"
+            type == ContentType.IMAGE -> "jpg"
             else -> "mp4"
         }
     }
@@ -179,7 +194,17 @@ data class BrowserDownloadRequest(
             "mp4" to "video/mp4",
             "webm" to "video/webm",
             "mp3" to "audio/mpeg",
-            "m4a" to "audio/mp4"
+            "m4a" to "audio/mp4",
+            "jpg" to "image/jpeg",
+            "jpeg" to "image/jpeg",
+            "png" to "image/png",
+            "gif" to "image/gif",
+            "webp" to "image/webp",
+            "avif" to "image/avif",
+            "heic" to "image/heic",
+            "heif" to "image/heif",
+            "bmp" to "image/bmp",
+            "svg" to "image/svg+xml"
         )
         private val EXTENSION_BY_MIME = MIME_BY_EXTENSION.entries
             .associate { (extension, mimeType) -> mimeType to extension }

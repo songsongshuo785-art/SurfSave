@@ -86,7 +86,8 @@ class VideoViewModel @Inject constructor(
         } else {
             listOf(
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
             )
         }
         observedCollections.forEach { uri ->
@@ -159,9 +160,16 @@ class VideoViewModel @Inject constructor(
             video.quality = progressInfo?.let { resolveQuality(it) }.orEmpty()
             video.sourceUrl = progressInfo?.let { resolveSourceUrl(it) }.orEmpty()
             video.originalThumbnailUrl = progressInfo?.videoInfo?.thumbnail.orEmpty()
-            video.durationMillis = resolveMediaDurationMillis(context, fileUri)
-            video.thumbnailFrameMicros =
+            video.durationMillis = if (video.isImage) {
+                0L
+            } else {
+                resolveMediaDurationMillis(context, fileUri)
+            }
+            video.thumbnailFrameMicros = if (video.isImage) {
+                0L
+            } else {
                 resolveThumbnailFrameMicros(context, fileUri)
+            }
             video.sortTimeMillis = resolveMediaSortTimeMillis(context, fileUri)
             listVideos.add(video)
         }

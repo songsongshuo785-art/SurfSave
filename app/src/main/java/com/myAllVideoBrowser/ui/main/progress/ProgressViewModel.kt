@@ -50,6 +50,7 @@ class ProgressViewModel @Inject constructor(
     val downloadDuplicateEvent = SingleLiveEvent<DownloadDuplicateEvent>()
     val downloadTaskDetailsEvent = SingleLiveEvent<DownloadTaskDetails>()
     val playlistEnqueueSummaryEvent = SingleLiveEvent<PlaylistEnqueueSummary>()
+    val mediaEnqueueSummaryEvent = SingleLiveEvent<MediaEnqueueSummary>()
     val browserFileLaunchEvent = SingleLiveEvent<BrowserFileLaunchRequest>()
     val browserFileMessageEvent = SingleLiveEvent<Int>()
     private val executor2 = Executors.newFixedThreadPool(1).asCoroutineDispatcher()
@@ -149,6 +150,31 @@ class ProgressViewModel @Inject constructor(
             }
             viewModelScope.launch {
                 playlistEnqueueSummaryEvent.value = PlaylistEnqueueSummary(
+                    accepted = accepted,
+                    duplicates = duplicates,
+                    rejected = rejected
+                )
+            }
+        }
+    }
+
+    fun downloadMediaItems(items: List<VideoInfo>) {
+        if (items.isEmpty() || !canCreateDownload()) {
+            return
+        }
+        viewModelScope.launch(executor2) {
+            var accepted = 0
+            var duplicates = 0
+            var rejected = 0
+            items.forEach { item ->
+                when (downloadQueueManager.enqueue(item, force = false)) {
+                    is DownloadQueueManager.EnqueueResult.Accepted -> accepted += 1
+                    is DownloadQueueManager.EnqueueResult.Duplicate -> duplicates += 1
+                    is DownloadQueueManager.EnqueueResult.Rejected -> rejected += 1
+                }
+            }
+            viewModelScope.launch {
+                mediaEnqueueSummaryEvent.value = MediaEnqueueSummary(
                     accepted = accepted,
                     duplicates = duplicates,
                     rejected = rejected
@@ -401,6 +427,12 @@ data class DownloadTaskDetails(
 )
 
 data class PlaylistEnqueueSummary(
+    val accepted: Int,
+    val duplicates: Int,
+    val rejected: Int
+)
+
+data class MediaEnqueueSummary(
     val accepted: Int,
     val duplicates: Int,
     val rejected: Int

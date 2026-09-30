@@ -11,13 +11,16 @@ import android.widget.Toast
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import androidx.activity.addCallback
 import androidx.fragment.app.FragmentManager
+import androidx.databinding.Observable
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.FragmentDetectedVideosTabBinding
 import com.myAllVideoBrowser.util.PlaylistExtractor
 import com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener
+import com.myAllVideoBrowser.ui.component.adapter.ImageInfoAdapter
 import com.myAllVideoBrowser.ui.component.adapter.VideoInfoAdapter
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.ui.main.home.MainActivity
@@ -43,6 +46,27 @@ class DetectedVideosTabFragment : BaseFragment() {
     private lateinit var binding: FragmentDetectedVideosTabBinding
 
     private lateinit var layoutMngr: WrapContentLinearLayoutManager
+    private lateinit var imageAdapter: ImageInfoAdapter
+    private var imageTabVisible = false
+
+    private val imageSelectionCallback = object : Observable.OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            if (::binding.isInitialized) {
+                binding.root.post {
+                    imageAdapter.notifyDataSetChanged()
+                    updateImageSelectionControls()
+                }
+            }
+        }
+    }
+
+    private val imageContentCallback = object : Observable.OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            if (::binding.isInitialized && imageTabVisible) {
+                binding.root.post { updateImageContentVisibility() }
+            }
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -62,12 +86,17 @@ class DetectedVideosTabFragment : BaseFragment() {
                 )
             }
         }
+        imageAdapter = ImageInfoAdapter(
+            requireNotNull(detectedVideosTabViewModel?.sortedDetectedImagesList?.get()),
+            requireNotNull(detectedVideosTabViewModel),
+            requireNotNull(candidateFormatListener)
+        )
 
         layoutMngr = WrapContentLinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
 
         val pageUrl = detectedVideosTabViewModel?.webTabModel?.getTabTextInput()?.get().orEmpty()
         binding = FragmentDetectedVideosTabBinding.inflate(inflater, container, false).apply {
-            // Title stays static ("本页视频"); the source host moves to the subtitle row
+            // Title stays static; the source host moves to the subtitle row.
             val host = sourceLabel(pageUrl)
             if (host.isNotBlank()) {
                 detectedSubtitle.text = getString(R.string.detected_videos_from_host, host)
@@ -77,6 +106,8 @@ class DetectedVideosTabFragment : BaseFragment() {
             videoInfoList.layoutManager = layoutMngr
             videoInfoList.isNestedScrollingEnabled = true
             videoInfoList.adapter = adapter
+            imageInfoList.layoutManager = GridLayoutManager(requireContext(), 2)
+            imageInfoList.adapter = imageAdapter
             dialogListener = candidateFormatListener
             detectedBackdrop.setOnClickListener { closeDetectedVideos() }
             detectedSheet.setOnClickListener { /* Keep sheet taps from closing the overlay. */ }
@@ -84,9 +115,32 @@ class DetectedVideosTabFragment : BaseFragment() {
             buttonPlayInWebpage.setOnClickListener { closeDetectedVideos() }
             buttonOpenTelegramPost.setOnClickListener { openTelegramPost() }
             buttonParsePlaylist.setOnClickListener { parsePlaylistFromCurrentPage() }
+            buttonVideoTab.setOnClickListener { showVideoTab() }
+            buttonImageTab.setOnClickListener { showImageTab() }
+            buttonScanImages.setOnClickListener {
+                detectedVideosTabViewModel?.requestImageScan()
+                showImageTab()
+            }
+            buttonClearImageSelection.setOnClickListener {
+                detectedVideosTabViewModel?.clearImageSelection()
+            }
+            buttonSelectAllImages.setOnClickListener {
+                detectedVideosTabViewModel?.selectAllImages()
+            }
+            buttonDownloadSelectedImages.setOnClickListener {
+                val selected = detectedVideosTabViewModel?.selectedImages().orEmpty()
+                if (selected.isNotEmpty()) {
+                    mainActivity.progressViewModel.downloadMediaItems(selected)
+                    detectedVideosTabViewModel?.clearImageSelection()
+                }
+            }
+            buttonVideoTab.isChecked = true
             detectedSecondaryActions.visibility =
                 if (shouldShowPlaylistAction(pageUrl)) View.VISIBLE else View.GONE
+            updateImageSelectionControls()
         }
+        detectedVideosTabViewModel?.selectedImageIds?.addOnPropertyChangedCallback(imageSelectionCallback)
+        detectedVideosTabViewModel?.hasDetectedImages?.addOnPropertyChangedCallback(imageContentCallback)
 
         BottomSheetBehavior.from(binding.detectedSheet).apply {
             state = BottomSheetBehavior.STATE_EXPANDED
@@ -104,6 +158,50 @@ class DetectedVideosTabFragment : BaseFragment() {
         }
 
         return binding.root
+    }
+
+    private fun showVideoTab() {
+        if (!::binding.isInitialized) return
+        imageTabVisible = false
+        binding.buttonVideoTab.isChecked = true
+        binding.videoInfoList.visibility = View.VISIBLE
+        binding.imageInfoList.visibility = View.GONE
+        binding.imageEmptyState.visibility = View.GONE
+        updateImageSelectionControls()
+    }
+
+    private fun showImageTab() {
+        if (!::binding.isInitialized) return
+        imageTabVisible = true
+        binding.buttonImageTab.isChecked = true
+        binding.videoInfoList.visibility = View.GONE
+        updateImageContentVisibility()
+        updateImageSelectionControls()
+    }
+
+    private fun updateImageContentVisibility() {
+        if (!::binding.isInitialized) return
+        val hasImages = detectedVideosTabViewModel?.hasDetectedImages?.get() == true
+        binding.imageInfoList.visibility = if (hasImages) View.VISIBLE else View.GONE
+        binding.imageEmptyState.visibility = if (hasImages) View.GONE else View.VISIBLE
+    }
+
+    private fun updateImageSelectionControls() {
+        if (!::binding.isInitialized) return
+        val model = detectedVideosTabViewModel ?: return
+        binding.imageSelectionBar.visibility = if (model.hasSelectedImages.get()) View.VISIBLE else View.GONE
+        binding.imageSelectionCount.text = getString(
+            R.string.detected_images_selected,
+            model.selectedImagesCount.get()
+        )
+        binding.buttonDownloadSelectedImages.isEnabled = model.hasSelectedImages.get()
+        binding.buttonClearImageSelection.isEnabled = model.hasSelectedImages.get()
+    }
+
+    override fun onDestroyView() {
+        detectedVideosTabViewModel?.selectedImageIds?.removeOnPropertyChangedCallback(imageSelectionCallback)
+        detectedVideosTabViewModel?.hasDetectedImages?.removeOnPropertyChangedCallback(imageContentCallback)
+        super.onDestroyView()
     }
 
     private fun parsePlaylistFromCurrentPage() {

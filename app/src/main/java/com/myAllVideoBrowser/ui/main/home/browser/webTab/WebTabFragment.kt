@@ -163,6 +163,164 @@ class WebTabFragment : BaseWebTabFragment() {
         private const val MAX_MEDIA_PROBE_PAYLOAD_LENGTH = 8_192
         private const val MAX_PAGE_MEDIA_METADATA_PAYLOAD_LENGTH = 16_384
         private const val MEDIA_PROBE_THROTTLE_MS = 4_000L
+        private val IMAGE_SCAN_SCRIPT = """
+            (function() {
+                try {
+                    var bridge = window['$MEDIA_PROBE_BRIDGE_NAME'];
+                    if (!bridge || typeof bridge.onMediaEvent !== 'function') return;
+                    if (typeof window.__superxImageScanRun === 'function') {
+                        window.__superxImageScanRun();
+                        return;
+                    }
+
+                    var seen = {};
+                    var sent = 0;
+                    var maxImages = 240;
+                    var minimumSize = 120;
+
+                    function absoluteUrl(raw) {
+                        try { return new URL(String(raw || ''), document.baseURI || location.href).href; }
+                        catch (e) { return ''; }
+                    }
+
+                    function extension(url) {
+                        var clean = String(url || '').split('#')[0].split('?')[0].toLowerCase();
+                        var dot = clean.lastIndexOf('.');
+                        if (dot < 0) return '';
+                        var value = clean.substring(dot + 1);
+                        return value.length >= 2 && value.length <= 5 ? value : '';
+                    }
+
+                    function contentTypeFor(url) {
+                        var ext = extension(url);
+                        if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+                        if (ext === 'svg') return 'image/svg+xml';
+                        return ext ? 'image/' + ext : 'image/*';
+                    }
+
+                    function emit(raw, title, width, height, allowUnknownSize) {
+                        if (sent >= maxImages) return;
+                        var url = absoluteUrl(raw);
+                        if (!/^https?:\/\//i.test(url) || seen[url]) return;
+                        width = Number(width || 0);
+                        height = Number(height || 0);
+                        if ((width > 0 && width < minimumSize) || (height > 0 && height < minimumSize)) return;
+                        if (width === 0 && height === 0 && !allowUnknownSize) return;
+                        seen[url] = true;
+                        try {
+                            bridge.onMediaEvent(JSON.stringify({
+                                kind: 'image-scan',
+                                url: url,
+                                pageUrl: location.href,
+                                method: 'GET',
+                                contentType: contentTypeFor(url),
+                                title: String(title || document.title || '').substring(0, 200),
+                                width: width,
+                                height: height
+                            }));
+                            sent++;
+                        } catch (e) {}
+                    }
+
+                    function addImageCandidate(candidates, raw, allowUnknownSize) {
+                        if (raw) candidates.push({ value: raw, allowUnknownSize: allowUnknownSize });
+                    }
+
+                    function scanImage(image) {
+                        if (!image || sent >= maxImages) return;
+                        var candidates = [];
+                        addImageCandidate(candidates, image.currentSrc, false);
+                        addImageCandidate(candidates, image.src, false);
+                        addImageCandidate(candidates, image.getAttribute('data-src'), true);
+                        addImageCandidate(candidates, image.getAttribute('data-original'), true);
+                        addImageCandidate(candidates, image.getAttribute('data-lazy-src'), true);
+                        addImageCandidate(candidates, image.getAttribute('data-url'), true);
+                        var srcset = image.getAttribute('srcset');
+                        if (srcset) {
+                            var srcsetItems = srcset.split(',');
+                            for (var srcsetIndex = 0; srcsetIndex < srcsetItems.length; srcsetIndex++) {
+                                addImageCandidate(candidates, srcsetItems[srcsetIndex].trim().split(/\s+/)[0], false);
+                            }
+                        }
+                        var width = image.naturalWidth || image.width || Number(image.getAttribute('width') || 0);
+                        var height = image.naturalHeight || image.height || Number(image.getAttribute('height') || 0);
+                        var title = image.alt || image.title || document.title || '';
+                        for (var index = 0; index < candidates.length && sent < maxImages; index++) {
+                            emit(candidates[index].value, title, width, height, candidates[index].allowUnknownSize);
+                        }
+                    }
+
+                    function scanBackground(node, pseudo) {
+                        if (!node || sent >= maxImages) return;
+                        var style = null;
+                        try { style = window.getComputedStyle(node, pseudo || null); } catch (e) {}
+                        var background = style && style.backgroundImage ? style.backgroundImage : '';
+                        if (!background || background === 'none') return;
+                        var bounds = node.getBoundingClientRect ? node.getBoundingClientRect() : { width: 0, height: 0 };
+                        var matcher = /url\(\s*(['"]?)(.*?)\1\s*\)/g;
+                        var match;
+                        while ((match = matcher.exec(background)) !== null && sent < maxImages) {
+                            emit(match[2], node.getAttribute('aria-label') || node.title || document.title || '',
+                                bounds.width, bounds.height, false);
+                        }
+                    }
+
+                    function scanDocument() {
+                        var images = document.images || [];
+                        for (var imageIndex = 0; imageIndex < images.length && sent < maxImages; imageIndex++) {
+                            scanImage(images[imageIndex]);
+                        }
+
+                        var elements = document.querySelectorAll ? document.querySelectorAll('*') : [];
+                        var elementLimit = Math.min(elements.length, 800);
+                        for (var elementIndex = 0; elementIndex < elementLimit && sent < maxImages; elementIndex++) {
+                            var node = elements[elementIndex];
+                            if (node.tagName && node.tagName.toLowerCase() !== 'img') {
+                                scanBackground(node, null);
+                                scanBackground(node, '::before');
+                                scanBackground(node, '::after');
+                            }
+                            var dataBackground = node.getAttribute && (
+                                node.getAttribute('data-background') ||
+                                node.getAttribute('data-bg') ||
+                                node.getAttribute('data-bg-src')
+                            );
+                            if (dataBackground) {
+                                var bounds = node.getBoundingClientRect ? node.getBoundingClientRect() : { width: 0, height: 0 };
+                                emit(dataBackground, node.getAttribute('aria-label') || node.title || document.title || '',
+                                    bounds.width, bounds.height, true);
+                            }
+                        }
+                    }
+
+                    window.__superxImageScanRun = scanDocument;
+                    if (window.MutationObserver && document.documentElement) {
+                        var scanTimer = 0;
+                        var observer = new MutationObserver(function(mutations) {
+                            var relevant = false;
+                            for (var mutationIndex = 0; mutationIndex < mutations.length; mutationIndex++) {
+                                if (mutations[mutationIndex].type === 'childList' || mutations[mutationIndex].type === 'attributes') {
+                                    relevant = true;
+                                    break;
+                                }
+                            }
+                            if (!relevant || scanTimer) return;
+                            scanTimer = window.setTimeout(function() {
+                                scanTimer = 0;
+                                scanDocument();
+                            }, 350);
+                        });
+                        observer.observe(document.documentElement, {
+                            subtree: true,
+                            childList: true,
+                            attributes: true,
+                            attributeFilter: ['src', 'srcset', 'style', 'data-src', 'data-original', 'data-lazy-src', 'data-background', 'data-bg', 'data-bg-src']
+                        });
+                    }
+                    scanDocument();
+                } catch (e) {}
+            })();
+        """.trimIndent()
         private val PLAYER_RECOVERY_DELAYS_MS = longArrayOf(1_500L, 3_500L, 6_500L, 10_000L)
         private const val MENU_OPEN_LINK_CURRENT_WINDOW = 1001
         private const val MENU_OPEN_LINK_NEW_WINDOW = 1002
@@ -1596,6 +1754,7 @@ class WebTabFragment : BaseWebTabFragment() {
             appendLine("History index: ${backForwardList?.currentIndex ?: -1}")
             appendLine("Loading: ${tabViewModel.isShowProgress.get()} (${tabViewModel.progress.get()}%)")
             appendLine("Detected videos: ${videoDetectionTabViewModel.detectedVideosCount.get()}")
+            appendLine("Detected images: ${videoDetectionTabViewModel.detectedImagesCount.get()}")
             appendLine("User agent: $userAgent")
         }
     }
@@ -1654,6 +1813,7 @@ class WebTabFragment : BaseWebTabFragment() {
         handleOpenDetectedVideos()
         handleVideoPushed()
         handleDetectionFeedback()
+        handleImageScanRequest()
         tabViewModel.start()
         videoDetectionTabViewModel.start()
         resumePendingLegacySystemDownload()
@@ -1743,6 +1903,17 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             Snackbar.make(dataBinding.containerBrowser, message, Snackbar.LENGTH_LONG)
                 .setAnchorView(dataBinding.floatingContainer)
                 .show()
+        }
+    }
+
+    private fun handleImageScanRequest() {
+        videoDetectionTabViewModel.imageScanRequestedEvent.observe(viewLifecycleOwner) {
+            val webView = webTab.getWebView()
+            if (webView == null) {
+                return@observe
+            }
+            injectMediaProbe(webView)
+            webView.evaluateJavascript(IMAGE_SCAN_SCRIPT, null)
         }
     }
 
@@ -2708,6 +2879,36 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         }
 
         if (mediaType == ContentType.OTHER) {
+            return
+        }
+
+        if (mediaType == ContentType.IMAGE && kind == "image-scan") {
+            val pageUrl = event.optString("pageUrl", "")
+                .ifBlank { webTab.getWebView()?.url.orEmpty() }
+                .ifBlank { tabViewModel.getTabTextInput().get().orEmpty() }
+            val userAgent = webTab.getWebView()?.settings?.userAgentString
+                ?: tabViewModel.userAgent.get()
+                ?: BrowserFragment.MOBILE_USER_AGENT
+            val request = BrowserDownloadRequest(
+                url = url,
+                pageUrl = pageUrl,
+                headers = linkedMapOf(
+                    "User-Agent" to userAgent,
+                    "Referer" to pageUrl
+                ).apply {
+                    CookieManager.getInstance().getCookie(url)
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { put("Cookie", it) }
+                },
+                contentDisposition = null,
+                mimeType = contentType,
+                contentLength = 0L,
+                suggestedFileName = runCatching {
+                    URLUtil.guessFileName(url, null, contentType)
+                }.getOrNull()
+            )
+            request.toDirectMediaVideoInfo(event.optString("title", ""))
+                ?.let(videoDetectionTabViewModel::pushNewImageInfo)
             return
         }
 

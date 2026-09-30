@@ -6,6 +6,7 @@ enum class ContentType {
     MPD,
     VIDEO,
     AUDIO,
+    IMAGE,
     OTHER
 }
 
