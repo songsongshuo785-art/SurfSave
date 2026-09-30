@@ -93,6 +93,69 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 duration = maxOf(existing.duration, resolved.duration)
             )
         }
+
+        /**
+         * True when an image candidate with the same URL identity is already known.
+         * Used to skip the HEAD/Range probe on repeated scans of the same page.
+         */
+        internal fun isImageAlreadyDetected(existing: Collection<VideoInfo>, url: String): Boolean {
+            val identity = normalizeMediaUrl(url)
+            if (identity.isBlank()) return false
+
+            return existing.any { info ->
+                info.isImage && identity in mediaIdentityUrls(info)
+            }
+        }
+
+        internal fun mediaIdentityUrls(info: VideoInfo): Set<String> {
+            val formatUrls = info.formats.formats.flatMap {
+                listOfNotNull(it.url, it.manifestUrl, it.videoOnlyUrl, it.audioOnlyUrl)
+            }
+            val downloadUrls = info.downloadUrls.map { it.url }
+            return (formatUrls + downloadUrls)
+                .map { normalizeMediaUrl(it) }
+                .filter { it.isNotBlank() }
+                .toSet()
+        }
+
+        internal fun normalizeMediaUrl(rawUrl: String?): String {
+            val value = rawUrl?.trim().orEmpty()
+            if (value.isBlank()) {
+                return ""
+            }
+
+            return runCatching {
+                val uri = URI(value)
+                val host = uri.host?.lowercase()?.removePrefix("www.").orEmpty()
+                val path = uri.path.orEmpty().trimEnd('/')
+                val stableQuery = uri.query
+                    ?.split("&")
+                    ?.filterNot { queryPart ->
+                        val key = queryPart.substringBefore("=").lowercase()
+                        key in TEMP_URL_QUERY_KEYS ||
+                            key.startsWith("utm_") ||
+                            key.contains("token") ||
+                            key.contains("signature") ||
+                            key.contains("expires") ||
+                            key.contains("expire")
+                    }
+                    ?.sorted()
+                    ?.joinToString("&")
+                    .orEmpty()
+
+                val base = "$host$path"
+                if (stableQuery.isBlank()) {
+                    base.lowercase()
+                } else {
+                    "$base?$stableQuery".lowercase()
+                }
+            }.getOrElse {
+                value.substringBefore("#")
+                    .substringBefore("?")
+                    .trimEnd('/')
+                    .lowercase()
+            }
+        }
     }
 
     // key: videoInfo.id, value: format - string
@@ -624,11 +687,23 @@ open class VideoDetectionTabViewModel @Inject constructor(
         fallbackTitle: String?,
         pageGeneration: Long? = null
     ) {
+        // Repeated scans of the same page must not re-issue HEAD/Range probes for
+        // images that are already in the list. The candidate is deduplicated by
+        // the same URL identity pushNewImageInfo() would use, but before the
+        // network round-trip.
+        if (isImageCandidateAlreadyDetected(request.url)) {
+            return
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             var acquired = false
             imageProbePermits.acquire()
             acquired = true
             try {
+                if (isImageCandidateAlreadyDetected(request.url)) {
+                    return@launch
+                }
+
                 val resolvedRequest = resolveImageResponseMetadata(request)
                 val imageInfo = resolvedRequest.toDirectMediaVideoInfo(fallbackTitle)
                 if (imageInfo != null &&
@@ -648,6 +723,11 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     fun isCurrentPageGeneration(pageGeneration: Long): Boolean =
         protectedMediaPageTracker.snapshot().generation == pageGeneration
+
+    @Synchronized
+    private fun isImageCandidateAlreadyDetected(url: String): Boolean {
+        return isImageAlreadyDetected(detectedVideosList.get().orEmpty(), url)
+    }
 
     private fun resolveImageResponseMetadata(
         request: BrowserDownloadRequest
@@ -803,56 +883,6 @@ open class VideoDetectionTabViewModel @Inject constructor(
             isLive = existing.isLive || newInfo.isLive,
             isDetectedBySuperX = existing.isDetectedBySuperX || newInfo.isDetectedBySuperX
         )
-    }
-
-    private fun mediaIdentityUrls(info: VideoInfo): Set<String> {
-        val formatUrls = info.formats.formats.flatMap {
-            listOfNotNull(it.url, it.manifestUrl, it.videoOnlyUrl, it.audioOnlyUrl)
-        }
-        val downloadUrls = info.downloadUrls.map { it.url }
-        return (formatUrls + downloadUrls)
-            .map { normalizeMediaUrl(it) }
-            .filter { it.isNotBlank() }
-            .toSet()
-    }
-
-    private fun normalizeMediaUrl(rawUrl: String?): String {
-        val value = rawUrl?.trim().orEmpty()
-        if (value.isBlank()) {
-            return ""
-        }
-
-        return runCatching {
-            val uri = URI(value)
-            val host = uri.host?.lowercase()?.removePrefix("www.").orEmpty()
-            val path = uri.path.orEmpty().trimEnd('/')
-            val stableQuery = uri.query
-                ?.split("&")
-                ?.filterNot { queryPart ->
-                    val key = queryPart.substringBefore("=").lowercase()
-                    key in TEMP_URL_QUERY_KEYS ||
-                        key.startsWith("utm_") ||
-                        key.contains("token") ||
-                        key.contains("signature") ||
-                        key.contains("expires") ||
-                        key.contains("expire")
-                }
-                ?.sorted()
-                ?.joinToString("&")
-                .orEmpty()
-
-            val base = "$host$path"
-            if (stableQuery.isBlank()) {
-                base.lowercase()
-            } else {
-                "$base?$stableQuery".lowercase()
-            }
-        }.getOrElse {
-            value.substringBefore("#")
-                .substringBefore("?")
-                .trimEnd('/')
-                .lowercase()
-        }
     }
 
     private fun normalizeTitle(title: String): String {

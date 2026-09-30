@@ -149,6 +149,7 @@ abstract class BaseWebTabFragment : BaseFragment() {
         binding.actionRefreshVideoDetection.visibility = pageActionVisibility
         binding.actionRepairPagePlayer.visibility = pageActionVisibility
         binding.actionContentBlockSite.visibility = pageActionVisibility
+        binding.actionAllowPopupsSite.visibility = pageActionVisibility
         val currentPageUrl = currentPageUrlForContentBlocking()
         val contentBlockPaused = currentPageUrl?.let(contentBlockManager::isSiteDisabled) == true
         binding.actionContentBlockSite.setText(
@@ -156,6 +157,14 @@ abstract class BaseWebTabFragment : BaseFragment() {
                 R.string.content_block_resume_site
             } else {
                 R.string.content_block_pause_site
+            }
+        )
+        val popupsAllowed = currentPageUrl?.let(contentBlockManager::isPopupAllowed) == true
+        binding.actionAllowPopupsSite.setText(
+            if (popupsAllowed) {
+                R.string.content_block_disallow_popups_site
+            } else {
+                R.string.content_block_allow_popups_site
             }
         )
         binding.actionForward.isEnabled = !browserMenuIsHomeTab && canNavigateForwardInCurrentPage()
@@ -195,6 +204,23 @@ abstract class BaseWebTabFragment : BaseFragment() {
                         Toast.LENGTH_SHORT
                     ).show()
                     reloadCurrentPageAfterContentBlockChange()
+                }
+            }
+        }
+        binding.actionAllowPopupsSite.setOnClickListener {
+            runAndDismiss {
+                val url = currentPageUrlForContentBlocking() ?: return@runAndDismiss
+                val allowed = contentBlockManager.isPopupAllowed(url)
+                if (contentBlockManager.setPopupAllowed(url, !allowed)) {
+                    Toast.makeText(
+                        requireContext(),
+                        if (allowed) {
+                            R.string.content_block_popups_blocked
+                        } else {
+                            R.string.content_block_popups_allowed
+                        },
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
         }

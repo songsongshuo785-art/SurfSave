@@ -176,6 +176,18 @@
                 app:icon="@drawable/shield_24px"
                 app:iconGravity="textStart"
                 app:iconTint="@color/sxTextSecondary" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/action_allow_popups_site"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:gravity="start|center_vertical"
+                android:text="@string/content_block_allow_popups_site"
+                android:textAlignment="viewStart"
+                android:textColor="@color/sxTextPrimary"
+                app:icon="@drawable/open_in_new_24px"
+                app:iconGravity="textStart"
+                app:iconTint="@color/sxTextSecondary" />
             <com.google.android.material.textview.MaterialTextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

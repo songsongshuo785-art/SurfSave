@@ -156,6 +156,10 @@
   <string name="content_block_resume_site">Resume blocking on this site</string>
   <string name="content_block_site_paused">Content blocking is paused on this site</string>
   <string name="content_block_site_resumed">Content blocking is enabled on this site</string>
+  <string name="content_block_allow_popups_site">Allow popups on this site</string>
+  <string name="content_block_disallow_popups_site">Block popups on this site</string>
+  <string name="content_block_popups_allowed">Popups are allowed on this site</string>
+  <string name="content_block_popups_blocked">Popups are blocked on this site</string>
   <string name="translate_page_unavailable">This page cannot be translated</string>
   <string name="translate_page_running">Translation is already running</string>
   <string name="translate_page_extracting">Reading page text…</string>

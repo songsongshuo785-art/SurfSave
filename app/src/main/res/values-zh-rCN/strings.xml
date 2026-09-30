@@ -85,6 +85,10 @@
     <string name="content_block_resume_site">在此网站恢复内容拦截</string>
     <string name="content_block_site_paused">已在此网站暂停内容拦截</string>
     <string name="content_block_site_resumed">已在此网站恢复内容拦截</string>
+    <string name="content_block_allow_popups_site">在此网站允许弹窗</string>
+    <string name="content_block_disallow_popups_site">在此网站阻止弹窗</string>
+    <string name="content_block_popups_allowed">已在此网站允许弹窗</string>
+    <string name="content_block_popups_blocked">已在此网站阻止弹窗</string>
     <string name="translate_page_unavailable">当前页面无法翻译</string>
     <string name="desktop_mode">桌面模式</string>
     <string name="searchbar_hint">搜索</string>
