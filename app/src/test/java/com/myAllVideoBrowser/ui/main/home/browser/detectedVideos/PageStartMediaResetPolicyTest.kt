@@ -5,56 +5,72 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * onStartPage must clear the detected-media list for every navigation except the
- * very first load of the tab's initial URL. In particular, navigating away and
- * back (A -> B -> A) must not leave page B's media in the list: stale entries
- * would pollute the already-detected check for page A and linger in the panel.
+ * onStartPage must clear the detected-media list for every navigation except
+ * the very first page-start of the tab, and only when that first page-start is
+ * also the tab's initial URL. The first page-start can be a different URL
+ * (redirects, restores), so the policy tracks "any page-start handled" rather
+ * than "initial URL seen": once any page has started, reaching the initial URL
+ * later must clear the previous page's media — stale entries would otherwise
+ * pollute the already-detected check and linger in the panel.
  */
 class PageStartMediaResetPolicyTest {
     private val initialUrl = "https://page.example/a"
     private val otherUrl = "https://page.example/b"
 
-    private fun keep(url: String, initialPageStarted: Boolean): Boolean {
+    private fun keep(url: String, hasHandledPageStart: Boolean): Boolean {
         return VideoDetectionTabViewModel.shouldKeepDetectedMediaOnPageStart(
             url,
             initialUrl,
-            initialPageStarted
+            hasHandledPageStart
         )
     }
 
     @Test
-    fun firstLoadOfTheInitialUrlKeepsTheMediaList() {
-        assertTrue(keep(initialUrl, initialPageStarted = false))
+    fun firstPageStartOnTheInitialUrlKeepsTheMediaList() {
+        assertTrue(keep(initialUrl, hasHandledPageStart = false))
     }
 
     @Test
-    fun otherUrlsClearTheMediaListEvenOnTheFirstEvent() {
-        assertFalse(keep(otherUrl, initialPageStarted = false))
-        assertFalse(keep("", initialPageStarted = false))
+    fun otherUrlsClearTheMediaListEvenOnTheFirstPageStart() {
+        assertFalse(keep(otherUrl, hasHandledPageStart = false))
+        assertFalse(keep("", hasHandledPageStart = false))
     }
 
     @Test
     fun secondVisitOfTheInitialUrlClearsTheMediaList() {
-        assertFalse(keep(initialUrl, initialPageStarted = true))
+        assertFalse(keep(initialUrl, hasHandledPageStart = true))
     }
 
     @Test
     fun otherUrlsAlwaysClearTheMediaList() {
-        assertFalse(keep(otherUrl, initialPageStarted = true))
+        assertFalse(keep(otherUrl, hasHandledPageStart = true))
     }
 
     @Test
     fun navigatingAwayAndBackClearsThePreviousPageMedia() {
-        var initialPageStarted = false
+        var hasHandledPageStart = false
 
-        // First load of the initial page A: keep (first open / restored state).
-        assertTrue(keep(initialUrl, initialPageStarted))
-        initialPageStarted = true
+        // First page-start on the initial page A: keep (first open / restored state).
+        assertTrue(keep(initialUrl, hasHandledPageStart))
+        hasHandledPageStart = true
 
         // Navigate to B: page A's media is cleared.
-        assertFalse(keep(otherUrl, initialPageStarted))
+        assertFalse(keep(otherUrl, hasHandledPageStart))
 
         // Navigate back to A: page B's media must not survive into page A.
-        assertFalse(keep(initialUrl, initialPageStarted))
+        assertFalse(keep(initialUrl, hasHandledPageStart))
+    }
+
+    @Test
+    fun initialUrlAfterADifferentFirstPageStillClears() {
+        var hasHandledPageStart = false
+
+        // The first page-start is a different page (redirect / restore).
+        assertFalse(keep(otherUrl, hasHandledPageStart))
+        hasHandledPageStart = true
+
+        // Reaching the initial URL later must not get the first-load privilege:
+        // page B's media must be cleared.
+        assertFalse(keep(initialUrl, hasHandledPageStart))
     }
 }

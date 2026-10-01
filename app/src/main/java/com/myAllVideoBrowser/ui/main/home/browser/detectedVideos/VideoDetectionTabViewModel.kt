@@ -103,16 +103,19 @@ open class VideoDetectionTabViewModel @Inject constructor(
          * Decides whether the detected-media list may survive an [onStartPage]
          * event for [url].
          *
-         * Only the very first load of the tab's initial URL keeps the list (first
-         * open, restored state). Navigating away and back (A -> B -> A) must clear
-         * the other page's media: stale entries would otherwise pollute the
-         * already-detected check for the initial page and linger in the panel.
+         * Only the very first page-start of the tab, when it also happens to be
+         * the initial URL, keeps the list (first open, restored state). The first
+         * page-start can be a different URL (redirects, restores), so the flag is
+         * "any page-start handled" rather than "initial URL seen": once any page
+         * has started, reaching the initial URL later must clear the previous
+         * page's media — stale entries would otherwise pollute the
+         * already-detected check and linger in the panel.
          */
         internal fun shouldKeepDetectedMediaOnPageStart(
             url: String,
             initialUrl: String,
-            initialPageStarted: Boolean
-        ): Boolean = !initialPageStarted && url == initialUrl
+            hasHandledPageStart: Boolean
+        ): Boolean = !hasHandledPageStart && url == initialUrl
     }
 
     // key: videoInfo.id, value: format - string
@@ -200,8 +203,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
     @Volatile
     private var lastUrl = ""
 
-    /** Set once the tab's initial URL has produced its first onStartPage event. */
-    private var initialPageStarted = false
+    /** Set after the first handled onStartPage event, whatever URL it was for. */
+    private var hasHandledPageStart = false
 
     @Volatile
     private var lastManualDetectionRequestAt = 0L
@@ -280,10 +283,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
         clearDetectionStatus()
 
         val keepDetectedMedia =
-            shouldKeepDetectedMediaOnPageStart(url, initialUrl, initialPageStarted)
-        if (url == initialUrl) {
-            initialPageStarted = true
-        }
+            shouldKeepDetectedMediaOnPageStart(url, initialUrl, hasHandledPageStart)
+        hasHandledPageStart = true
         if (keepDetectedMedia) {
             AppLogger.d("onStartPage: first load of the initial url. Skipped clearing list.")
         } else {
