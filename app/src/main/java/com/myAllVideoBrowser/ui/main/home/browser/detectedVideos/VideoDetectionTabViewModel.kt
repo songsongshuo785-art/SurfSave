@@ -625,8 +625,10 @@ open class VideoDetectionTabViewModel @Inject constructor(
      * image with the same restricted browser headers before creating the
      * candidate so extension and MIME metadata match the actual resource.
      *
-     * Candidates whose URL identity is already detected, or already being probed by
-     * a concurrent scan, are skipped without a network round-trip.
+     * Candidates whose URL identity is already detected, or already being probed
+     * for the same page generation by a concurrent scan, are skipped without a
+     * network round-trip. Probes are keyed by page generation so an in-flight
+     * probe for a stale page never suppresses the same image on the current page.
      */
     fun resolveAndPushImageInfo(
         request: BrowserDownloadRequest,
@@ -642,6 +644,9 @@ open class VideoDetectionTabViewModel @Inject constructor(
         }
 
         viewModelScope.launch(Dispatchers.IO) {
+            if (pageGeneration != null && !isCurrentPageGeneration(pageGeneration)) {
+                return@launch
+            }
             if (isImageCandidateAlreadyDetected(request.url)) {
                 return@launch
             }
@@ -649,7 +654,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
             // Claim the probe identity before competing for a permit, so duplicate
             // candidates for the same image never occupy one of the probe permits.
             val probeIdentity = normalizeMediaUrl(request.url)
-            if (!imageProbeGate.tryAcquire(probeIdentity)) {
+            if (!imageProbeGate.tryAcquire(pageGeneration, probeIdentity)) {
                 return@launch
             }
 
@@ -658,6 +663,13 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 // Dispatchers.IO thread, so a large scan cannot park threads while
                 // waiting for one of the four probe slots.
                 imageProbePermits.withPermit {
+                    // The waiter may have been suspended for a while, during which
+                    // the page can have navigated; re-check before the round-trip so
+                    // stale probes never hit the network.
+                    if (pageGeneration != null && !isCurrentPageGeneration(pageGeneration)) {
+                        return@withPermit
+                    }
+
                     val resolvedRequest = resolveImageResponseMetadata(request)
                     val imageInfo = resolvedRequest.toDirectMediaVideoInfo(fallbackTitle)
                     if (imageInfo != null &&
@@ -674,7 +686,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                     }
                 }
             } finally {
-                imageProbeGate.release(probeIdentity)
+                imageProbeGate.release(pageGeneration, probeIdentity)
             }
         }
     }

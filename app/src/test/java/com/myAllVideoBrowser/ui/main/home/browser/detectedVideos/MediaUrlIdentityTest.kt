@@ -66,6 +66,46 @@ class MediaUrlIdentityTest {
     }
 
     @Test
+    fun businessKeysThatMerelyContainSignatureKeyNamesAreKept() {
+        assertNotEquals(
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?tokenId=AAA"),
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?tokenId=BBB")
+        )
+        assertNotEquals(
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?signatureStyle=dark"),
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?signatureStyle=light")
+        )
+        assertNotEquals(
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?expired=false"),
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?expired=true")
+        )
+    }
+
+    @Test
+    fun genericBusinessQueryKeysAreKept() {
+        assertNotEquals(
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?key=AAA"),
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?key=BBB")
+        )
+        assertNotEquals(
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?hash=1"),
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?hash=2")
+        )
+        assertNotEquals(
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?policy=public"),
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?policy=private")
+        )
+        assertNotEquals(
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?e=1"),
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?e=2")
+        )
+        assertNotEquals(
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?sv=1"),
+            MediaUrlIdentity.of("https://cdn.example/a.jpg?sv=2")
+        )
+    }
+
+    @Test
     fun queryParameterOrderIsSignificant() {
         assertNotEquals(
             MediaUrlIdentity.of("https://cdn.example/a.jpg?a=1&b=2"),

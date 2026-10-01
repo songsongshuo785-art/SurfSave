@@ -14,41 +14,72 @@ class ImageProbeGateTest {
     fun firstAcquireWinsAndTheSecondIsSkipped() {
         val gate = ImageProbeGate()
 
-        assertTrue(gate.tryAcquire("https://cdn.example/a.jpg"))
-        assertFalse(gate.tryAcquire("https://cdn.example/a.jpg"))
+        assertTrue(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
+        assertFalse(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
     }
 
     @Test
     fun differentIdentitiesDoNotBlockEachOther() {
         val gate = ImageProbeGate()
 
-        assertTrue(gate.tryAcquire("https://cdn.example/a.jpg"))
-        assertTrue(gate.tryAcquire("https://cdn.example/b.jpg"))
+        assertTrue(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
+        assertTrue(gate.tryAcquire(5L, "https://cdn.example/b.jpg"))
     }
 
     @Test
-    fun releaseAllowsAcquiringTheSameIdentityAgain() {
+    fun sameIdentityOnDifferentPageGenerationsDoesNotBlockEachOther() {
         val gate = ImageProbeGate()
 
-        assertTrue(gate.tryAcquire("https://cdn.example/a.jpg"))
-        gate.release("https://cdn.example/a.jpg")
-        assertTrue(gate.tryAcquire("https://cdn.example/a.jpg"))
+        // A probe still in flight for a stale page must never suppress the same
+        // image on the current page: the old probe discards its result.
+        assertTrue(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
+        assertTrue(gate.tryAcquire(6L, "https://cdn.example/a.jpg"))
+        assertFalse(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
+        assertFalse(gate.tryAcquire(6L, "https://cdn.example/a.jpg"))
+    }
+
+    @Test
+    fun nullGenerationIsItsOwnKey() {
+        val gate = ImageProbeGate()
+
+        assertTrue(gate.tryAcquire(null, "https://cdn.example/a.jpg"))
+        assertTrue(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
+        assertFalse(gate.tryAcquire(null, "https://cdn.example/a.jpg"))
+    }
+
+    @Test
+    fun releaseAllowsAcquiringTheSameKeyAgain() {
+        val gate = ImageProbeGate()
+
+        assertTrue(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
+        gate.release(5L, "https://cdn.example/a.jpg")
+        assertTrue(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
+    }
+
+    @Test
+    fun releaseForADifferentGenerationReleasesNothing() {
+        val gate = ImageProbeGate()
+
+        assertTrue(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
+        gate.release(6L, "https://cdn.example/a.jpg")
+        assertFalse(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
     }
 
     @Test
     fun blankIdentityAlwaysAcquires() {
         val gate = ImageProbeGate()
 
-        assertTrue(gate.tryAcquire(""))
-        assertTrue(gate.tryAcquire(""))
+        assertTrue(gate.tryAcquire(5L, ""))
+        assertTrue(gate.tryAcquire(5L, ""))
+        assertTrue(gate.tryAcquire(null, ""))
     }
 
     @Test
-    fun releaseOfAnUnknownIdentityIsANoOp() {
+    fun releaseOfAnUnknownKeyIsANoOp() {
         val gate = ImageProbeGate()
 
-        gate.release("https://cdn.example/unknown.jpg")
-        assertTrue(gate.tryAcquire("https://cdn.example/a.jpg"))
+        gate.release(5L, "https://cdn.example/unknown.jpg")
+        assertTrue(gate.tryAcquire(5L, "https://cdn.example/a.jpg"))
     }
 
     @Test
@@ -65,7 +96,7 @@ class ImageProbeGateTest {
                 pool.execute {
                     ready.countDown()
                     start.await()
-                    if (gate.tryAcquire("https://cdn.example/a.jpg")) {
+                    if (gate.tryAcquire(5L, "https://cdn.example/a.jpg")) {
                         winners.incrementAndGet()
                     }
                 }

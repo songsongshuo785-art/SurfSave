@@ -96,7 +96,19 @@ class ImageScanDedupTest {
         assertTrue(
             VideoDetectionTabViewModel.isImageAlreadyDetected(
                 existing,
-                "https://cdn.example/photo.jpg?token=abc&e=1735689600&signature=deadbeef"
+                "https://cdn.example/photo.jpg?token=abc&expires=1735689600&signature=deadbeef"
+            )
+        )
+    }
+
+    @Test
+    fun genericBusinessQueryKeysDoNotDefeatDedupWhenTheyDiffer() {
+        val existing = listOf(image("https://cdn.example/photo.jpg?e=1"))
+
+        assertFalse(
+            VideoDetectionTabViewModel.isImageAlreadyDetected(
+                existing,
+                "https://cdn.example/photo.jpg?e=2"
             )
         )
     }

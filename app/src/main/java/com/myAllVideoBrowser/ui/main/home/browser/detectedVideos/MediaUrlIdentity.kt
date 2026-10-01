@@ -16,8 +16,11 @@ import java.util.Locale
  * only treated as the same resource when they really are the same resource.
  * Keeping a duplicate is safer than silently dropping a distinct image.
  *
- * Only the query keys that carry per-request signatures are removed, and the keys
- * are compared case-insensitively while the surviving query text is left untouched.
+ * Only query keys that unambiguously belong to per-request signature schemes are
+ * removed, compared as exact (case-insensitive) key matches, and the surviving
+ * query text is left untouched. A key that merely contains e.g. "token"
+ * (tokenId, signatureStyle) may be an ordinary business parameter, so it is kept:
+ * a duplicate probe is safer than silently dropping a distinct image.
  * The surviving query keeps its original parameter order, and path trailing
  * slashes are kept, because HTTP gives no guarantee that either is
  * semantically insignificant.
@@ -33,17 +36,7 @@ internal object MediaUrlIdentity {
         "sig",
         "token",
         "expires",
-        "expire",
-        "e",
-        "st",
-        "se",
-        "sp",
-        "sv",
-        "hash",
-        "key",
-        "auth",
-        "policy",
-        "range"
+        "expire"
     )
 
     fun of(rawUrl: String?): String {
@@ -73,12 +66,7 @@ internal object MediaUrlIdentity {
 
     private fun isTemporaryQueryPart(queryPart: String): Boolean {
         val key = queryPart.substringBefore("=").lowercase(Locale.US)
-        return key in TEMPORARY_QUERY_KEYS ||
-            key.startsWith("utm_") ||
-            key.contains("token") ||
-            key.contains("signature") ||
-            key.contains("expires") ||
-            key.contains("expire")
+        return key in TEMPORARY_QUERY_KEYS || key.startsWith("utm_")
     }
 
     /** Best-effort identity for URLs that cannot be parsed or have no host. */
