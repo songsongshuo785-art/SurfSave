@@ -98,6 +98,21 @@ open class VideoDetectionTabViewModel @Inject constructor(
         }
 
         internal fun normalizeMediaUrl(rawUrl: String?): String = MediaUrlIdentity.of(rawUrl)
+
+        /**
+         * Decides whether the detected-media list may survive an [onStartPage]
+         * event for [url].
+         *
+         * Only the very first load of the tab's initial URL keeps the list (first
+         * open, restored state). Navigating away and back (A -> B -> A) must clear
+         * the other page's media: stale entries would otherwise pollute the
+         * already-detected check for the initial page and linger in the panel.
+         */
+        internal fun shouldKeepDetectedMediaOnPageStart(
+            url: String,
+            initialUrl: String,
+            initialPageStarted: Boolean
+        ): Boolean = !initialPageStarted && url == initialUrl
     }
 
     // key: videoInfo.id, value: format - string
@@ -185,6 +200,9 @@ open class VideoDetectionTabViewModel @Inject constructor(
     @Volatile
     private var lastUrl = ""
 
+    /** Set once the tab's initial URL has produced its first onStartPage event. */
+    private var initialPageStarted = false
+
     @Volatile
     private var lastManualDetectionRequestAt = 0L
 
@@ -261,12 +279,17 @@ open class VideoDetectionTabViewModel @Inject constructor(
         setDownloadStateNow(DownloadButtonStateCanNotDownload())
         clearDetectionStatus()
 
-        if (url != initialUrl) {
-            AppLogger.d("onStartPage: URL is not initial url. Clearing list.")
+        val keepDetectedMedia =
+            shouldKeepDetectedMediaOnPageStart(url, initialUrl, initialPageStarted)
+        if (url == initialUrl) {
+            initialPageStarted = true
+        }
+        if (keepDetectedMedia) {
+            AppLogger.d("onStartPage: first load of the initial url. Skipped clearing list.")
+        } else {
+            AppLogger.d("onStartPage: clearing list for the new page.")
             setDetectedVideosNow(mutableSetOf())
             cancelAllCheckJobs()
-        } else {
-            AppLogger.d("onStartPage: URL is initial url. Skipped clearing list.")
         }
 
         val req = getRequestWithHeadersForUrl(
