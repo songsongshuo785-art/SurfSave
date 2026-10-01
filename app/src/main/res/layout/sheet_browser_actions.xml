@@ -165,6 +165,18 @@
                 app:iconGravity="textStart"
                 app:iconTint="@color/sxTextSecondary" />
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/action_clear_site_web_data"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:gravity="start|center_vertical"
+                android:text="@string/clear_site_web_data"
+                android:textAlignment="viewStart"
+                android:textColor="@color/sxTextPrimary"
+                app:icon="@drawable/delete_forever_24px"
+                app:iconGravity="textStart"
+                app:iconTint="@color/sxTextSecondary" />
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/action_content_block_site"
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_width="match_parent"

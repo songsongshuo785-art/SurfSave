@@ -429,6 +429,9 @@
     <string name="refresh_video_detection_started">已重新开始视频检测</string>
     <string name="repair_page_player">修复页面播放器</string>
     <string name="repair_page_player_started">已开始修复页面播放器</string>
+    <string name="clear_site_web_data">清除本站网页数据</string>
+    <string name="clear_site_web_data_reset">已重置本站网页数据，正在刷新</string>
+    <string name="clear_site_web_data_unavailable">当前页面没有可清除的站点存储</string>
     <string name="add_bookmark">添加书签</string>
     <string name="home_add_bookmark_subtitle">手动保存网页，或把已存书签加入首页</string>
     <string name="home_add_bookmark_manually">手动添加</string>

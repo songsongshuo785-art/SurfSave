@@ -118,6 +118,8 @@ import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.AppUtil
 import com.myAllVideoBrowser.util.FileNameCleaner
 import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
+import com.myAllVideoBrowser.util.SiteDataCleaner
+import com.myAllVideoBrowser.util.SiteOrigin
 import com.myAllVideoBrowser.util.VideoFormatUi
 import com.myAllVideoBrowser.util.telegram.TelegramPostResolver
 import com.myAllVideoBrowser.util.telegram.TelegramPostUrl
@@ -1264,6 +1266,9 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
     @Inject
     lateinit var browserDownloadCoordinator: BrowserDownloadCoordinator
 
+    @Inject
+    lateinit var siteDataCleaner: SiteDataCleaner
+
     private lateinit var dataBinding: FragmentWebTabBinding
 
     private lateinit var tabManagerProvider: TabManagerProvider
@@ -1715,6 +1720,25 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
             AppLogger.d("PLAYER_RECOVERY: manual $result")
         }
         Toast.makeText(requireContext(), R.string.repair_page_player_started, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun clearCurrentSiteWebData() {
+        val webView = webTab.getWebView() ?: return
+        val origin = SiteOrigin.of(webView.url ?: webTab.getUrl())
+        if (origin == null) {
+            Toast.makeText(
+                requireContext(),
+                R.string.clear_site_web_data_unavailable,
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        siteDataCleaner.requestClearOriginWebStorage(origin)
+        AppLogger.d("SITE_DATA: requested clear origin=$origin")
+        // deleteOrigin 对已加载的文档不生效(页面内存里仍有一份),必须刷新页面。
+        webView.reload()
+        Toast.makeText(requireContext(), R.string.clear_site_web_data_reset, Toast.LENGTH_SHORT).show()
     }
 
     override fun buildBrowserDiagnosticsReport(): String {

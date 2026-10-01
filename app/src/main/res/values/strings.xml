@@ -284,6 +284,9 @@
   <string name="refresh_video_detection_started">Video detection restarted</string>
   <string name="repair_page_player">Repair page player</string>
   <string name="repair_page_player_started">Page player recovery started</string>
+  <string name="clear_site_web_data">Clear site web data</string>
+  <string name="clear_site_web_data_reset">Site web data reset, reloading</string>
+  <string name="clear_site_web_data_unavailable">No site storage for this page</string>
   <string name="add_bookmark">Add bookmark</string>
   <string name="home_add_bookmark_subtitle">Save a page or promote a saved bookmark to home</string>
   <string name="home_add_bookmark_manually">Add manually</string>

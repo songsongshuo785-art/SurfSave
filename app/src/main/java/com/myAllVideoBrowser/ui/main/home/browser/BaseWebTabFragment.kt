@@ -64,6 +64,8 @@ abstract class BaseWebTabFragment : BaseFragment() {
 
     open fun repairPagePlayer() {}
 
+    open fun clearCurrentSiteWebData() {}
+
     open fun currentPageUrlForContentBlocking(): String? = null
 
     open fun reloadCurrentPageAfterContentBlockChange() {}
@@ -189,6 +191,7 @@ abstract class BaseWebTabFragment : BaseFragment() {
         binding.actionTranslate.setOnClickListener { runAndDismiss { translateCurrentPage() } }
         binding.actionRefreshVideoDetection.setOnClickListener { runAndDismiss { refreshVideoDetection() } }
         binding.actionRepairPagePlayer.setOnClickListener { runAndDismiss { repairPagePlayer() } }
+        binding.actionClearSiteWebData.setOnClickListener { runAndDismiss { clearCurrentSiteWebData() } }
         binding.actionContentBlockSite.setOnClickListener {
             runAndDismiss {
                 val url = currentPageUrlForContentBlocking() ?: return@runAndDismiss
