@@ -37,6 +37,14 @@ data class BrowserDownloadRequest(
     }
 
     fun suggestedExtension(): String? {
+        val expectedType = mediaType()
+        val declaredMimeExtension = EXTENSION_BY_MIME[declaredMimeType()]
+        if (declaredMimeExtension != null &&
+            BrowserMediaClassifier.classify("https://download.invalid/file.$declaredMimeExtension") == expectedType
+        ) {
+            return declaredMimeExtension
+        }
+
         val extension = preferredFileName()
             ?.substringAfterLast('.', "")
             ?.trim()
@@ -44,7 +52,6 @@ data class BrowserDownloadRequest(
             .orEmpty()
         if (extension.isBlank()) return null
 
-        val expectedType = mediaType()
         return extension.takeIf {
             BrowserMediaClassifier.classify("https://download.invalid/file.$extension") == expectedType
         }
@@ -90,9 +97,34 @@ data class BrowserDownloadRequest(
         }.toMap(linkedMapOf())
     }
 
+    /**
+     * Applies authoritative response metadata discovered after the WebView
+     * reported a candidate. The original URL and browser headers are retained
+     * so signed URLs and referrer-gated downloads continue to work.
+     */
+    fun withResponseMetadata(
+        responseMimeType: String?,
+        responseContentDisposition: String?,
+        responseContentLength: Long
+    ): BrowserDownloadRequest {
+        val normalizedMime = responseMimeType
+            ?.substringBefore(';')
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        return copy(
+            mimeType = normalizedMime ?: mimeType,
+            contentDisposition = responseContentDisposition
+                ?.takeIf { it.isNotBlank() }
+                ?: contentDisposition,
+            contentLength = responseContentLength.takeIf { it > 0L } ?: contentLength
+        )
+    }
+
     fun toDirectMediaVideoInfo(fallbackTitle: String? = null): VideoInfo? {
         val type = mediaType()
-        if (!isHttpRequest() || (type != ContentType.VIDEO && type != ContentType.AUDIO)) {
+        if (!isHttpRequest() ||
+            (type != ContentType.VIDEO && type != ContentType.AUDIO && type != ContentType.IMAGE)
+        ) {
             return null
         }
 
@@ -106,7 +138,11 @@ data class BrowserDownloadRequest(
         val requestData = DownloadRequestData(url = url, headers = downloadHeaders)
         val format = VideoFormatEntity(
             formatId = "direct",
-            format = if (type == ContentType.AUDIO) "audio" else "video",
+            format = when (type) {
+                ContentType.AUDIO -> "audio"
+                ContentType.IMAGE -> "image"
+                else -> "video"
+            },
             ext = extension,
             url = url,
             httpHeaders = downloadHeaders,
@@ -131,6 +167,15 @@ data class BrowserDownloadRequest(
             normalizedMime.contains("audio/mp4") -> "m4a"
             normalizedMime.contains("mpeg") && type == ContentType.AUDIO -> "mp3"
             type == ContentType.AUDIO -> "m4a"
+            type == ContentType.IMAGE && normalizedMime.contains("png") -> "png"
+            type == ContentType.IMAGE && normalizedMime.contains("gif") -> "gif"
+            type == ContentType.IMAGE && normalizedMime.contains("webp") -> "webp"
+            type == ContentType.IMAGE && normalizedMime.contains("avif") -> "avif"
+            type == ContentType.IMAGE && normalizedMime.contains("heic") -> "heic"
+            type == ContentType.IMAGE && normalizedMime.contains("heif") -> "heif"
+            type == ContentType.IMAGE && normalizedMime.contains("bmp") -> "bmp"
+            type == ContentType.IMAGE && normalizedMime.contains("svg") -> "svg"
+            type == ContentType.IMAGE -> "jpg"
             else -> "mp4"
         }
     }
@@ -179,9 +224,26 @@ data class BrowserDownloadRequest(
             "mp4" to "video/mp4",
             "webm" to "video/webm",
             "mp3" to "audio/mpeg",
-            "m4a" to "audio/mp4"
+            "m4a" to "audio/mp4",
+            "jpg" to "image/jpeg",
+            "jpeg" to "image/jpeg",
+            "png" to "image/png",
+            "gif" to "image/gif",
+            "webp" to "image/webp",
+            "avif" to "image/avif",
+            "heic" to "image/heic",
+            "heif" to "image/heif",
+            "bmp" to "image/bmp",
+            "svg" to "image/svg+xml"
         )
-        private val EXTENSION_BY_MIME = MIME_BY_EXTENSION.entries
-            .associate { (extension, mimeType) -> mimeType to extension }
+        // Several extensions can share one MIME type (image/jpeg -> jpg|jpeg).
+        // Prefer the shortest canonical extension ("jpg", not "jpeg") so the
+        // generated name stays consistent with defaultMediaExtension().
+        private val EXTENSION_BY_MIME: Map<String, String> =
+            linkedMapOf<String, String>().apply {
+                MIME_BY_EXTENSION.entries
+                    .sortedBy { (extension) -> extension.length }
+                    .forEach { (extension, mimeType) -> putIfAbsent(mimeType, extension) }
+            }
     }
 }

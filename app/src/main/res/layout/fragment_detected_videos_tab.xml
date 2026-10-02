@@ -115,7 +115,7 @@
                 android:text="@{viewModel.detectionStatusText}"
                 android:textColor="@color/sxTextSecondary"
                 android:textSize="@dimen/text_small"
-                android:visibility="@{viewModel.hasDetectionStatus &amp;&amp; !viewModel.hasDetectedVideos &amp;&amp; !viewModel.hasProtectedMedia &amp;&amp; !viewModel.hasTelegramPostPreview ? View.VISIBLE : View.GONE}"
+                android:visibility="@{viewModel.hasDetectionStatus &amp;&amp; !viewModel.hasDetectedMedia &amp;&amp; !viewModel.hasProtectedMedia &amp;&amp; !viewModel.hasTelegramPostPreview ? View.VISIBLE : View.GONE}"
                 tools:text="检测暂时失败。请播放视频后再试，或刷新页面重新检测。"
                 tools:visibility="visible" />
             <LinearLayout
@@ -270,6 +270,71 @@
                     app:icon="@drawable/search_24px"
                     app:iconTint="@color/colorPrimary" />
             </LinearLayout>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/button_scan_images"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_gravity="end"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:text="@string/detected_images_scan"
+                android:textAllCaps="false"
+                android:textColor="@color/colorPrimary"
+                app:icon="@drawable/search_24px"
+                app:iconTint="@color/colorPrimary" />
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/media_type_toggle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:visibility="@{viewModel.hasDetectedMedia ? View.VISIBLE : View.GONE}"
+                app:selectionRequired="true"
+                app:singleSelection="true">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_video_tab"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:text="@string/detected_videos_tab_label"
+                    android:textAllCaps="false" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_image_tab"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:text="@string/detected_images_tab_label"
+                    android:textAllCaps="false" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
+            <LinearLayout
+                android:id="@+id/media_type_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="@{viewModel.hasDetectedMedia ? View.VISIBLE : View.GONE}">
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/video_tab_count"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@{viewModel.detectedVideosBadgeText}"
+                    android:textColor="@color/sxTextSecondary"
+                    android:textSize="@dimen/text_tiny" />
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/image_tab_count"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="end"
+                    android:text="@{viewModel.detectedImagesBadgeText}"
+                    android:textColor="@color/sxTextSecondary"
+                    android:textSize="@dimen/text_tiny" />
+            </LinearLayout>
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/video_info_list"
                 android:layout_width="match_parent"
@@ -281,6 +346,67 @@
                 android:paddingEnd="0dp"
                 android:paddingBottom="@dimen/padding_small"
                 app:items="@{viewModel.sortedDetectedVideosList}" />
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/image_info_list"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginTop="12dp"
+                android:layout_weight="1"
+                android:clipToPadding="false"
+                android:paddingBottom="@dimen/padding_small"
+                android:visibility="gone"
+                app:items="@{viewModel.sortedDetectedImagesList}" />
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/image_empty_state"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center"
+                android:padding="@dimen/padding_normal"
+                android:text="@string/detected_images_empty"
+                android:textColor="@color/sxTextSecondary"
+                android:textSize="@dimen/text_small"
+                android:visibility="gone" />
+            <LinearLayout
+                android:id="@+id/image_selection_bar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="56dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/image_selection_count"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textStyle="bold" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_select_all_images"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:minWidth="0dp"
+                    android:text="@string/detected_images_select_all"
+                    android:textAllCaps="false" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_clear_image_selection"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:minWidth="0dp"
+                    android:text="@string/detected_images_clear_selection"
+                    android:textAllCaps="false" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_download_selected_images"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:minWidth="0dp"
+                    android:text="@string/detected_images_download_selected"
+                    android:textAllCaps="false"
+                    app:icon="@drawable/ic_download_24dp" />
+            </LinearLayout>
         </LinearLayout>
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
 </layout>

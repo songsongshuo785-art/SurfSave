@@ -85,6 +85,10 @@
     <string name="content_block_resume_site">在此网站恢复内容拦截</string>
     <string name="content_block_site_paused">已在此网站暂停内容拦截</string>
     <string name="content_block_site_resumed">已在此网站恢复内容拦截</string>
+    <string name="content_block_allow_popups_site">在此网站允许弹窗</string>
+    <string name="content_block_disallow_popups_site">在此网站阻止弹窗</string>
+    <string name="content_block_popups_allowed">已在此网站允许弹窗</string>
+    <string name="content_block_popups_blocked">已在此网站阻止弹窗</string>
     <string name="translate_page_unavailable">当前页面无法翻译</string>
     <string name="desktop_mode">桌面模式</string>
     <string name="searchbar_hint">搜索</string>
@@ -332,8 +336,19 @@
     <string name="home_social_guide_message">1. 复制 Telegram 公开帖子或其他帖子/视频链接，再点“粘贴并打开”。\n\n2. 也可以在 Telegram、TikTok、X、Instagram、Facebook 中使用“分享”，把链接发给 %1$s。\n\n3. %1$s 会在真实浏览器标签中打开页面；受支持的 Telegram 公开帖子会显示预览、播放和下载操作，其他网站继续使用原有媒体检测流程。</string>
     <string name="title_browser">浏览</string>
     <string name="progress_subtitle">管理正在下载和等待中的内容</string>
-    <string name="video_library_subtitle">已保存，随时播放</string>
-    <string name="detected_videos_title">本页视频</string>
+    <string name="video_library_subtitle">已保存，随时查看或播放</string>
+    <string name="detected_videos_title">本页媒体</string>
+    <string name="detected_videos_tab_label">视频</string>
+    <string name="detected_images_tab_label">图片</string>
+    <string name="detected_images_scan">扫描页面图片</string>
+    <string name="detected_images_scan_hint">仅在需要时扫描页面图片，过小的图标和头像会自动跳过。</string>
+    <string name="detected_images_empty">暂未找到图片。点击“扫描页面图片”查找可下载图片。</string>
+    <string name="detected_images_select_all">全选</string>
+    <string name="detected_image_select">选择图片</string>
+    <string name="detected_images_clear_selection">清空选择</string>
+    <string name="detected_images_selected">已选择 %1$d 张图片</string>
+    <string name="detected_images_download_selected">下载已选</string>
+    <string name="detected_image_download">下载图片</string>
     <string name="media_import_tab_title">分享内容</string>
     <string name="media_import_panel_title">分享内容</string>
     <string name="telegram_post_resolving">正在读取 Telegram 公开帖子…</string>
@@ -398,6 +413,7 @@
     <string name="playlist_enqueue_selected">加入选中项</string>
     <string name="playlist_no_selection">还没有选择播放列表条目。</string>
     <string name="playlist_enqueue_summary">已入队 %1$d，重复 %2$d，拒绝 %3$d。</string>
+    <string name="media_enqueue_summary">已入队 %1$d 个媒体，重复 %2$d，拒绝 %3$d。</string>
     <string name="tabs_button_content_description">已打开标签页：%1$d</string>
     <string name="tab_current">当前标签</string>
     <string name="settings_show_advanced">展开</string>
@@ -413,6 +429,9 @@
     <string name="refresh_video_detection_started">已重新开始视频检测</string>
     <string name="repair_page_player">修复页面播放器</string>
     <string name="repair_page_player_started">已开始修复页面播放器</string>
+    <string name="clear_site_web_data">清除本站网页数据</string>
+    <string name="clear_site_web_data_reset">已重置本站网页数据，正在刷新</string>
+    <string name="clear_site_web_data_unavailable">当前页面没有可清除的站点存储</string>
     <string name="add_bookmark">添加书签</string>
     <string name="home_add_bookmark_subtitle">手动保存网页，或把已存书签加入首页</string>
     <string name="home_add_bookmark_manually">手动添加</string>
@@ -506,7 +525,7 @@
     <string name="empty_progress_title">发现喜欢的内容后再回来</string>
     <string name="empty_progress_subtitle">在网页中选择媒体并下载，即可在这里查看进度、暂停或继续。</string>
     <string name="empty_video_title">喜欢的内容，留在这里</string>
-    <string name="empty_video_subtitle">浏览时保存视频或音频，之后就能在这里随时播放。</string>
+    <string name="empty_video_subtitle">浏览时保存视频、音频或图片，之后就能在这里查看或播放。</string>
     <string name="empty_action_browse">去浏览网页</string>
     <string name="surf_play">播放</string>
     <string name="surf_home_favorites">常用网站</string>
@@ -514,6 +533,7 @@
     <string name="surf_filter_all">全部</string>
     <string name="surf_filter_video">视频</string>
     <string name="surf_filter_audio">音频</string>
+    <string name="surf_filter_image">图片</string>
     <string name="surf_filter_active">进行中</string>
     <string name="surf_filter_paused">已暂停</string>
     <string name="surf_filter_failed">需处理</string>

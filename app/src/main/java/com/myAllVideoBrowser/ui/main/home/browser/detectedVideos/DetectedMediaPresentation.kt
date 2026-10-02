@@ -3,7 +3,6 @@ package com.myAllVideoBrowser.ui.main.home.browser.detectedVideos
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
-import java.net.URI
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToLong
@@ -79,28 +78,6 @@ object PageMediaMetadataParser {
 
 object DetectedMediaPresentation {
     private const val DURATION_MATCH_TOLERANCE_MS = 2_000L
-    private val temporaryQueryKeys = setOf(
-        "x-amz-signature",
-        "x-amz-credential",
-        "x-amz-date",
-        "x-amz-expires",
-        "x-amz-security-token",
-        "signature",
-        "sig",
-        "token",
-        "expires",
-        "expire",
-        "e",
-        "st",
-        "se",
-        "sp",
-        "sv",
-        "hash",
-        "key",
-        "auth",
-        "policy",
-        "range"
-    )
 
     fun sort(videos: List<VideoInfo>, metadata: PageMediaMetadata): List<VideoInfo> {
         return videos.withIndex()
@@ -179,32 +156,7 @@ object DetectedMediaPresentation {
         }
     }
 
-    private fun normalizeMediaUrl(rawUrl: String): String {
-        val value = rawUrl.trim()
-        if (value.isBlank()) return ""
-
-        return runCatching {
-            val uri = URI(value)
-            val host = uri.host?.lowercase(Locale.US)?.removePrefix("www.").orEmpty()
-            if (host.isBlank()) return@runCatching ""
-            val path = uri.path.orEmpty().trimEnd('/')
-            val stableQuery = uri.rawQuery
-                ?.split("&")
-                ?.filterNot { queryPart ->
-                    val key = queryPart.substringBefore("=").lowercase(Locale.US)
-                    key in temporaryQueryKeys ||
-                        key.startsWith("utm_") ||
-                        key.contains("token") ||
-                        key.contains("signature") ||
-                        key.contains("expires") ||
-                        key.contains("expire")
-                }
-                ?.sorted()
-                ?.joinToString("&")
-                .orEmpty()
-            if (stableQuery.isBlank()) "$host$path" else "$host$path?$stableQuery"
-        }.getOrDefault("").lowercase(Locale.US)
-    }
+    private fun normalizeMediaUrl(rawUrl: String): String = MediaUrlIdentity.of(rawUrl)
 }
 
 class ProtectedMediaPageTracker {

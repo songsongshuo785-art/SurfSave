@@ -75,6 +75,9 @@ data class VideoInfo(
             return ""
         }
 
+    val thumbnailHeaders: Map<String, String>
+        get() = downloadUrls.firstOrNull()?.headers.orEmpty()
+
     val name
         get() = "$title.$ext"
 
@@ -87,10 +90,24 @@ data class VideoInfo(
         get() {
             return formats.formats.any { format -> format.isMpd }
         }
+
+    /** Images reuse the existing direct-file download pipeline but are separated in the UI. */
+    val isImage: Boolean
+        get() = IMAGE_EXTENSIONS.contains(ext.lowercase(Locale.US)) ||
+            formats.formats.any { format ->
+                IMAGE_EXTENSIONS.contains(format.ext.orEmpty().lowercase(Locale.US))
+            }
+
     val isMaster get() = isM3u8 && formats.formats.size > 1
 
     fun isTikTokVideo(): Boolean {
         return originalUrl.contains("tiktok.com")
+    }
+
+    companion object {
+        private val IMAGE_EXTENSIONS = setOf(
+            "jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "heif", "bmp", "svg"
+        )
     }
 }
 

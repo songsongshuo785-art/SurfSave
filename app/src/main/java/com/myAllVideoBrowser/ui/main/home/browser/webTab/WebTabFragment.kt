@@ -94,11 +94,13 @@ import com.myAllVideoBrowser.ui.main.home.browser.HOME_TAB_INDEX
 import com.myAllVideoBrowser.ui.main.home.browser.HistoryProvider
 import com.myAllVideoBrowser.ui.main.home.browser.MAX_WEB_TABS
 import com.myAllVideoBrowser.ui.main.home.browser.PageTabProvider
+import com.myAllVideoBrowser.ui.main.home.browser.TAB_ID_KEY
 import com.myAllVideoBrowser.ui.main.home.browser.TAB_INDEX_KEY
 import com.myAllVideoBrowser.ui.main.home.browser.TabManagerProvider
 import com.myAllVideoBrowser.ui.main.home.browser.WorkerEventProvider
 import com.myAllVideoBrowser.ui.main.home.browser.WebTabBackAction
 import com.myAllVideoBrowser.ui.main.home.browser.WebViewMediaController
+import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.DetectedMediaPanelRegistry
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.DetectedVideosTabFragment
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.PageMediaMetadataParser
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel
@@ -117,6 +119,8 @@ import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.AppUtil
 import com.myAllVideoBrowser.util.FileNameCleaner
 import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
+import com.myAllVideoBrowser.util.SiteDataCleaner
+import com.myAllVideoBrowser.util.SiteOrigin
 import com.myAllVideoBrowser.util.VideoFormatUi
 import com.myAllVideoBrowser.util.telegram.TelegramPostResolver
 import com.myAllVideoBrowser.util.telegram.TelegramPostUrl
@@ -142,7 +146,7 @@ import javax.inject.Inject
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class WebTabFragment : BaseWebTabFragment() {
+class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
 
     companion object {
         fun newInstance() = WebTabFragment()
@@ -163,6 +167,148 @@ class WebTabFragment : BaseWebTabFragment() {
         private const val MAX_MEDIA_PROBE_PAYLOAD_LENGTH = 8_192
         private const val MAX_PAGE_MEDIA_METADATA_PAYLOAD_LENGTH = 16_384
         private const val MEDIA_PROBE_THROTTLE_MS = 4_000L
+        private val IMAGE_SCAN_SCRIPT = """
+            (function() {
+                try {
+                    var bridge = window['$MEDIA_PROBE_BRIDGE_NAME'];
+                    if (!bridge || typeof bridge.onMediaEvent !== 'function') return;
+                    if (typeof window.__superxImageScanRun === 'function') {
+                        window.__superxImageScanRun();
+                        return;
+                    }
+
+                    var seen = {};
+                    var sent = 0;
+                    var maxImagesPerRun = 240;
+                    var minimumSize = 120;
+
+                    function absoluteUrl(raw) {
+                        try { return new URL(String(raw || ''), document.baseURI || location.href).href; }
+                        catch (e) { return ''; }
+                    }
+
+                    function extension(url) {
+                        var clean = String(url || '').split('#')[0].split('?')[0].toLowerCase();
+                        var dot = clean.lastIndexOf('.');
+                        if (dot < 0) return '';
+                        var value = clean.substring(dot + 1);
+                        return value.length >= 2 && value.length <= 5 ? value : '';
+                    }
+
+                    function contentTypeFor(url) {
+                        var ext = extension(url);
+                        if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+                        if (ext === 'svg') return 'image/svg+xml';
+                        return ext ? 'image/' + ext : 'image/*';
+                    }
+
+                    function emit(raw, title, width, height, allowUnknownSize) {
+                        if (sent >= maxImagesPerRun) return;
+                        var url = absoluteUrl(raw);
+                        if (!/^https?:\/\//i.test(url) || seen[url]) return;
+                        width = Number(width || 0);
+                        height = Number(height || 0);
+                        if ((width > 0 && width < minimumSize) || (height > 0 && height < minimumSize)) return;
+                        if (width === 0 && height === 0 && !allowUnknownSize) return;
+                        seen[url] = true;
+                        try {
+                            bridge.onMediaEvent(JSON.stringify({
+                                kind: 'image-scan',
+                                url: url,
+                                pageUrl: location.href,
+                                method: 'GET',
+                                contentType: contentTypeFor(url),
+                                title: String(title || document.title || '').substring(0, 200),
+                                width: width,
+                                height: height
+                            }));
+                            sent++;
+                        } catch (e) {}
+                    }
+
+                    function addImageCandidate(candidates, raw, allowUnknownSize) {
+                        if (raw) candidates.push({ value: raw, allowUnknownSize: allowUnknownSize });
+                    }
+
+                    function scanImage(image) {
+                        if (!image || sent >= maxImagesPerRun) return;
+                        var candidates = [];
+                        addImageCandidate(candidates, image.currentSrc, false);
+                        addImageCandidate(candidates, image.src, false);
+                        addImageCandidate(candidates, image.getAttribute('data-src'), true);
+                        addImageCandidate(candidates, image.getAttribute('data-original'), true);
+                        addImageCandidate(candidates, image.getAttribute('data-lazy-src'), true);
+                        addImageCandidate(candidates, image.getAttribute('data-url'), true);
+                        var srcset = image.getAttribute('srcset');
+                        if (srcset) {
+                            var srcsetItems = srcset.split(',');
+                            for (var srcsetIndex = 0; srcsetIndex < srcsetItems.length; srcsetIndex++) {
+                                addImageCandidate(candidates, srcsetItems[srcsetIndex].trim().split(/\s+/)[0], false);
+                            }
+                        }
+                        var width = image.naturalWidth || image.width || Number(image.getAttribute('width') || 0);
+                        var height = image.naturalHeight || image.height || Number(image.getAttribute('height') || 0);
+                        var title = image.alt || image.title || document.title || '';
+                        for (var index = 0; index < candidates.length && sent < maxImagesPerRun; index++) {
+                            emit(candidates[index].value, title, width, height, candidates[index].allowUnknownSize);
+                        }
+                    }
+
+                    function scanBackground(node, pseudo) {
+                        if (!node || sent >= maxImagesPerRun) return;
+                        var style = null;
+                        try { style = window.getComputedStyle(node, pseudo || null); } catch (e) {}
+                        var background = style && style.backgroundImage ? style.backgroundImage : '';
+                        if (!background || background === 'none') return;
+                        var bounds = node.getBoundingClientRect ? node.getBoundingClientRect() : { width: 0, height: 0 };
+                        var matcher = /url\(\s*(['"]?)(.*?)\1\s*\)/g;
+                        var match;
+                        while ((match = matcher.exec(background)) !== null && sent < maxImagesPerRun) {
+                            emit(match[2], node.getAttribute('aria-label') || node.title || document.title || '',
+                                bounds.width, bounds.height, false);
+                        }
+                    }
+
+                    function scanDocument() {
+                        var images = document.images || [];
+                        for (var imageIndex = 0; imageIndex < images.length && sent < maxImagesPerRun; imageIndex++) {
+                            scanImage(images[imageIndex]);
+                        }
+
+                        var elements = document.querySelectorAll ? document.querySelectorAll('*') : [];
+                        var elementLimit = Math.min(elements.length, 800);
+                        for (var elementIndex = 0; elementIndex < elementLimit && sent < maxImagesPerRun; elementIndex++) {
+                            var node = elements[elementIndex];
+                            if (node.tagName && node.tagName.toLowerCase() !== 'img') {
+                                scanBackground(node, null);
+                                scanBackground(node, '::before');
+                                scanBackground(node, '::after');
+                            }
+                            var dataBackground = node.getAttribute && (
+                                node.getAttribute('data-background') ||
+                                node.getAttribute('data-bg') ||
+                                node.getAttribute('data-bg-src')
+                            );
+                            if (dataBackground) {
+                                var bounds = node.getBoundingClientRect ? node.getBoundingClientRect() : { width: 0, height: 0 };
+                                emit(dataBackground, node.getAttribute('aria-label') || node.title || document.title || '',
+                                    bounds.width, bounds.height, true);
+                            }
+                        }
+                    }
+
+                    // This entry point is intentionally manual. Each tap starts
+                    // a fresh bounded scan instead of installing a page-lifetime
+                    // MutationObserver or exhausting the cap permanently.
+                    window.__superxImageScanRun = function() {
+                        seen = {};
+                        sent = 0;
+                        scanDocument();
+                    };
+                    window.__superxImageScanRun();
+                } catch (e) {}
+            })();
+        """.trimIndent()
         private val PLAYER_RECOVERY_DELAYS_MS = longArrayOf(1_500L, 3_500L, 6_500L, 10_000L)
         private const val MENU_OPEN_LINK_CURRENT_WINDOW = 1001
         private const val MENU_OPEN_LINK_NEW_WINDOW = 1002
@@ -1121,6 +1267,9 @@ class WebTabFragment : BaseWebTabFragment() {
     @Inject
     lateinit var browserDownloadCoordinator: BrowserDownloadCoordinator
 
+    @Inject
+    lateinit var siteDataCleaner: SiteDataCleaner
+
     private lateinit var dataBinding: FragmentWebTabBinding
 
     private lateinit var tabManagerProvider: TabManagerProvider
@@ -1138,6 +1287,13 @@ class WebTabFragment : BaseWebTabFragment() {
     private lateinit var videoDetectionTabViewModel: VideoDetectionTabViewModel
 
     private lateinit var webTab: WebTab
+
+    /**
+     * Stable identity of the tab this fragment renders. [WebTab] instances are replaced by
+     * every copyWith(...) publish, so the id - not the object, and not the index - is what
+     * survives across list changes.
+     */
+    private var tabId: String? = null
 
     private var customWebChromeClient: CustomWebChromeClient? = null
     private var browserDownloadDialog: androidx.appcompat.app.AlertDialog? = null
@@ -1271,7 +1427,16 @@ class WebTabFragment : BaseWebTabFragment() {
         tabViewModel.closePageEvent = tabManagerProvider.getCloseTabEvent()
         tabViewModel.thisTabIndex.set(thisTabIndex)
 
-        webTab = pageTabProvider.getPageTab(thisTabIndex)
+        // Identity comes from the tab id, never from the creation-time index: the index goes
+        // stale as soon as a tab before this one is closed, which used to bind this fragment
+        // to a different tab ("tab A opens as tab B").
+        tabId = requireArguments().getString(TAB_ID_KEY)
+        webTab = resolveCanonicalTab(thisTabIndex)
+        tabId = webTab.id
+        // The detected-media panel is a sibling activity fragment that survives
+        // process death. Register the runtime-only dependencies so a restored
+        // panel can re-bind instead of being dismissed.
+        DetectedMediaPanelRegistry.registerHost(thisTabIndex, this)
         telegramImportSession = TelegramImportSession(
             autoOpenRequested = webTab.navigationPurpose == WebTabNavigationPurpose.MEDIA_IMPORT
         )
@@ -1570,6 +1735,25 @@ class WebTabFragment : BaseWebTabFragment() {
         Toast.makeText(requireContext(), R.string.repair_page_player_started, Toast.LENGTH_SHORT).show()
     }
 
+    override fun clearCurrentSiteWebData() {
+        val webView = webTab.getWebView() ?: return
+        val origin = SiteOrigin.of(webView.url ?: webTab.getUrl())
+        if (origin == null) {
+            Toast.makeText(
+                requireContext(),
+                R.string.clear_site_web_data_unavailable,
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        siteDataCleaner.requestClearOriginWebStorage(origin)
+        AppLogger.d("SITE_DATA: requested clear origin=$origin")
+        // deleteOrigin 对已加载的文档不生效(页面内存里仍有一份),必须刷新页面。
+        webView.reload()
+        Toast.makeText(requireContext(), R.string.clear_site_web_data_reset, Toast.LENGTH_SHORT).show()
+    }
+
     override fun buildBrowserDiagnosticsReport(): String {
         val webView = webTab.getWebView()
         val backForwardList = runCatching { webView?.copyBackForwardList() }.getOrNull()
@@ -1596,6 +1780,7 @@ class WebTabFragment : BaseWebTabFragment() {
             appendLine("History index: ${backForwardList?.currentIndex ?: -1}")
             appendLine("Loading: ${tabViewModel.isShowProgress.get()} (${tabViewModel.progress.get()}%)")
             appendLine("Detected videos: ${videoDetectionTabViewModel.detectedVideosCount.get()}")
+            appendLine("Detected images: ${videoDetectionTabViewModel.detectedImagesCount.get()}")
             appendLine("User agent: $userAgent")
         }
     }
@@ -1654,6 +1839,7 @@ class WebTabFragment : BaseWebTabFragment() {
         handleOpenDetectedVideos()
         handleVideoPushed()
         handleDetectionFeedback()
+        handleImageScanRequest()
         tabViewModel.start()
         videoDetectionTabViewModel.start()
         resumePendingLegacySystemDownload()
@@ -1696,8 +1882,12 @@ dataBinding.fab.animate().cancel()
     }
 
     override fun onResume() {
-        AppLogger.d("onResume Webview::::::::: ${webTab.getUrl()}")
         super.onResume()
+        // Order matters: rebind the canonical tab and rebuild the WebView if the live-WebView
+        // budget destroyed it, before resuming it or touching media/JS.
+        rebindCanonicalTab("onResume")
+        ensureLiveWebView("onResume")
+        AppLogger.d("onResume Webview::::::::: ${webTab.getUrl()}")
         onWebViewResume()
         customWebChromeClient?.restoreCustomViewAfterResume()
         webTab.getWebView()?.let { webView ->
@@ -1710,6 +1900,9 @@ dataBinding.fab.animate().cancel()
 
     override fun onDestroy() {
         AppLogger.d("onDestroy Webview::::::::: ${webTab.getUrl()}")
+        if (::tabViewModel.isInitialized) {
+            DetectedMediaPanelRegistry.unregisterHost(tabViewModel.thisTabIndex.get())
+        }
         pendingLegacySystemDownload = null
         super.onDestroy()
         translateJob?.cancel()
@@ -1743,6 +1936,17 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             Snackbar.make(dataBinding.containerBrowser, message, Snackbar.LENGTH_LONG)
                 .setAnchorView(dataBinding.floatingContainer)
                 .show()
+        }
+    }
+
+    private fun handleImageScanRequest() {
+        videoDetectionTabViewModel.imageScanRequestedEvent.observe(viewLifecycleOwner) {
+            val webView = webTab.getWebView()
+            if (webView == null) {
+                return@observe
+            }
+            injectMediaProbe(webView)
+            webView.evaluateJavascript(IMAGE_SCAN_SCRIPT, null)
         }
     }
 
@@ -2107,7 +2311,64 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         }
 
         webTab.markActive()
+        AppLogger.d("WEBVIEW_REHYDRATE id=${webTab.id} created=$needsNewWebView restored=$restored")
         return needsNewWebView && !restored && webTab.getMessage() == null
+    }
+
+    /**
+     * Resolves the authoritative [WebTab] for this fragment. The id wins; the index is only a
+     * fallback for fragments restored from state written before ids were stored.
+     */
+    private fun resolveCanonicalTab(fallbackIndex: Int): WebTab {
+        val tabs = tabManagerProvider.getTabsListChangeEvent().get().orEmpty()
+        return tabId?.let { id -> tabs.firstOrNull { it.id == id } }
+            ?: tabs.getOrNull(fallbackIndex)
+            ?: pageTabProvider.getPageTab(fallbackIndex)
+    }
+
+    /**
+     * Re-points this fragment at the canonical [WebTab] after the tab list changed.
+     *
+     * BrowserViewModel.tabs is the single source of truth for WebView lifetime: every
+     * copyWith(...) publishes a new instance, and the live-WebView budget nulls the canonical
+     * instance before destroying the WebView. Holding a snapshot therefore left this fragment
+     * with a destroyed-but-non-null WebView, and there is no reliable public isDestroyed() to
+     * detect that - reading the canonical instance is the only correct signal.
+     */
+    private fun rebindCanonicalTab(source: String): WebTab? {
+        val id = tabId ?: return null
+        val tabs = tabManagerProvider.getTabsListChangeEvent().get().orEmpty()
+        val latest = tabs.firstOrNull { it.id == id } ?: return null
+        val previous = if (::webTab.isInitialized) webTab else null
+        webTab = latest
+
+        val index = tabs.indexOfFirst { it.id == id }
+        if (::tabViewModel.isInitialized && index >= 0 && tabViewModel.thisTabIndex.get() != index) {
+            tabViewModel.thisTabIndex.set(index)
+        }
+        if (previous !== latest) {
+            AppLogger.d("TAB_REBIND id=$id index=$index from=$source")
+        }
+        return latest
+    }
+
+    /**
+     * Rebuilds the WebView only when the canonical tab lost it (live-WebView budget eviction).
+     *
+     * A WebView that onDestroyView merely detached is still alive and is reused: rebuilding it
+     * there would reload every page on every tab switch. Detach and destroy must never be
+     * confused.
+     */
+    private fun ensureLiveWebView(source: String) {
+        if (!::webTab.isInitialized || !::dataBinding.isInitialized) return
+        if (webTab.getWebView() != null) return
+
+        val needsLoad = recreateWebView(null)
+        configureWebView(dataBinding)
+        AppLogger.d("WEBVIEW_REHYDRATE id=${webTab.id} from=$source loadUrl=$needsLoad")
+        if (needsLoad) {
+            tabViewModel.loadPage(webTab.getUrl())
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -2708,6 +2969,39 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         }
 
         if (mediaType == ContentType.OTHER) {
+            return
+        }
+
+        if (mediaType == ContentType.IMAGE && kind == "image-scan") {
+            val pageUrl = event.optString("pageUrl", "")
+                .ifBlank { webTab.getWebView()?.url.orEmpty() }
+                .ifBlank { tabViewModel.getTabTextInput().get().orEmpty() }
+            val userAgent = webTab.getWebView()?.settings?.userAgentString
+                ?: tabViewModel.userAgent.get()
+                ?: BrowserFragment.MOBILE_USER_AGENT
+            val request = BrowserDownloadRequest(
+                url = url,
+                pageUrl = pageUrl,
+                headers = linkedMapOf(
+                    "User-Agent" to userAgent,
+                    "Referer" to pageUrl
+                ).apply {
+                    CookieManager.getInstance().getCookie(url)
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { put("Cookie", it) }
+                },
+                contentDisposition = null,
+                mimeType = contentType,
+                contentLength = 0L,
+                suggestedFileName = runCatching {
+                    URLUtil.guessFileName(url, null, contentType)
+                }.getOrNull()
+            )
+            videoDetectionTabViewModel.resolveAndPushImageInfo(
+                request,
+                event.optString("title", ""),
+                mediaPageGeneration
+            )
             return
         }
 
@@ -3461,11 +3755,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
     private val tabsListChangeListener = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
             val tabs = tabManagerProvider.getTabsListChangeEvent().get()
-            val webTab = tabs?.find { it.id == webTab.id }
-            val index = tabs?.indexOf(webTab)
-            if (index != null && index in tabs.indices) {
-                tabViewModel.thisTabIndex.set(index)
-            }
+            rebindCanonicalTab("list")
             syncTabsOverviewBadge(tabs)
             updateBackPressedCallbackState()
         }
@@ -3902,7 +4192,9 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
                     R.anim.surf_fragment_enter, R.anim.surf_fragment_exit,
                     R.anim.surf_fragment_pop_enter, R.anim.surf_fragment_pop_exit
                 )
-                val fragment = DetectedVideosTabFragment.newInstance()
+                val fragment = DetectedVideosTabFragment.newInstance(
+                    tabViewModel.thisTabIndex.get()
+                )
                 fragment.detectedVideosTabViewModel = videoDetectionTabViewModel
                 fragment.candidateFormatListener = downloadListener
                 transaction.add(it.id, fragment, DetectedVideosTabFragment.DOWNLOADS_TAB_TAG)
@@ -4041,6 +4333,12 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             ) as? DetectedVideosTabFragment
         return fragment != null && fragment.isAdded && fragment.isVisible && fragment.isResumed
     }
+
+    override val detectedMediaTabViewModel: VideoDetectionTabViewModel
+        get() = videoDetectionTabViewModel
+
+    override val detectedMediaTabListener: DownloadTabListener
+        get() = downloadListener
 
     private val downloadListener = object : DownloadTabListener {
         override fun onCancel() {

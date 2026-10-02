@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import androidx.core.net.toUri
 import androidx.databinding.ObservableField
 import androidx.lifecycle.viewModelScope
 //import com.allVideoDownloaderXmaster.OpenForTesting
@@ -60,6 +61,8 @@ class VideoViewModel @Inject constructor(
     val deleteFailedEvent = SingleLiveEvent<Unit>()
     val deleteSuccessEvent = SingleLiveEvent<Unit>()
     val deleteAuthCancelledEvent = SingleLiveEvent<Unit>()
+    val moveSuccessEvent = SingleLiveEvent<Unit>()
+    val moveFailedEvent = SingleLiveEvent<Unit>()
     private var pendingDelete: PendingDelete? = null
     private var pendingRename: PendingRename? = null
     private val thumbnailFrameMicrosCache = mutableMapOf<String, Long>()
@@ -86,7 +89,8 @@ class VideoViewModel @Inject constructor(
         } else {
             listOf(
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
             )
         }
         observedCollections.forEach { uri ->
@@ -159,9 +163,16 @@ class VideoViewModel @Inject constructor(
             video.quality = progressInfo?.let { resolveQuality(it) }.orEmpty()
             video.sourceUrl = progressInfo?.let { resolveSourceUrl(it) }.orEmpty()
             video.originalThumbnailUrl = progressInfo?.videoInfo?.thumbnail.orEmpty()
-            video.durationMillis = resolveMediaDurationMillis(context, fileUri)
-            video.thumbnailFrameMicros =
+            video.durationMillis = if (video.isImage) {
+                0L
+            } else {
+                resolveMediaDurationMillis(context, fileUri)
+            }
+            video.thumbnailFrameMicros = if (video.isImage) {
+                0L
+            } else {
                 resolveThumbnailFrameMicros(context, fileUri)
+            }
             video.sortTimeMillis = resolveMediaSortTimeMillis(context, fileUri)
             listVideos.add(video)
         }
@@ -328,6 +339,46 @@ class VideoViewModel @Inject constructor(
                     deleteFailedEvent.value = Unit
                 }
             }
+        }
+    }
+
+    fun moveVideoToDownloads(context: Context, video: LocalVideo) {
+        viewModelScope.launch {
+            val movedMedia = withContext(Dispatchers.IO) {
+                runCatching {
+                    val target = fileUtil.uniqueMediaTarget(
+                        context,
+                        File(fileUtil.publicDownloadsDir, video.name)
+                    )
+                    if (!fileUtil.moveMedia(context, video.uri, target.toUri())) {
+                        return@runCatching null
+                    }
+                    MovedMedia(
+                        uri = fileUtil.resolveMediaUri(context, target) ?: target.toUri(),
+                        name = target.name
+                    )
+                }.getOrNull()
+            }
+            if (movedMedia == null) {
+                moveFailedEvent.value = Unit
+                return@launch
+            }
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    progressRepository.replaceFinalMediaUri(video.uri.toString(), movedMedia.uri.toString())
+                }.onFailure { error ->
+                    AppLogger.e("Failed to update moved video metadata binding", error)
+                }
+            }
+            val list = localVideos.get()?.toMutableList() ?: mutableListOf()
+            list.firstOrNull { sameUri(it.uri, video.uri) }?.let { moved ->
+                removeCachedVideoMetadata(moved.uri)
+                moved.uri = movedMedia.uri
+                moved.name = movedMedia.name
+                mediaSortTimeMillisCache.remove(movedMedia.uri.toString())
+            }
+            localVideos.set(list)
+            moveSuccessEvent.value = Unit
         }
     }
 
@@ -505,6 +556,11 @@ class VideoViewModel @Inject constructor(
         val video: LocalVideo,
         val retryUri: Uri?,
         val verificationUri: Uri
+    )
+
+    private data class MovedMedia(
+        val uri: Uri,
+        val name: String
     )
 
     private data class PendingRename(

@@ -44,7 +44,8 @@ class BrowserDownloadCoordinator @Inject constructor(
 
         return when (request.mediaType()) {
             ContentType.VIDEO,
-            ContentType.AUDIO -> BrowserDownloadPlan.DirectMedia(request)
+            ContentType.AUDIO,
+            ContentType.IMAGE -> BrowserDownloadPlan.DirectMedia(request)
 
             ContentType.M3U8,
             ContentType.MPD -> BrowserDownloadPlan.Manifest(request)

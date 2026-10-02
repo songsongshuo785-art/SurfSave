@@ -135,6 +135,12 @@ private const val MAX_LIVE_WEB_TABS = 3
 
 const val TAB_INDEX_KEY = "TAB_INDEX_KEY"
 
+/**
+ * Stable fragment identity. Unlike [TAB_INDEX_KEY], which is the creation-time position and
+ * goes stale as soon as a tab before this one is closed, the tab id survives reordering.
+ */
+const val TAB_ID_KEY = "TAB_ID_KEY"
+
 //@OpenForTesting
 class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
@@ -335,7 +341,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
                 return createHomeTabFragment()
             }
 
-            return createTabFragment(position)
+            return createTabFragment(position, webTabsRoutes.getOrNull(position)?.id)
         }
     }
 
@@ -386,10 +392,11 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         return WebTab("error", "error")
     }
 
-    private fun createTabFragment(index: Int): Fragment {
+    private fun createTabFragment(index: Int, tabId: String?): Fragment {
         val fragment = WebTabFragment.newInstance().apply {
             val args = Bundle().apply {
                 putInt(TAB_INDEX_KEY, index)
+                tabId?.let { putString(TAB_ID_KEY, it) }
             }
             arguments = args
         }
@@ -983,6 +990,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
                 tab.saveWebViewState()
                 detachAndDestroyWebView(tab.getWebView())
                 tab.setWebView(null)
+                AppLogger.d("WEBVIEW_EVICT id=${tab.id} liveCount=$MAX_LIVE_WEB_TABS")
             }
     }
 

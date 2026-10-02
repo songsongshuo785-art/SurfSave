@@ -3,6 +3,7 @@ package com.myAllVideoBrowser.data.local.model
 import android.net.Uri
 import com.myAllVideoBrowser.util.DisplayNameFormatter
 import java.net.URI
+import java.util.Locale
 
 data class LocalVideo(
     var id: Long,
@@ -51,5 +52,51 @@ data class LocalVideo(
 
     val hasSource: Boolean
         get() = sourceLabel.isNotBlank()
+
+    val isImage: Boolean
+        get() {
+            val normalizedMime = normalizedMimeType()
+            return when {
+                normalizedMime.startsWith("image/") -> true
+                normalizedMime.isBlank() || normalizedMime.isGeneric ->
+                    imageExtensions.contains(fileExtension())
+                else -> false
+            }
+        }
+
+    val isSvg: Boolean
+        get() = mimeType.equals("image/svg+xml", ignoreCase = true) ||
+            name.substringAfterLast('.', "").equals("svg", ignoreCase = true)
+
+    val isAudio: Boolean
+        get() {
+            val normalizedMime = normalizedMimeType()
+            return when {
+                normalizedMime.startsWith("audio/") -> true
+                normalizedMime.isBlank() || normalizedMime.isGeneric ->
+                    audioExtensions.contains(fileExtension())
+                else -> false
+            }
+        }
+
+    private fun fileExtension(): String =
+        name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+
+    private fun normalizedMimeType(): String = mimeType.trim().lowercase(Locale.ROOT)
+
+    private val String.isGeneric: Boolean
+        get() = this == "application/octet-stream" ||
+            this == "binary/octet-stream" ||
+            this == "*/*" ||
+            this == "application/*"
+
+    companion object {
+        private val imageExtensions = setOf(
+            "jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "heif", "bmp", "svg"
+        )
+        private val audioExtensions = setOf(
+            "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "aiff", "amr"
+        )
+    }
 
 }

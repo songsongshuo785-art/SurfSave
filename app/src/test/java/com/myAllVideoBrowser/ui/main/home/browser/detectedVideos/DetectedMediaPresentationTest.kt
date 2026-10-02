@@ -4,6 +4,7 @@ import com.myAllVideoBrowser.data.local.room.entity.DownloadRequestData
 import com.myAllVideoBrowser.data.local.room.entity.VideFormatEntityList
 import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
+import com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -130,6 +131,33 @@ class DetectedMediaPresentationTest {
         assertEquals(second.generation, tracker.snapshot().generation)
         assertFalse(tracker.snapshot().hasProtectedMedia)
     }
+
+    @Test
+    fun detectedPanel_requiresRuntimeModelAndListenerBeforeInflation() {
+        assertFalse(DetectedVideosTabFragment.runtimeDependenciesAvailable(null, null))
+        assertFalse(DetectedVideosTabFragment.runtimeDependenciesAvailable(null, fakeListener()))
+    }
+
+    private fun fakeListener(): DownloadTabListener = object : DownloadTabListener {
+        override fun onCancel() = Unit
+        override fun onDownloadVideo(videoInfo: VideoInfo, format: String, videoTitle: String) = Unit
+        override fun onPreviewVideo(
+            videoInfo: VideoInfo,
+            sharedView: android.view.View,
+            format: String,
+            isForce: Boolean
+        ) = Unit
+        override fun onChoosePlayer(
+            videoInfo: VideoInfo,
+            sharedView: android.view.View,
+            anchorView: android.view.View,
+            format: String,
+            isForce: Boolean
+        ) = Unit
+        override fun onSelectFormat(videoInfo: VideoInfo, format: String) = Unit
+        override fun onFormatUrlShare(videoInfo: VideoInfo, format: String): Boolean = false
+    }
+
 
     private fun video(
         id: String,

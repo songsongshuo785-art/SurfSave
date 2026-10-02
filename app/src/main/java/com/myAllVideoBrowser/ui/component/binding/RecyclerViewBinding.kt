@@ -19,6 +19,7 @@ object RecyclerViewBinding {
             is HistoryAdapter -> currentAdapter.setData(items.asList())
             is HistorySearchAdapter -> currentAdapter.setData(items.asList())
             is VideoInfoAdapter -> currentAdapter.setData(items.asVideoInfoList())
+            is ImageInfoAdapter -> currentAdapter.setData(items.asVideoInfoList())
             is BookmarksAdapter -> currentAdapter.setData(items.asMutablePageInfoList())
         }
     }

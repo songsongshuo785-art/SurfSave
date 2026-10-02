@@ -112,7 +112,7 @@ class ProgressFragment : BaseFragment() {
         fileDownloadAdapter = BrowserFileDownloadAdapter(emptyList(), fileDownloadListener)
 
         dataBinding = FragmentProgressBinding.inflate(inflater, container, false).apply {
-            val managerL = GridLayoutManager(context, 1, RecyclerView.VERTICAL, false)
+            val managerL = SafeGridLayoutManager(context, 1, RecyclerView.VERTICAL, false)
             this.mainViewModel = mainActivity.mainViewModel
             this.viewModel = progressViewModel
             this.rvProgress.layoutManager = managerL
@@ -464,7 +464,7 @@ class ProgressFragment : BaseFragment() {
 
                 R.id.item_source -> {
                     val sourceUrl = menuCandidate?.videoInfo?.originalUrl?.trim().orEmpty()
-                    if (!UrlInputNormalizer.isBrowsableWebAddress(sourceUrl)) {
+                    if (!UrlInputNormalizer.isPersistedSourceUrl(sourceUrl)) {
                         Snackbar.make(
                             dataBinding.root,
                             R.string.video_source_unavailable,
@@ -605,6 +605,26 @@ class WrapContentLinearLayoutManager : LinearLayoutManager {
             super.onLayoutChildren(recycler, state)
         } catch (e: IndexOutOfBoundsException) {
             AppLogger.e("meet a IOOBE in RecyclerView")
+        }
+    }
+}
+
+/**
+ * RecyclerView can dispatch one stale layout pass while a download row is
+ * removed or reordered. Keep the historical recovery behavior for the main
+ * download grid without weakening adapter updates or filtering logic.
+ */
+class SafeGridLayoutManager(
+    context: Context?,
+    spanCount: Int,
+    orientation: Int = RecyclerView.VERTICAL,
+    reverseLayout: Boolean = false
+) : GridLayoutManager(context, spanCount, orientation, reverseLayout) {
+    override fun onLayoutChildren(recycler: Recycler, state: RecyclerView.State) {
+        try {
+            super.onLayoutChildren(recycler, state)
+        } catch (error: IndexOutOfBoundsException) {
+            AppLogger.e("meet a IOOBE in download grid RecyclerView", error)
         }
     }
 }

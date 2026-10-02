@@ -2,6 +2,7 @@ package com.myAllVideoBrowser.util
 
 import android.util.Patterns
 import androidx.core.net.toUri
+import java.net.URI
 import java.net.URLEncoder
 import java.util.Locale
 
@@ -109,6 +110,20 @@ object UrlInputNormalizer {
         val authority = cleaned.substring(schemeSeparator + 3)
             .substringBefore('/').substringBefore('?').substringBefore('#')
         return authority.isNotBlank()
+    }
+
+    /**
+     * Validates a persisted media source. Unlike address-bar input, a stored
+     * source must be an explicit HTTP(S) URL with a non-empty host.
+     */
+    fun isPersistedSourceUrl(input: String): Boolean {
+        val cleaned = cleanCandidate(input)
+        if (!cleaned.startsWith("http://", ignoreCase = true) &&
+            !cleaned.startsWith("https://", ignoreCase = true)
+        ) return false
+        val host = runCatching { URI(cleaned).host }.getOrNull()
+            ?: runCatching { cleaned.toUri().host }.getOrNull()
+        return !host.isNullOrBlank()
     }
 
     fun toDisplayHost(url: String): String {

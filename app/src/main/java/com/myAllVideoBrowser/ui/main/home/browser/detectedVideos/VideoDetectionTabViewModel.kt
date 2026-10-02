@@ -33,6 +33,7 @@ import com.myAllVideoBrowser.util.CookieUtils
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.util.UserFacingError
 import com.myAllVideoBrowser.util.VideoFormatUi
+import com.myAllVideoBrowser.util.contentLengthOrUnknown
 import com.myAllVideoBrowser.util.telegram.TelegramPostResolution
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import com.myAllVideoBrowser.util.scheduler.BaseSchedulers
@@ -41,13 +42,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
-import okhttp3.Response
 import java.net.HttpCookie
 import java.net.URI
 import java.net.URL
+import java.util.LinkedHashSet
 import java.util.concurrent.Executors
 import javax.inject.Inject
 import kotlin.math.abs
@@ -58,29 +62,6 @@ open class VideoDetectionTabViewModel @Inject constructor(
     private val okHttpProxyClient: OkHttpProxyClient,
 ) : BaseViewModel(), IVideoDetector {
     companion object {
-        private val TEMP_URL_QUERY_KEYS = setOf(
-            "x-amz-signature",
-            "x-amz-credential",
-            "x-amz-date",
-            "x-amz-expires",
-            "x-amz-security-token",
-            "signature",
-            "sig",
-            "token",
-            "expires",
-            "expire",
-            "e",
-            "st",
-            "se",
-            "sp",
-            "sv",
-            "hash",
-            "key",
-            "auth",
-            "policy",
-            "range"
-        )
-
         internal fun mergeTelegramResolvedVideo(
             existing: VideoInfo,
             resolved: VideoInfo
@@ -91,6 +72,50 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 duration = maxOf(existing.duration, resolved.duration)
             )
         }
+
+        /**
+         * True when an image candidate with the same URL identity is already known.
+         * Used to skip the HEAD/Range probe on repeated scans of the same page.
+         */
+        internal fun isImageAlreadyDetected(existing: Collection<VideoInfo>, url: String): Boolean {
+            val identity = normalizeMediaUrl(url)
+            if (identity.isBlank()) return false
+
+            return existing.any { info ->
+                info.isImage && identity in mediaIdentityUrls(info)
+            }
+        }
+
+        internal fun mediaIdentityUrls(info: VideoInfo): Set<String> {
+            val formatUrls = info.formats.formats.flatMap {
+                listOfNotNull(it.url, it.manifestUrl, it.videoOnlyUrl, it.audioOnlyUrl)
+            }
+            val downloadUrls = info.downloadUrls.map { it.url }
+            return (formatUrls + downloadUrls)
+                .map { normalizeMediaUrl(it) }
+                .filter { it.isNotBlank() }
+                .toSet()
+        }
+
+        internal fun normalizeMediaUrl(rawUrl: String?): String = MediaUrlIdentity.of(rawUrl)
+
+        /**
+         * Decides whether the detected-media list may survive an [onStartPage]
+         * event for [url].
+         *
+         * Only the very first page-start of the tab, when it also happens to be
+         * the initial URL, keeps the list (first open, restored state). The first
+         * page-start can be a different URL (redirects, restores), so the flag is
+         * "any page-start handled" rather than "initial URL seen": once any page
+         * has started, reaching the initial URL later must clear the previous
+         * page's media — stale entries would otherwise pollute the
+         * already-detected check and linger in the panel.
+         */
+        internal fun shouldKeepDetectedMediaOnPageStart(
+            url: String,
+            initialUrl: String,
+            hasHandledPageStart: Boolean
+        ): Boolean = !hasHandledPageStart && url == initialUrl
     }
 
     // key: videoInfo.id, value: format - string
@@ -113,6 +138,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     val videoPushedEvent = SingleLiveEvent<Void?>()
 
+    val imageScanRequestedEvent = SingleLiveEvent<Void?>()
+
     val detectionFeedbackEvent = SingleLiveEvent<String>()
 
     @Volatile
@@ -124,6 +151,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
     lateinit var settingsModel: SettingsViewModel
     val detectedVideosList = ObservableField(setOf<VideoInfo>())
     val sortedDetectedVideosList = ObservableField<List<VideoInfo>>(emptyList())
+    val sortedDetectedImagesList = ObservableField<List<VideoInfo>>(emptyList())
+    val selectedImageIds = ObservableField<Set<String>>(emptySet())
     val hasProtectedMedia = ObservableBoolean(false)
     val detectedPanelTitle = ObservableField<String>()
     val hasTelegramPostPreview = ObservableBoolean(false)
@@ -148,8 +177,14 @@ open class VideoDetectionTabViewModel @Inject constructor(
         Regex("^(.*\\.(apk|html|xml|ico|css|js|png|gif|json|jpg|jpeg|svg|woff|woff2|m3u8|mpd|ts|php|ttf|otf|eot|cur|webp|bmp|tif|tiff|psd|ai|eps|pdf|doc|docx|xls|xlsx|ppt|pptx|csv|md|rtf|vtt|srt|swf|jar|log|txt|m4s))?$")
     val downloadButtonIcon = ObservableInt(R.drawable.invisible_24px)
     val detectedVideosCount = ObservableInt(0)
+    val detectedImagesCount = ObservableInt(0)
     val hasDetectedVideos = ObservableBoolean(false)
+    val hasDetectedImages = ObservableBoolean(false)
+    val hasDetectedMedia = ObservableBoolean(false)
+    val hasSelectedImages = ObservableBoolean(false)
+    val selectedImagesCount = ObservableInt(0)
     val detectedVideosBadgeText = ObservableField("")
+    val detectedImagesBadgeText = ObservableField("")
     val lastDetectionError = ObservableField<String?>()
     val detectionStatusText = ObservableField("")
     val hasDetectionStatus = ObservableBoolean(false)
@@ -162,9 +197,14 @@ open class VideoDetectionTabViewModel @Inject constructor(
     private val hasCheckLoadingsRegular = ObservableBoolean(false)
 
     private val executorRegular = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private val imageProbePermits = Semaphore(4)
+    private val imageProbeGate = ImageProbeGate()
 
     @Volatile
     private var lastUrl = ""
+
+    /** Set after the first handled onStartPage event, whatever URL it was for. */
+    private var hasHandledPageStart = false
 
     @Volatile
     private var lastManualDetectionRequestAt = 0L
@@ -242,12 +282,15 @@ open class VideoDetectionTabViewModel @Inject constructor(
         setDownloadStateNow(DownloadButtonStateCanNotDownload())
         clearDetectionStatus()
 
-        if (url != initialUrl) {
-            AppLogger.d("onStartPage: URL is not initial url. Clearing list.")
+        val keepDetectedMedia =
+            shouldKeepDetectedMediaOnPageStart(url, initialUrl, hasHandledPageStart)
+        hasHandledPageStart = true
+        if (keepDetectedMedia) {
+            AppLogger.d("onStartPage: first load of the initial url. Skipped clearing list.")
+        } else {
+            AppLogger.d("onStartPage: clearing list for the new page.")
             setDetectedVideosNow(mutableSetOf())
             cancelAllCheckJobs()
-        } else {
-            AppLogger.d("onStartPage: URL is initial url. Skipped clearing list.")
         }
 
         val req = getRequestWithHeadersForUrl(
@@ -268,7 +311,9 @@ open class VideoDetectionTabViewModel @Inject constructor(
             pageMediaMetadata = PageMediaMetadata(pageUrl = url)
             hasProtectedMedia.set(false)
             clearTelegramPostStateNow()
-            sortedDetectedVideosList.set(sortDetectedVideos(detectedVideosList.get().orEmpty()))
+            val videos = detectedVideosList.get().orEmpty().filterNot { it.isImage }.toSet()
+            sortedDetectedVideosList.set(sortDetectedVideos(videos))
+            clearImageSelectionNow()
         }
         return snapshot.generation
     }
@@ -368,7 +413,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 return@runOnMain
             }
             hasProtectedMedia.set(true)
-            if (detectedVideosList.get().isNullOrEmpty()) {
+            if (!hasDetectedVideos.get()) {
                 lastDetectionError.set(null)
                 detectionStatusText.set("")
                 hasDetectionStatus.set(false)
@@ -384,7 +429,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 return@runOnMain
             }
             pageMediaMetadata = metadata
-            sortedDetectedVideosList.set(sortDetectedVideos(detectedVideosList.get().orEmpty()))
+            val videos = detectedVideosList.get().orEmpty().filterNot { it.isImage }.toSet()
+            sortedDetectedVideosList.set(sortDetectedVideos(videos))
         }
     }
 
@@ -420,7 +466,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
     override fun showVideoInfo() {
         AppLogger.d("SHOW")
         if ((hasProtectedMedia.get() || hasTelegramPostPreview.get()) &&
-            detectedVideosList.get().isNullOrEmpty()
+            !hasDetectedVideos.get()
         ) {
             runOnMain {
                 showDetectedVideosEvent.call()
@@ -448,7 +494,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
             }
         }
 
-        if (detectedVideosList.get()?.isNotEmpty() == true) {
+        if (hasDetectedMedia.get()) {
             runOnMain {
                 showDetectedVideosEvent.call()
             }
@@ -487,7 +533,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
         val registered = verifyVideoLinkJobStorage.tryRegister(taskUrl) { holder ->
             updateM3u8Loading(resourceRequest.url.toString(), true)
             showDetectionNotice(R.string.detection_status_checking)
-            if (detectedVideosList.get()?.isEmpty() == true) {
+            if (!hasDetectedVideos.get()) {
                 setButtonState(DownloadButtonStateLoading())
             }
 
@@ -543,6 +589,11 @@ open class VideoDetectionTabViewModel @Inject constructor(
             return
         }
 
+        if (newInfo.isImage) {
+            pushNewImageInfo(newInfo)
+            return
+        }
+
         if (shouldSkipShortVideo(newInfo)) {
             AppLogger.d("SKIP SHORT VIDEO INFO: ${newInfo.duration}ms $newInfo")
             return
@@ -568,6 +619,202 @@ open class VideoDetectionTabViewModel @Inject constructor(
         runOnMain {
             videoPushedEvent.call()
         }
+    }
+
+    @Synchronized
+    fun pushNewImageInfo(newInfo: VideoInfo) {
+        if (!newInfo.isImage || newInfo.id.isBlank() || newInfo.formats.formats.isEmpty()) {
+            return
+        }
+
+        val detectedMedia = detectedVideosList.get().orEmpty()
+        val duplicate = detectedMedia.firstOrNull { existing ->
+            existing.isImage && mediaIdentityUrls(existing).intersect(mediaIdentityUrls(newInfo)).isNotEmpty()
+        }
+        if (duplicate != null) {
+            val merged = mergeDuplicateVideoInfo(duplicate, newInfo)
+            setDetectedVideosNow(detectedMedia - duplicate + merged)
+            return
+        }
+
+        setDetectedVideosNow(LinkedHashSet<VideoInfo>(detectedMedia.size + 1).apply {
+            addAll(detectedMedia)
+            add(newInfo)
+        })
+        clearDetectionStatus()
+    }
+
+    /**
+     * WebView image scans cannot see cross-origin response headers. Probe the
+     * image with the same restricted browser headers before creating the
+     * candidate so extension and MIME metadata match the actual resource.
+     *
+     * Candidates whose URL identity is already detected, or already being probed
+     * for the same page generation by a concurrent scan, are skipped without a
+     * network round-trip. Probes are keyed by page generation so an in-flight
+     * probe for a stale page never suppresses the same image on the current page.
+     */
+    fun resolveAndPushImageInfo(
+        request: BrowserDownloadRequest,
+        fallbackTitle: String?,
+        pageGeneration: Long? = null
+    ) {
+        // Repeated scans of the same page must not re-issue HEAD/Range probes for
+        // images that are already in the list. The candidate is deduplicated by
+        // the same URL identity pushNewImageInfo() would use, but before the
+        // network round-trip.
+        if (isImageCandidateAlreadyDetected(request.url)) {
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            if (pageGeneration != null && !isCurrentPageGeneration(pageGeneration)) {
+                return@launch
+            }
+            if (isImageCandidateAlreadyDetected(request.url)) {
+                return@launch
+            }
+
+            // Claim the probe identity before competing for a permit, so duplicate
+            // candidates for the same image never occupy one of the probe permits.
+            val probeIdentity = normalizeMediaUrl(request.url)
+            if (!imageProbeGate.tryAcquire(pageGeneration, probeIdentity)) {
+                return@launch
+            }
+
+            try {
+                // The coroutines Semaphore suspends waiters instead of blocking a
+                // Dispatchers.IO thread, so a large scan cannot park threads while
+                // waiting for one of the four probe slots.
+                imageProbePermits.withPermit {
+                    // The waiter may have been suspended for a while, during which
+                    // the page can have navigated; re-check before the round-trip so
+                    // stale probes never hit the network.
+                    if (pageGeneration != null && !isCurrentPageGeneration(pageGeneration)) {
+                        return@withPermit
+                    }
+
+                    val resolvedRequest = resolveImageResponseMetadata(request)
+                    val imageInfo = resolvedRequest.toDirectMediaVideoInfo(fallbackTitle)
+                    if (imageInfo != null &&
+                        (pageGeneration == null || isCurrentPageGeneration(pageGeneration))
+                    ) {
+                        // Publish on the main thread before releasing the probe gate, so
+                        // the detected list already contains the image when the next scan
+                        // asks whether it still needs to be probed.
+                        withContext(Dispatchers.Main.immediate) {
+                            if (pageGeneration == null || isCurrentPageGeneration(pageGeneration)) {
+                                pushNewImageInfo(imageInfo)
+                            }
+                        }
+                    }
+                }
+            } finally {
+                imageProbeGate.release(pageGeneration, probeIdentity)
+            }
+        }
+    }
+
+    fun isCurrentPageGeneration(pageGeneration: Long): Boolean =
+        protectedMediaPageTracker.snapshot().generation == pageGeneration
+
+    @Synchronized
+    private fun isImageCandidateAlreadyDetected(url: String): Boolean {
+        return isImageAlreadyDetected(detectedVideosList.get().orEmpty(), url)
+    }
+
+    private fun resolveImageResponseMetadata(
+        request: BrowserDownloadRequest
+    ): BrowserDownloadRequest {
+        if (!request.isHttpRequest() || request.mediaType() != ContentType.IMAGE) {
+            return request
+        }
+
+        val headers = request.allowedDownloadHeaders().toHeaders()
+        val client = okHttpProxyClient.getProxyOkHttpClient()
+        val probeRequests = listOf(
+            Request.Builder()
+                .url(request.url)
+                .headers(headers)
+                .head()
+                .build(),
+            Request.Builder()
+                .url(request.url)
+                .headers(headers)
+                .header("Range", "bytes=0-0")
+                .get()
+                .build()
+        )
+
+        probeRequests.forEach { probeRequest ->
+            val resolved = runCatching {
+                client.newCall(probeRequest).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@use null
+                    }
+
+                    val responseMimeType = response.header("Content-Type")
+                    val responseContentDisposition = response.header("Content-Disposition")
+                    val candidate = request.withResponseMetadata(
+                        responseMimeType = responseMimeType,
+                        responseContentDisposition = responseContentDisposition,
+                        responseContentLength = response.contentLengthOrUnknown()
+                    )
+                    val hasAuthoritativeImageMime = responseMimeType
+                        ?.substringBefore(';')
+                        ?.trim()
+                        ?.startsWith("image/", ignoreCase = true) == true
+                    val hasImageDisposition = responseContentDisposition
+                        ?.let {
+                            BrowserMediaClassifier.classify(
+                                url = request.url,
+                                contentDisposition = it
+                            ) == ContentType.IMAGE
+                        } == true
+
+                    if (hasAuthoritativeImageMime || hasImageDisposition) candidate else null
+                }
+            }.getOrNull()
+            if (resolved != null) {
+                return resolved
+            }
+        }
+
+        // A few CDNs reject both HEAD and range requests. Keep the original
+        // candidate as a last-resort fallback rather than hiding a detected
+        // image solely because metadata probing was unavailable.
+        return request
+    }
+
+    fun requestImageScan() {
+        imageScanRequestedEvent.call()
+    }
+
+    fun toggleImageSelection(imageInfo: VideoInfo) {
+        if (!imageInfo.isImage) return
+        runOnMain {
+            val current = selectedImageIds.get().orEmpty()
+            updateImageSelectionNow(
+                if (imageInfo.id in current) current - imageInfo.id else current + imageInfo.id
+            )
+        }
+    }
+
+    fun selectAllImages() {
+        runOnMain {
+            updateImageSelectionNow(sortedDetectedImagesList.get().orEmpty().map { it.id }.toSet())
+        }
+    }
+
+    fun clearImageSelection() {
+        runOnMain { clearImageSelectionNow() }
+    }
+
+    fun isImageSelected(imageId: String): Boolean = imageId in selectedImageIds.get().orEmpty()
+
+    fun selectedImages(): List<VideoInfo> {
+        val selected = selectedImageIds.get().orEmpty()
+        return sortedDetectedImagesList.get().orEmpty().filter { it.id in selected }
     }
 
     private fun autoSelectBestFormat(videoInfo: VideoInfo) {
@@ -630,56 +877,6 @@ open class VideoDetectionTabViewModel @Inject constructor(
             isLive = existing.isLive || newInfo.isLive,
             isDetectedBySuperX = existing.isDetectedBySuperX || newInfo.isDetectedBySuperX
         )
-    }
-
-    private fun mediaIdentityUrls(info: VideoInfo): Set<String> {
-        val formatUrls = info.formats.formats.flatMap {
-            listOfNotNull(it.url, it.manifestUrl, it.videoOnlyUrl, it.audioOnlyUrl)
-        }
-        val downloadUrls = info.downloadUrls.map { it.url }
-        return (formatUrls + downloadUrls)
-            .map { normalizeMediaUrl(it) }
-            .filter { it.isNotBlank() }
-            .toSet()
-    }
-
-    private fun normalizeMediaUrl(rawUrl: String?): String {
-        val value = rawUrl?.trim().orEmpty()
-        if (value.isBlank()) {
-            return ""
-        }
-
-        return runCatching {
-            val uri = URI(value)
-            val host = uri.host?.lowercase()?.removePrefix("www.").orEmpty()
-            val path = uri.path.orEmpty().trimEnd('/')
-            val stableQuery = uri.query
-                ?.split("&")
-                ?.filterNot { queryPart ->
-                    val key = queryPart.substringBefore("=").lowercase()
-                    key in TEMP_URL_QUERY_KEYS ||
-                        key.startsWith("utm_") ||
-                        key.contains("token") ||
-                        key.contains("signature") ||
-                        key.contains("expires") ||
-                        key.contains("expire")
-                }
-                ?.sorted()
-                ?.joinToString("&")
-                .orEmpty()
-
-            val base = "$host$path"
-            if (stableQuery.isBlank()) {
-                base.lowercase()
-            } else {
-                "$base?$stableQuery".lowercase()
-            }
-        }.getOrElse {
-            value.substringBefore("#")
-                .substringBefore("?")
-                .trimEnd('/')
-                .lowercase()
-        }
     }
 
     private fun normalizeTitle(title: String): String {
@@ -776,16 +973,32 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     private fun setDetectedVideosNow(videos: Set<VideoInfo>) {
         runOnMain {
+            val images = videos.filter { it.isImage }
+            val playableVideos = videos.filterNot { it.isImage }.toSet()
             detectedVideosList.set(videos)
-            sortedDetectedVideosList.set(sortDetectedVideos(videos))
-            detectedVideosCount.set(videos.size)
-            hasDetectedVideos.set(videos.isNotEmpty())
+            sortedDetectedVideosList.set(sortDetectedVideos(playableVideos))
+            sortedDetectedImagesList.set(images)
+            detectedVideosCount.set(playableVideos.size)
+            detectedImagesCount.set(images.size)
+            hasDetectedVideos.set(playableVideos.isNotEmpty())
+            hasDetectedImages.set(images.isNotEmpty())
+            hasDetectedMedia.set(videos.isNotEmpty())
             detectedVideosBadgeText.set(
                 when {
-                    videos.isEmpty() -> ""
-                    videos.size > 99 -> "99+"
-                    else -> videos.size.toString()
+                    playableVideos.isEmpty() -> ""
+                    playableVideos.size > 99 -> "99+"
+                    else -> playableVideos.size.toString()
                 }
+            )
+            detectedImagesBadgeText.set(
+                when {
+                    images.isEmpty() -> ""
+                    images.size > 99 -> "99+"
+                    else -> images.size.toString()
+                }
+            )
+            updateImageSelectionNow(
+                selectedImageIds.get().orEmpty().intersect(images.map { it.id }.toSet())
             )
             if (videos.isNotEmpty()) {
                 lastDetectionError.set(null)
@@ -794,6 +1007,16 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 detectionStatusIsError.set(false)
             }
         }
+    }
+
+    private fun updateImageSelectionNow(ids: Set<String>) {
+        selectedImageIds.set(ids)
+        selectedImagesCount.set(ids.size)
+        hasSelectedImages.set(ids.isNotEmpty())
+    }
+
+    private fun clearImageSelectionNow() {
+        updateImageSelectionNow(emptySet())
     }
 
     private fun sortDetectedVideos(videos: Set<VideoInfo>): List<VideoInfo> {
@@ -854,7 +1077,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
     }
 
     fun showDetectionNotice(@StringRes messageRes: Int) {
-        if (detectedVideosList.get()?.isNotEmpty() == true) {
+        if (hasDetectedMedia.get()) {
             clearDetectionStatus()
             return
         }
@@ -886,7 +1109,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
         if (!shouldPublish()) {
             return
         }
-        if (detectedVideosList.get()?.isNotEmpty() == true) {
+        if (hasDetectedMedia.get()) {
             clearDetectionStatus(shouldPublish)
             return
         }
@@ -911,7 +1134,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
             if (!shouldPublish()) {
                 return@runOnMain
             }
-            if (detectedVideosList.get()?.isNotEmpty() == true) {
+            if (hasDetectedMedia.get()) {
                 lastDetectionError.set(null)
                 detectionStatusText.set("")
                 hasDetectionStatus.set(false)
@@ -947,12 +1170,11 @@ open class VideoDetectionTabViewModel @Inject constructor(
 
     private fun shouldShowManualDetectionError(): Boolean {
         return System.currentTimeMillis() - lastManualDetectionRequestAt < 15_000L &&
-            detectedVideosList.get()?.isEmpty() == true
+            !hasDetectedMedia.get()
     }
 
     private fun updateDetectionStatusAfterLoadingChange() {
-        val hasVideos = detectedVideosList.get()?.isNotEmpty() == true
-        if (hasVideos) {
+        if (hasDetectedMedia.get()) {
             clearDetectionStatus()
             return
         }
@@ -987,20 +1209,20 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 }
 
                 is DownloadButtonStateCanNotDownload -> {
-                    val detectedSize = detectedVideosList.get()?.size
-                    if (detectedSize == null || detectedSize == 0) {
+                    val videos = sortedDetectedVideosList.get().orEmpty()
+                    if (videos.isEmpty()) {
                         downloadButtonState.set(DownloadButtonStateCanNotDownload())
                     } else {
                         downloadButtonState.set(
                             DownloadButtonStateCanDownload(
-                                detectedVideosList.get()?.first()
+                                videos.first()
                             )
                         )
                     }
                 }
 
                 is DownloadButtonStateLoading -> {
-                    val list = detectedVideosList.get() ?: emptySet()
+                    val list = sortedDetectedVideosList.get().orEmpty()
                     if (list.isEmpty()) {
                         downloadButtonState.set(DownloadButtonStateLoading())
                     } else {
@@ -1133,19 +1355,21 @@ open class VideoDetectionTabViewModel @Inject constructor(
                     return
                 }
 
-                val isTikTok = url.contains(".tiktok.com/")
                 val isRegularStreamDetectionOn = settingsModel.isForceStreamDetection.get()
 
                 val isVideo = mediaType == ContentType.VIDEO
                 val isAudio = mediaType == ContentType.AUDIO
 
-                val tikTokThreshold = 1024 * 1024 / 3 // ~333KB
-                val isLargeEnoughForTikTok = isTikTok && contentLength > tikTokThreshold
+                val siteRule = SiteDetectionRules.forUrl(url)
+                val isLargeEnoughForSiteRule = siteRule?.minimumContentLength
+                    ?.takeIf { it > 0L }
+                    ?.let { contentLength > it }
+                    ?: false
                 val isAboveUserThreshold = contentLength > threshold
                 val isStreamDetectionOn = isRegularStreamDetectionOn
 
                 val isVideoContent =
-                    isVideo && isCheckOnVideo && (isAboveUserThreshold || isLargeEnoughForTikTok || isStreamDetectionOn)
+                    isVideo && isCheckOnVideo && (isAboveUserThreshold || isLargeEnoughForSiteRule || isStreamDetectionOn)
 
                 val isAudioContent = isAudio && isCheckOnAudio
 
@@ -1354,24 +1578,6 @@ open class VideoDetectionTabViewModel @Inject constructor(
             AppLogger.e("Detection: setMediaInfo failed", e)
             setDetectionError(e, shouldPublish = shouldPublish)
         }
-    }
-
-    private fun Response.contentLengthOrUnknown(): Long {
-        val bodyLength = body.contentLength()
-        if (bodyLength > 0) {
-            return bodyLength
-        }
-
-        header("Content-Length")?.toLongOrNull()?.takeIf { it > 0 }?.let {
-            return it
-        }
-
-        val rangeTotal = header("Content-Range")
-            ?.substringAfterLast("/", "")
-            ?.toLongOrNull()
-            ?.takeIf { it > 0 }
-
-        return rangeTotal ?: 0L
     }
 
     private fun probeContentLength(url: URL, headersMap: Map<String, String>): Long {

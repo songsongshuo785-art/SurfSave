@@ -26,6 +26,126 @@ class BrowserDownloadRequestTest {
     }
 
     @Test
+    fun imageAttachment_createsDirectImageCandidate() {
+        val request = BrowserDownloadRequest(
+            url = "https://cdn.example/download?id=cover",
+            pageUrl = "https://page.example/post/1",
+            headers = mapOf("Referer" to "https://page.example/post/1"),
+            contentDisposition = "inline; filename=cover.png",
+            mimeType = "image/png",
+            contentLength = 2048L,
+            suggestedFileName = "cover.png"
+        )
+
+        assertEquals(ContentType.IMAGE, request.mediaType())
+        val info = requireNotNull(request.toDirectMediaVideoInfo())
+        assertTrue(info.isImage)
+        assertEquals("png", info.ext)
+        assertEquals("image", info.formats.formats.single().format)
+    }
+
+    @Test
+    fun imageMime_preservesSpecialtyExtensionWhenUrlHasNoExtension() {
+        listOf(
+            "image/heic" to "heic",
+            "image/heif" to "heif",
+            "image/bmp" to "bmp"
+        ).forEach { (mime, extension) ->
+            val request = BrowserDownloadRequest(
+                url = "https://cdn.example/image?id=$extension",
+                pageUrl = "https://page.example/post/1",
+                headers = emptyMap(),
+                contentDisposition = null,
+                mimeType = mime,
+                contentLength = 32L,
+                suggestedFileName = "download"
+            )
+
+            assertEquals(extension, requireNotNull(request.toDirectMediaVideoInfo()).ext)
+        }
+    }
+
+    @Test
+    fun responseMetadata_replacesGenericImageMimeWithAuthoritativeType() {
+        val request = BrowserDownloadRequest(
+            url = "https://cdn.example/image?id=webp",
+            pageUrl = "https://page.example/post/1",
+            headers = mapOf("Referer" to "https://page.example/post/1"),
+            contentDisposition = null,
+            mimeType = "image/*",
+            contentLength = 0L,
+            suggestedFileName = "image"
+        )
+
+        val resolved = request.withResponseMetadata(
+            responseMimeType = "image/webp; charset=binary",
+            responseContentDisposition = null,
+            responseContentLength = 4096L
+        )
+        val info = requireNotNull(resolved.toDirectMediaVideoInfo())
+
+        assertEquals("webp", info.ext)
+        assertEquals(4096L, info.formats.formats.single().fileSize)
+    }
+
+    @Test
+    fun responseMetadata_usesImageDispositionWhenMimeIsGeneric() {
+        val request = BrowserDownloadRequest(
+            url = "https://cdn.example/image?id=1",
+            pageUrl = null,
+            headers = emptyMap(),
+            contentDisposition = null,
+            mimeType = "image/*",
+            contentLength = 0L,
+            suggestedFileName = "image"
+        )
+
+        val resolved = request.withResponseMetadata(
+            responseMimeType = "application/octet-stream",
+            responseContentDisposition = "inline; filename=cover.avif",
+            responseContentLength = 512L
+        )
+
+        assertEquals("avif", requireNotNull(resolved.toDirectMediaVideoInfo()).ext)
+    }
+
+    @Test
+    fun responseMimeWinsOverConflictingImageDispositionExtension() {
+        val request = BrowserDownloadRequest(
+            url = "https://cdn.example/image?id=1",
+            pageUrl = null,
+            headers = emptyMap(),
+            contentDisposition = null,
+            mimeType = "image/*",
+            contentLength = 0L,
+            suggestedFileName = "image"
+        )
+
+        val resolved = request.withResponseMetadata(
+            responseMimeType = "image/webp",
+            responseContentDisposition = "inline; filename=cover.jpg",
+            responseContentLength = 512L
+        )
+
+        assertEquals("webp", requireNotNull(resolved.toDirectMediaVideoInfo()).ext)
+    }
+
+    @Test
+    fun declaredJpegMimeUsesCanonicalJpgExtension() {
+        val request = BrowserDownloadRequest(
+            url = "https://cdn.example/image?id=1",
+            pageUrl = null,
+            headers = emptyMap(),
+            contentDisposition = null,
+            mimeType = "image/jpeg",
+            contentLength = 0L,
+            suggestedFileName = "image"
+        )
+
+        assertEquals("jpg", requireNotNull(request.toDirectMediaVideoInfo()).ext)
+    }
+
+    @Test
     fun nonMediaAttachment_isNotClaimedByBrowserMediaPipeline() {
         val request = BrowserDownloadRequest(
             url = "https://cdn.example/download?id=2",

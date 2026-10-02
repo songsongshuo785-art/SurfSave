@@ -56,6 +56,23 @@ class BrowserMediaClassifierTest {
     }
 
     @Test
+    fun imageUrlOrMime_isClassifiedAsImageButNotPlaybackResource() {
+        assertEquals(
+            ContentType.IMAGE,
+            BrowserMediaClassifier.classify("https://cdn.example/photo.webp?size=large")
+        )
+        assertEquals(
+            ContentType.IMAGE,
+            BrowserMediaClassifier.classify(
+                "https://cdn.example/image?id=1",
+                "image/jpeg"
+            )
+        )
+        assertEquals(ContentType.IMAGE, BrowserMediaClassifier.classify("https://cdn.example/art.svg"))
+        assertFalse(BrowserMediaClassifier.isLikelyPlaybackResource("https://cdn.example/photo.webp"))
+    }
+
+    @Test
     fun opaqueDownloadUrl_usesMediaFilenameButRejectsNonMediaAttachment() {
         assertEquals(
             ContentType.VIDEO,

@@ -2,6 +2,7 @@ package com.myAllVideoBrowser.ui.main.video
 
 import android.app.Activity
 import android.app.ActivityOptions
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import androidx.core.widget.doAfterTextChanged
@@ -25,6 +26,7 @@ import androidx.core.view.doOnLayout
 import androidx.lifecycle.ViewModelProvider
 import androidx.media3.common.util.UnstableApi
 import androidx.recyclerview.widget.LinearLayoutManager
+import android.webkit.MimeTypeMap
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.model.LocalVideo
 import com.myAllVideoBrowser.databinding.FragmentVideoBinding
@@ -106,6 +108,7 @@ class VideoFragment : BaseFragment() {
         )
         val filtered = MediaLibraryPresentation.filter(all, libraryQuery, when (libraryFilter) {
             R.id.library_audio -> LibraryMediaType.AUDIO
+            R.id.library_image -> LibraryMediaType.IMAGE
             R.id.library_video -> LibraryMediaType.VIDEO
             else -> LibraryMediaType.ALL
         })
@@ -179,6 +182,12 @@ class VideoFragment : BaseFragment() {
         }
         videoViewModel.deleteSuccessEvent.observe(viewLifecycleOwner) {
             Toast.makeText(requireContext(), R.string.video_delete_success, Toast.LENGTH_SHORT).show()
+        }
+        videoViewModel.moveSuccessEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(requireContext(), R.string.media_move_success, Toast.LENGTH_SHORT).show()
+        }
+        videoViewModel.moveFailedEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(requireContext(), R.string.media_move_error, Toast.LENGTH_SHORT).show()
         }
         videoViewModel.deleteFailedEvent.observe(viewLifecycleOwner) {
             Toast.makeText(requireContext(), R.string.video_delete_failed, Toast.LENGTH_LONG).show()
@@ -272,7 +281,7 @@ class VideoFragment : BaseFragment() {
 
         override fun onSourceClicked(localVideo: LocalVideo) {
             val sourceUrl = videoViewModel.getSourceUrl(localVideo)
-            if (!UrlInputNormalizer.isBrowsableWebAddress(sourceUrl)) {
+            if (!UrlInputNormalizer.isPersistedSourceUrl(sourceUrl)) {
                 Toast.makeText(
                     requireContext(),
                     getString(R.string.video_source_unavailable),
@@ -318,7 +327,7 @@ class VideoFragment : BaseFragment() {
                 }
 
                 R.id.item_open_with -> {
-                    startVideoWith(video)
+                    startMediaWith(video)
                     true
                 }
 
@@ -338,29 +347,7 @@ class VideoFragment : BaseFragment() {
                 }
 
                 R.id.item_move_to_downloads -> {
-                    try {
-                        val target = fileUtil.uniqueMediaTarget(
-                            requireContext(),
-                            File(fileUtil.publicDownloadsDir, video.name)
-                        )
-                        val isSuccess =
-                            fileUtil.moveMedia(requireContext(), video.uri, target.toUri())
-                        if (isSuccess) {
-                            Toast.makeText(
-                                requireContext(),
-                                getString(R.string.media_move_success),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            return@setOnMenuItemClickListener true
-                        }
-                    } catch (e: Throwable) {
-                        e.printStackTrace()
-                    }
-                    Toast.makeText(
-                        requireContext(),
-                        getString(R.string.media_move_error),
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    videoViewModel.moveVideoToDownloads(requireContext(), video)
                     true
                 }
 
@@ -410,6 +397,10 @@ class VideoFragment : BaseFragment() {
 
     @OptIn(UnstableApi::class)
     private fun startVideo(localVideo: LocalVideo, sharedView: View? = null) {
+        if (localVideo.isImage) {
+            startMediaWith(localVideo)
+            return
+        }
         val intent = Intent(requireContext(), VideoPlayerActivity::class.java).apply {
             putExtra(VideoPlayerFragment.VIDEO_NAME, localVideo.name)
             putExtra(VideoPlayerFragment.VIDEO_URL, localVideo.uri.toString())
@@ -432,7 +423,12 @@ class VideoFragment : BaseFragment() {
     }
 
 
-    private fun startVideoWith(localVideo: LocalVideo) {
+    private fun startMediaWith(localVideo: LocalVideo) {
+        val mimeType = localVideo.mimeType.takeIf { it.isNotBlank() }
+            ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                localVideo.name.substringAfterLast('.', "")
+            )
+            ?: "application/octet-stream"
         val intent = Intent(Intent.ACTION_VIEW)
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         context?.let {
@@ -443,12 +439,20 @@ class VideoFragment : BaseFragment() {
                     requireContext().applicationContext.packageName + ".provider",
                     localVideo.uri.toFile()
                 )
-                intent.setDataAndType(videoUri, "video/mp4")
+                intent.setDataAndType(videoUri, mimeType)
             } else {
-                intent.setDataAndType(localVideo.uri, "video/mp4")
+                intent.setDataAndType(localVideo.uri, mimeType)
             }
         }
 
-        context?.startActivity(intent)
+        try {
+            context?.startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(
+                requireContext(),
+                R.string.player_target_no_compatible_app,
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 }

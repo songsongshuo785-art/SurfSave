@@ -24,11 +24,16 @@ object DownloadedMediaValidator {
             return "Downloaded file is not readable"
         }
 
-        return validateSource(file.length()) { file.inputStream() }
+        return validateSource(file.length(), file.name) { file.inputStream() }
     }
 
     @Suppress("UNUSED_PARAMETER")
-    fun validate(context: Context, uri: Uri, isLive: Boolean = false): String? {
+    fun validate(
+        context: Context,
+        uri: Uri,
+        isLive: Boolean = false,
+        declaredFileName: String? = null
+    ): String? {
         if (uri.scheme.equals(ContentResolver.SCHEME_FILE, ignoreCase = true)) {
             val path = uri.path ?: return "Downloaded file URI has no path"
             return validate(File(path), isLive)
@@ -37,10 +42,43 @@ object DownloadedMediaValidator {
         val resolver = context.contentResolver
         val length = ContentLengthResolver.resolve(context, uri).length
             ?: return "Downloaded media size is unavailable"
-        return validateSource(length) { resolver.openInputStream(uri) }
+        return validateSource(length, declaredFileName) { resolver.openInputStream(uri) }
     }
 
-    private fun validateSource(length: Long, openStream: () -> InputStream?): String? {
+    /**
+     * Canonical image extension derived from the leading bytes of [bytes], or
+     * `null` when the probe is not a recognised image signature. Callers use it
+     * to keep a file name/MediaStore MIME consistent with the real content.
+     */
+    fun detectImageExtension(bytes: ByteArray): String? = when {
+        isJpeg(bytes) -> "jpg"
+        isPng(bytes) -> "png"
+        isGif(bytes) -> "gif"
+        isWebp(bytes) -> "webp"
+        isBmp(bytes) -> "bmp"
+        isAvif(bytes) -> "avif"
+        isHeif(bytes) -> "heic"
+        else -> null
+    }
+
+    /** MIME type for a signature-derived image extension, or `null` if unknown. */
+    fun imageMimeTypeForExtension(extension: String): String? =
+        when (extension.lowercase(Locale.ROOT)) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "bmp" -> "image/bmp"
+            "avif" -> "image/avif"
+            "heic", "heif" -> "image/heic"
+            else -> null
+        }
+
+    private fun validateSource(
+        length: Long,
+        declaredFileName: String?,
+        openStream: () -> InputStream?
+    ): String? {
         if (length < 0L) {
             return "Downloaded media size is unavailable"
         }
@@ -70,12 +108,14 @@ object DownloadedMediaValidator {
         }
 
         if (hasKnownMediaSignature(probe)) {
-            return null
+            return imageExtensionMismatch(declaredFileName, probe)
         }
 
         val text = decodeTextProbe(probe)
         if (text != null) {
-            return if (looksLikeErrorResponse(text)) {
+            return if (isSvgImage(text)) {
+                null
+            } else if (looksLikeErrorResponse(text)) {
                 "Downloaded content looks like a web or error response, not a media file"
             } else {
                 "Downloaded content is text, not a media file"
@@ -112,11 +152,72 @@ object DownloadedMediaValidator {
             startsWithAscii(bytes, "OggS") ||
             startsWithAscii(bytes, "fLaC") ||
             isRiffMedia(bytes) ||
+            isJpeg(bytes) ||
+            isPng(bytes) ||
+            isGif(bytes) ||
+            isWebp(bytes) ||
+            isAvifOrHeif(bytes) ||
+            isBmp(bytes) ||
             startsWithAscii(bytes, "ID3") ||
             isMpegAudio(bytes) ||
             isAacAdts(bytes) ||
             startsWith(bytes, 0x00, 0x00, 0x01, 0xBA) // MPEG program stream
     }
+
+    private fun isJpeg(bytes: ByteArray): Boolean =
+        startsWith(bytes, 0xFF, 0xD8, 0xFF)
+
+    private fun isPng(bytes: ByteArray): Boolean =
+        startsWith(bytes, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+
+    private fun isGif(bytes: ByteArray): Boolean =
+        startsWithAscii(bytes, "GIF87a") || startsWithAscii(bytes, "GIF89a")
+
+    private fun isWebp(bytes: ByteArray): Boolean =
+        bytes.size >= 12 && startsWithAscii(bytes, "RIFF") && asciiAt(bytes, 8, "WEBP")
+
+    private fun isAvifOrHeif(bytes: ByteArray): Boolean {
+        if (bytes.size < 12 || !asciiAt(bytes, 4, "ftyp")) return false
+        return asciiAtAny(bytes, 8, "avif", "avis", "heic", "heix", "hevc", "hevx", "mif1")
+    }
+
+    private fun isAvif(bytes: ByteArray): Boolean {
+        if (bytes.size < 12 || !asciiAt(bytes, 4, "ftyp")) return false
+        return asciiAtAny(bytes, 8, "avif", "avis")
+    }
+
+    private fun isHeif(bytes: ByteArray): Boolean {
+        if (bytes.size < 12 || !asciiAt(bytes, 4, "ftyp")) return false
+        return asciiAtAny(bytes, 8, "heic", "heix", "hevc", "hevx")
+    }
+
+    /**
+     * Flags an image whose declared extension contradicts its real signature.
+     * The check is limited to unambiguous image signatures so audio/video
+     * container aliases (m4a/ADTS, mp4 variants, ...) cannot false-positive.
+     */
+    private fun imageExtensionMismatch(
+        declaredFileName: String?,
+        probe: ByteArray
+    ): String? {
+        if (declaredFileName.isNullOrBlank()) return null
+
+        val declared = declaredFileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        if (declared !in IMAGE_EXTENSIONS) return null
+
+        val detected = detectImageExtension(probe) ?: return null
+        if (canonicalImageExtension(declared) == canonicalImageExtension(detected)) return null
+
+        return "Downloaded image content is .$detected but the file is named .$declared"
+    }
+
+    private fun canonicalImageExtension(extension: String): String = when (extension) {
+        "jpeg" -> "jpg"
+        "heif" -> "heic"
+        else -> extension
+    }
+
+    private fun isBmp(bytes: ByteArray): Boolean = startsWithAscii(bytes, "BM")
 
     private fun isIsoBaseMedia(bytes: ByteArray): Boolean {
         return bytes.size >= 12 &&
@@ -148,7 +249,13 @@ object DownloadedMediaValidator {
     }
 
     private fun inspectMpegTransportStream(bytes: ByteArray): TransportStreamProbe {
-        if (bytes.isEmpty() || (bytes[0].toInt() and 0xFF) != 0x47) {
+        // A short signature such as GIF's leading 'G' (0x47) is not enough to
+        // classify the content as MPEG-TS. Keep the truncated-TS guard for a
+        // real packet-sized probe, while allowing tiny image signatures to be
+        // checked by hasKnownMediaSignature below.
+        if (bytes.size < MPEG_TS_PACKET_BYTES ||
+            (bytes[0].toInt() and 0xFF) != MPEG_TS_SYNC_BYTE
+        ) {
             return TransportStreamProbe.NOT_TS
         }
         if (bytes.size < MPEG_TS_PACKET_BYTES * 2) {
@@ -217,6 +324,14 @@ object DownloadedMediaValidator {
             lower.contains("rate limit")
     }
 
+    private fun isSvgImage(text: String): Boolean {
+        val trimmed = text.removePrefix("\uFEFF").trimStart()
+        if (trimmed.startsWith("<svg", ignoreCase = true)) return true
+        if (!trimmed.startsWith("<?xml", ignoreCase = true)) return false
+        return trimmed.substringAfter("?>", "").trimStart()
+            .startsWith("<svg", ignoreCase = true)
+    }
+
     private fun startsWithAscii(bytes: ByteArray, value: String): Boolean =
         asciiAt(bytes, 0, value)
 
@@ -226,6 +341,9 @@ object DownloadedMediaValidator {
         }
         return value.indices.all { index -> bytes[offset + index] == value[index].code.toByte() }
     }
+
+    private fun asciiAtAny(bytes: ByteArray, offset: Int, vararg values: String): Boolean =
+        values.any { value -> asciiAt(bytes, offset, value) }
 
     private fun startsWith(bytes: ByteArray, vararg values: Int): Boolean {
         if (bytes.size < values.size) {
@@ -242,4 +360,8 @@ object DownloadedMediaValidator {
 
     private const val MPEG_TS_PACKET_BYTES = 188
     private const val MPEG_TS_SYNC_BYTE = 0x47
+
+    private val IMAGE_EXTENSIONS = setOf(
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif"
+    )
 }

@@ -378,6 +378,32 @@ class FileUtilMediaStoreTest {
     }
 
     @Test
+    fun imageWithMismatchedExtension_publishesSignatureMimeType() {
+        val provider = mediaProvider(displayName = "unused.jpg", rowExists = false)
+        register(MediaStore.AUTHORITY, provider)
+        val source = File(context.filesDir, "mismatched-source.jpg").apply {
+            writeBytes(
+                byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+            )
+        }
+        val target = File(FileUtil().publicDownloadsDir, "cover.jpg")
+
+        try {
+            val result = FileUtil().moveMediaWithReason(
+                context, Uri.fromFile(source), Uri.fromFile(target)
+            )
+
+            assertTrue("reason=${result.reason} detail=${result.detail}", result.ok)
+            // The name is preserved so resolveMediaUri(target.name) still works...
+            assertEquals("cover.jpg", provider.displayName)
+            // ...but MediaStore must not record image/jpeg for PNG bytes.
+            assertEquals("image/png", provider.mimeType)
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
     fun chineseDisplayName_publishesWithoutDiagnosticFailure() {
         val displayName = "中文视频-测试.mp4"
         val provider = mediaProvider(displayName = displayName, rowExists = false)
@@ -432,6 +458,7 @@ class FileUtilMediaStoreTest {
             MEDIA_ID
         )
         var relativePath: String = FileUtil.PUBLIC_RELATIVE_PATH
+        var mimeType: String? = null
         var pending: Int = 0
         var updateResult: Int = 1
         var applyDisplayNameOnUpdate: Boolean = true
@@ -487,6 +514,7 @@ class FileUtilMediaStoreTest {
                 return null
             }
             displayName = values?.getAsString(MediaStore.MediaColumns.DISPLAY_NAME).orEmpty()
+            mimeType = values?.getAsString(MediaStore.MediaColumns.MIME_TYPE)
             if (autoRenameOnInsert) {
                 displayName =
                     "${displayName.substringBeforeLast('.', displayName)} (1)." +

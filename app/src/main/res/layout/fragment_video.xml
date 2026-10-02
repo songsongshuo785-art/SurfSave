@@ -95,6 +95,12 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/surf_filter_audio" />
+                    <com.google.android.material.chip.Chip
+                        style="@style/Widget.Surf.FilterChip"
+                        android:id="@+id/library_image"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/surf_filter_image" />
                 </com.google.android.material.chip.ChipGroup>
             </HorizontalScrollView>
             <com.google.android.material.button.MaterialButton
