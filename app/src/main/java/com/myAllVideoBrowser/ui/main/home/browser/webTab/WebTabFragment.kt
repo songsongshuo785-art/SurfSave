@@ -94,6 +94,7 @@ import com.myAllVideoBrowser.ui.main.home.browser.HOME_TAB_INDEX
 import com.myAllVideoBrowser.ui.main.home.browser.HistoryProvider
 import com.myAllVideoBrowser.ui.main.home.browser.MAX_WEB_TABS
 import com.myAllVideoBrowser.ui.main.home.browser.PageTabProvider
+import com.myAllVideoBrowser.ui.main.home.browser.TAB_ID_KEY
 import com.myAllVideoBrowser.ui.main.home.browser.TAB_INDEX_KEY
 import com.myAllVideoBrowser.ui.main.home.browser.TabManagerProvider
 import com.myAllVideoBrowser.ui.main.home.browser.WorkerEventProvider
@@ -1287,6 +1288,13 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
 
     private lateinit var webTab: WebTab
 
+    /**
+     * Stable identity of the tab this fragment renders. [WebTab] instances are replaced by
+     * every copyWith(...) publish, so the id - not the object, and not the index - is what
+     * survives across list changes.
+     */
+    private var tabId: String? = null
+
     private var customWebChromeClient: CustomWebChromeClient? = null
     private var browserDownloadDialog: androidx.appcompat.app.AlertDialog? = null
     private var pendingLegacySystemDownload: BrowserDownloadPlan.SystemFile? = null
@@ -1419,7 +1427,12 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
         tabViewModel.closePageEvent = tabManagerProvider.getCloseTabEvent()
         tabViewModel.thisTabIndex.set(thisTabIndex)
 
-        webTab = pageTabProvider.getPageTab(thisTabIndex)
+        // Identity comes from the tab id, never from the creation-time index: the index goes
+        // stale as soon as a tab before this one is closed, which used to bind this fragment
+        // to a different tab ("tab A opens as tab B").
+        tabId = requireArguments().getString(TAB_ID_KEY)
+        webTab = resolveCanonicalTab(thisTabIndex)
+        tabId = webTab.id
         // The detected-media panel is a sibling activity fragment that survives
         // process death. Register the runtime-only dependencies so a restored
         // panel can re-bind instead of being dismissed.
@@ -1869,8 +1882,12 @@ dataBinding.fab.animate().cancel()
     }
 
     override fun onResume() {
-        AppLogger.d("onResume Webview::::::::: ${webTab.getUrl()}")
         super.onResume()
+        // Order matters: rebind the canonical tab and rebuild the WebView if the live-WebView
+        // budget destroyed it, before resuming it or touching media/JS.
+        rebindCanonicalTab("onResume")
+        ensureLiveWebView("onResume")
+        AppLogger.d("onResume Webview::::::::: ${webTab.getUrl()}")
         onWebViewResume()
         customWebChromeClient?.restoreCustomViewAfterResume()
         webTab.getWebView()?.let { webView ->
@@ -2294,7 +2311,64 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         }
 
         webTab.markActive()
+        AppLogger.d("WEBVIEW_REHYDRATE id=${webTab.id} created=$needsNewWebView restored=$restored")
         return needsNewWebView && !restored && webTab.getMessage() == null
+    }
+
+    /**
+     * Resolves the authoritative [WebTab] for this fragment. The id wins; the index is only a
+     * fallback for fragments restored from state written before ids were stored.
+     */
+    private fun resolveCanonicalTab(fallbackIndex: Int): WebTab {
+        val tabs = tabManagerProvider.getTabsListChangeEvent().get().orEmpty()
+        return tabId?.let { id -> tabs.firstOrNull { it.id == id } }
+            ?: tabs.getOrNull(fallbackIndex)
+            ?: pageTabProvider.getPageTab(fallbackIndex)
+    }
+
+    /**
+     * Re-points this fragment at the canonical [WebTab] after the tab list changed.
+     *
+     * BrowserViewModel.tabs is the single source of truth for WebView lifetime: every
+     * copyWith(...) publishes a new instance, and the live-WebView budget nulls the canonical
+     * instance before destroying the WebView. Holding a snapshot therefore left this fragment
+     * with a destroyed-but-non-null WebView, and there is no reliable public isDestroyed() to
+     * detect that - reading the canonical instance is the only correct signal.
+     */
+    private fun rebindCanonicalTab(source: String): WebTab? {
+        val id = tabId ?: return null
+        val tabs = tabManagerProvider.getTabsListChangeEvent().get().orEmpty()
+        val latest = tabs.firstOrNull { it.id == id } ?: return null
+        val previous = if (::webTab.isInitialized) webTab else null
+        webTab = latest
+
+        val index = tabs.indexOfFirst { it.id == id }
+        if (::tabViewModel.isInitialized && index >= 0 && tabViewModel.thisTabIndex.get() != index) {
+            tabViewModel.thisTabIndex.set(index)
+        }
+        if (previous !== latest) {
+            AppLogger.d("TAB_REBIND id=$id index=$index from=$source")
+        }
+        return latest
+    }
+
+    /**
+     * Rebuilds the WebView only when the canonical tab lost it (live-WebView budget eviction).
+     *
+     * A WebView that onDestroyView merely detached is still alive and is reused: rebuilding it
+     * there would reload every page on every tab switch. Detach and destroy must never be
+     * confused.
+     */
+    private fun ensureLiveWebView(source: String) {
+        if (!::webTab.isInitialized || !::dataBinding.isInitialized) return
+        if (webTab.getWebView() != null) return
+
+        val needsLoad = recreateWebView(null)
+        configureWebView(dataBinding)
+        AppLogger.d("WEBVIEW_REHYDRATE id=${webTab.id} from=$source loadUrl=$needsLoad")
+        if (needsLoad) {
+            tabViewModel.loadPage(webTab.getUrl())
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -3681,11 +3755,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
     private val tabsListChangeListener = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
             val tabs = tabManagerProvider.getTabsListChangeEvent().get()
-            val webTab = tabs?.find { it.id == webTab.id }
-            val index = tabs?.indexOf(webTab)
-            if (index != null && index in tabs.indices) {
-                tabViewModel.thisTabIndex.set(index)
-            }
+            rebindCanonicalTab("list")
             syncTabsOverviewBadge(tabs)
             updateBackPressedCallbackState()
         }
