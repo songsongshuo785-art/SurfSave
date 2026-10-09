@@ -54,8 +54,12 @@ internal object PlaybackPositionGate {
     /**
      * 采集到的播放器状态必须**先经过本门禁**才允许写库。
      *
-     * 顺序即优先级：业务直播 → 播放器未就绪/已停止 → Timeline 未建立 → 占位窗口 →
-     * 位置非法 → 已结束 → 接近片尾 → 最小位置门槛 → 允许保存。
+     * 顺序即优先级：业务直播 → 已结束 → 播放器未就绪/已停止 → Timeline 未建立 →
+     * 占位窗口 → 位置非法 → 接近片尾 → 最小位置门槛 → 允许保存。
+     *
+     * `STATE_ENDED` 刻意放在 Timeline/位置检查之前：它是终止事实，且 CLEAR 不需要
+     * position，普通 VOD 不会因为恰好读到空 Timeline 或占位窗口而漏掉清理；
+     * 业务直播（declaredLive）优先级更高，仍然只 SKIP 不清理。
      */
     fun evaluate(
         declaredLive: Boolean,
@@ -67,6 +71,7 @@ internal object PlaybackPositionGate {
         force: Boolean
     ): Result {
         if (declaredLive) return Result(Action.SKIP, Cause.DECLARED_LIVE)
+        if (playbackState == Player.STATE_ENDED) return Result(Action.CLEAR, Cause.PLAYBACK_ENDED)
         // IDLE：尚未 prepare 或已被 stop()。此时 currentPosition 可能仍是
         // setMediaSource(source, startMs) 留下的 masking 值，写下去会把真实进度覆盖成旧值。
         if (playbackState == Player.STATE_IDLE) return Result(Action.SKIP, Cause.PLAYER_IDLE)
@@ -75,7 +80,6 @@ internal object PlaybackPositionGate {
         if (timelineEmpty) return Result(Action.SKIP, Cause.EMPTY_TIMELINE)
         if (windowIsPlaceholder) return Result(Action.SKIP, Cause.PLACEHOLDER_WINDOW)
         if (positionMs < 0L) return Result(Action.SKIP, Cause.INVALID_POSITION)
-        if (playbackState == Player.STATE_ENDED) return Result(Action.CLEAR, Cause.PLAYBACK_ENDED)
         if (PlaybackPositionPolicy.shouldClearAtEnd(positionMs, durationMs)) {
             return Result(Action.CLEAR, Cause.NEAR_END)
         }
@@ -108,5 +112,26 @@ internal object PlaybackPositionGate {
             return RestoreVeto.CLEAR_AND_RESET
         }
         return RestoreVeto.KEEP
+    }
+
+    /**
+     * 重新 prepare（403 刷新 / surface recovery）时的待复核目标转移。
+     *
+     * 这两条路径都会显式给出本次要播放的位置，但“初始恢复复核是否已完成”是另一回事：
+     * Timeline 还没建立就 403（或还没拿到首帧就回前台）时，请求位置其实仍是 masking 出来的
+     * 恢复目标，这种情况下必须让新 Timeline 再走一次 veto，否则 dynamic 窗口会恢复旧历史位置。
+     *
+     * - 已验证过：保持原目标不变（后续不再 veto）。
+     * - 本来就没有待恢复目标：保持 null，不做多余动作。
+     * - 其余情况：目标改为本次真正请求的位置。
+     */
+    fun pendingRestoreAfterReprepare(
+        validated: Boolean,
+        pendingRestoreMs: Long?,
+        requestedStartMs: Long
+    ): Long? {
+        if (validated) return pendingRestoreMs
+        if (pendingRestoreMs == null) return null
+        return requestedStartMs
     }
 }

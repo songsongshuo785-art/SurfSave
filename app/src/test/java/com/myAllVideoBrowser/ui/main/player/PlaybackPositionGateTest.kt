@@ -192,4 +192,68 @@ class PlaybackPositionGateTest {
 
         assertEquals(PlaybackPositionGate.RestoreVeto.CLEAR_AND_RESET, veto)
     }
+
+    /**
+     * 403 刷新 / surface recovery：初始恢复尚未复核时，待复核目标要跟随本次请求位置，
+     * 否则新 Timeline 永远不会再对 dynamic 窗口做 veto。
+     */
+    @Test
+    fun reprepare_keepsPendingRestoreWhenNotValidated() {
+        val pending = PlaybackPositionGate.pendingRestoreAfterReprepare(
+            validated = false,
+            pendingRestoreMs = 120_000L,
+            requestedStartMs = 300_000L
+        )
+
+        assertEquals(300_000L, pending)
+    }
+
+    @Test
+    fun reprepare_keepsTargetWhenAlreadyValidated() {
+        val pending = PlaybackPositionGate.pendingRestoreAfterReprepare(
+            validated = true,
+            pendingRestoreMs = 120_000L,
+            requestedStartMs = 300_000L
+        )
+
+        assertEquals(120_000L, pending)
+    }
+
+    @Test
+    fun reprepare_withoutPendingRestoreStaysNull() {
+        val pending = PlaybackPositionGate.pendingRestoreAfterReprepare(
+            validated = false,
+            pendingRestoreMs = null,
+            requestedStartMs = 300_000L
+        )
+
+        assertEquals(null, pending)
+    }
+
+    /**
+     * 直播（declaredLive）即使进入 ENDED 也不能删记录：以后该媒体可能变成 VOD。
+     */
+    @Test
+    fun declaredLiveEnded_doesNotClearRecord() {
+        val result = evaluate(declaredLive = true, playbackState = Player.STATE_ENDED)
+
+        assertEquals(PlaybackPositionGate.Action.SKIP, result.action)
+        assertEquals(PlaybackPositionGate.Cause.DECLARED_LIVE, result.cause)
+    }
+
+    /**
+     * ENDED 是终止事实且 CLEAR 不依赖 position：即使 Timeline 已空也必须清理。
+     */
+    @Test
+    fun endedWithEmptyTimeline_clears() {
+        val result = evaluate(
+            playbackState = Player.STATE_ENDED,
+            timelineEmpty = true,
+            windowIsPlaceholder = true,
+            positionMs = 0L
+        )
+
+        assertEquals(PlaybackPositionGate.Action.CLEAR, result.action)
+        assertEquals(PlaybackPositionGate.Cause.PLAYBACK_ENDED, result.cause)
+    }
 }

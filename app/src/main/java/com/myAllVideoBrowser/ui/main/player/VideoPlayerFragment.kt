@@ -642,11 +642,12 @@ class VideoPlayerFragment : BaseFragment() {
                         validateInitialRestoreAgainstResolvedTimeline()
                     } else if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
 
-                        if (playbackState == Player.STATE_ENDED && playbackPositionKey.isNotBlank()) {
-                            playbackPositionStore.remove(playbackPositionKey)
-                            AppLogger.d(
-                                "PLAYER_POSITION: action=CLEAR reason=PLAYBACK_ENDED " +
-                                    "key=${playbackPositionStore.shortId(playbackPositionKey)}"
+                        if (playbackState == Player.STATE_ENDED) {
+                            // 统一走 Gate：declaredLive（直播/事件流播完）→ SKIP 不清理，
+                            // 普通 VOD → CLEAR。Fragment 不再直接改 Store。
+                            persistPlaybackPosition(
+                                force = true,
+                                reason = PlaybackSaveReason.PLAYBACK_ENDED
                             )
                         }
                         // 兜底：确保过渡不因 player 状态无限推迟
@@ -884,8 +885,19 @@ class VideoPlayerFragment : BaseFragment() {
             val refreshedUri = Uri.parse(refreshedUrl)
             videoPlayerViewModel.videoUrl.set(refreshedUri)
             videoPlayerViewModel.videoHeaders.set(currentPlaybackHeaders)
-            // 刷新后的位置由本行显式给出（resumePosition），初始恢复复核到此不再适用。
-            initialRestoreValidated = true
+            // 刷新位置是本会话续播点，但“初始恢复复核是否已完成”是另一回事：
+            // Timeline 还没建立就 403 时，resumePosition 仍是 masking 出来的恢复目标，
+            // 这种情况下必须让新 Timeline 再走一次 veto（dynamic 不许恢复旧历史位置）。
+            initialPlaybackPositionMs = PlaybackPositionGate.pendingRestoreAfterReprepare(
+                validated = initialRestoreValidated,
+                pendingRestoreMs = initialPlaybackPositionMs,
+                requestedStartMs = resumePosition
+            )
+            AppLogger.d(
+                "PLAYER_POSITION: action=REPREPARE reason=URL_REFRESH start=$resumePosition " +
+                    "restored=${initialPlaybackPositionMs ?: -1L} validated=$initialRestoreValidated " +
+                    "key=${playbackPositionStore.shortId(playbackPositionKey)}"
+            )
             player.stop()
             player.setMediaSource(createMediaSource(refreshedUri, currentPlaybackHeaders), resumePosition)
             player.prepare()
@@ -939,6 +951,7 @@ class VideoPlayerFragment : BaseFragment() {
         PERIODIC,
         PLAYER_BACK,
         HOST_STOPPED,
+        PLAYBACK_ENDED,
         DESTROY_VIEW
     }
 
@@ -1009,7 +1022,9 @@ class VideoPlayerFragment : BaseFragment() {
                 media3IsSeekable = window.isSeekable
             }
             if (!windowIsPlaceholder) {
-                position = player.currentPosition.coerceAtLeast(0L)
+                // 不在这里钳位：Gate 必须看到真实的非法值（media3 的 C.TIME_UNSET /
+                // 负值）才能 SKIP；钳成 0 会让 force=true 的退出保存把已有进度写成 0。
+                position = player.currentPosition
             }
         }
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
@@ -1137,19 +1152,33 @@ class VideoPlayerFragment : BaseFragment() {
             ::dataBinding.isInitialized
         ) {
             awaitingForegroundFrame = false
-            val position = resumePositionMs
+            val recoveryPosition = resumePositionMs.coerceAtLeast(0L)
             val shouldPlay = resumePlayWhenReady
+            // 待复核目标必须在任何 stop/clear/setMediaSource/prepare 之前更新：
+            // 否则新 Timeline 的 veto（seekToDefaultPosition）会被后面的独立 seekTo 反向覆盖。
+            initialPlaybackPositionMs = PlaybackPositionGate.pendingRestoreAfterReprepare(
+                validated = initialRestoreValidated,
+                pendingRestoreMs = initialPlaybackPositionMs,
+                requestedStartMs = recoveryPosition
+            )
+            AppLogger.d(
+                "PLAYER_POSITION: action=REPREPARE reason=SURFACE_RECOVERY start=$recoveryPosition " +
+                    "restored=${initialPlaybackPositionMs ?: -1L} validated=$initialRestoreValidated " +
+                    "key=${playbackPositionStore.shortId(playbackPositionKey)}"
+            )
             dataBinding.videoView.player = null
             player.stop()
             player.clearMediaItems()
             val recoveryUrl = videoPlayerViewModel.videoUrl.get() ?: Uri.EMPTY
-            player.setMediaSource(createMediaSource(recoveryUrl, currentPlaybackHeaders))
+            // 恢复位置直接交给 setMediaSource(source, startMs)，不再单独 seekTo：
+            // 这样 dynamic veto 之后没有第二个 seek 能把它覆盖掉。
+            player.setMediaSource(
+                createMediaSource(recoveryUrl, currentPlaybackHeaders),
+                recoveryPosition
+            )
             player.prepare()
-            player.seekTo(position.coerceAtLeast(0L))
             player.playWhenReady = shouldPlay
             dataBinding.videoView.player = player
-            // 位置已由上一行显式指定，初始恢复复核到此不再适用。
-            initialRestoreValidated = true
             AppLogger.d("PLAYER_SURFACE_RECOVERY: reprepared player after foreground frame timeout")
         }
     }
