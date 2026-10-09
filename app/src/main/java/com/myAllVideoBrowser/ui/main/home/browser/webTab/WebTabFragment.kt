@@ -2054,7 +2054,8 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             pageUrl = videoInfo.originalUrl,
             mediaIdentity = PlaybackMediaIdentity.fromVideoInfo(videoInfo),
             detectedBySuperX = videoInfo.isDetectedBySuperX,
-            extractedAt = System.currentTimeMillis()
+            extractedAt = System.currentTimeMillis(),
+            isLive = videoInfo.isLive
         )
     }
 
@@ -2080,6 +2081,8 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
                 request.detectedBySuperX
             )
             putExtra(VideoPlayerFragment.VIDEO_EXTRACTED_AT, request.extractedAt)
+            // 业务层直播判定：直播既不恢复也不记录进度（media3 的 live 判断不参与该决策）。
+            putExtra(VideoPlayerFragment.VIDEO_IS_LIVE, request.isLive)
         }
         suspendWebMediaThen {
             // 共享元素过渡：检测视频 sheet 缩略图 → 播放器变形（与 VideoFragment 列表共用 "surf_video_thumb"）
@@ -2267,7 +2270,9 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         val pageUrl: String,
         val mediaIdentity: String,
         val detectedBySuperX: Boolean,
-        val extractedAt: Long
+        val extractedAt: Long,
+        /** 业务层直播判定，来自 `VideoInfo.isLive`。 */
+        val isLive: Boolean
     )
 
     private fun onVideoDownloadPropagate(

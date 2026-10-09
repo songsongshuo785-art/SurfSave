@@ -70,6 +70,15 @@ class PlaybackPositionStore @Inject constructor(
         if (keysToRemove.isNotEmpty()) preferences.edit { keysToRemove.forEach { remove(it) } }
     }
 
+    /**
+     * 诊断用短标识：与存储键同源（同一个 sha256），但**不包含也不暴露媒体 URL**。
+     * 日志只能打印本方法的返回值，不得直接打印 mediaKey。
+     */
+    fun shortId(mediaKey: String): String {
+        if (mediaKey.isBlank()) return ""
+        return storageKey(mediaKey).removePrefix(ENTRY_PREFIX).take(SHORT_ID_LENGTH)
+    }
+
     private fun storageKey(mediaKey: String): String = ENTRY_PREFIX + sha256(mediaKey)
 
     @Serializable
@@ -84,6 +93,7 @@ class PlaybackPositionStore @Inject constructor(
     companion object {
         internal const val PREFS_NAME = "playback_position_store"
         private const val ENTRY_PREFIX = "entry_"
+        private const val SHORT_ID_LENGTH = 8
         private const val MAX_ENTRIES = 200
         private const val MAX_AGE_MS = 90L * 24L * 60L * 60L * 1_000L
         private val JSON = Json { ignoreUnknownKeys = true }

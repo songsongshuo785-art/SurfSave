@@ -106,4 +106,16 @@ class PlaybackPositionPolicyTest {
         assertEquals(45_000L, decision.positionMs)
         assertTrue(!decision.shouldClear)
     }
+
+    @Test
+    fun restore_skipsDeclaredLiveWithoutClearingRecord() {
+        val decision = PlaybackPositionPolicy.restore(
+            SavedPlaybackPosition(45_000L, 120_000L, 1L),
+            currentDurationMs = 0L,
+            declaredLive = true
+        )
+
+        assertNull(decision.positionMs)
+        assertTrue(!decision.shouldClear)
+    }
 }
