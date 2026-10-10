@@ -6,6 +6,7 @@ import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.data.local.room.entity.VideFormatEntityList
 import com.myAllVideoBrowser.di.qualifier.ApplicationContext
+import com.myAllVideoBrowser.util.media.DownloadStrategy
 import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -61,7 +62,11 @@ class PlaylistExtractor @Inject constructor(
                     url = entryUrl,
                     vcodec = "unknown",
                     acodec = "unknown",
-                    duration = durationSeconds.takeIf { it > 0 }?.times(1000)
+                    duration = durationSeconds.takeIf { it > 0 }?.times(1000),
+                    // 播放列表条目的 URL 是条目页面地址，下载时需要 yt-dlp 对它做解析。
+                    downloadStrategy = DownloadStrategy.YTDLP_FORMAT.name,
+                    extractorInputUrl = entryUrl,
+                    sourcePageUrl = entryUrl
                 )
                 val videoInfo = VideoInfo(
                     id = UUID.randomUUID().toString(),

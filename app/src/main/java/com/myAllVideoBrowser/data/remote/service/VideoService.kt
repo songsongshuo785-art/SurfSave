@@ -8,6 +8,7 @@ import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.data.local.room.entity.toDownloadRequestData
 import com.myAllVideoBrowser.util.CookieUtils
 import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
+import com.myAllVideoBrowser.util.media.DownloadStrategy
 import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
 import com.myAllVideoBrowser.util.AppLogger
 import com.yausername.youtubedl_android.YoutubeDL
@@ -34,6 +35,10 @@ open class VideoServiceLocal(
         const val MP4_EXT = "mp4"
         private const val FACEBOOK_HOST = ".facebook."
         private const val COOKIE_HEADER = "Cookie"
+
+        /** yt-dlp `quality` 作为高度 fallback 的合理区间，避免把排序权重（如 3）显示成 "3P"。 */
+        private const val MIN_VIDEO_HEIGHT = 144
+        private const val MAX_VIDEO_HEIGHT = 8640
     }
 
     override fun getVideoInfo(
@@ -99,18 +104,27 @@ open class VideoServiceLocal(
 
                     // Extract localization (language)
                     val lang = f.optString("language", "").replace("null", "")
-                    val formatNote = f.optString("format_note", "")
+                    val rawFormatNote = f.optString("format_note", "")
                     val resolution = f.optString("resolution", "")
                     val rawWidth = f.optInt("width", 0)
                     val rawHeight = f.optInt("height", 0)
                     val inferredWidth = rawWidth.takeIf { it > 0 }
                         ?: resolution.substringBefore("x").toIntOrNull()
                         ?: 0
+                    // yt-dlp 的 quality 字段全局语义并不保证是像素高度（部分 extractor 只当作排序权重），
+                    // 因此仅在上面的来源都拿不到高度、且落在合理视频高度区间时才作为受限 fallback 使用。
+                    val qualityHeight = f.optInt("quality", 0)
+                        .takeIf { it in MIN_VIDEO_HEIGHT..MAX_VIDEO_HEIGHT }
                     val inferredHeight = rawHeight.takeIf { it > 0 }
                         ?: resolution.substringAfter("x", "").toIntOrNull()
                         ?: Regex("""(\d{3,4})p""", RegexOption.IGNORE_CASE)
-                            .find(formatNote)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                            .find(rawFormatNote)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                        ?: qualityHeight
                         ?: 0
+                    val formatNote = rawFormatNote.ifBlank {
+                        // 高度已知但 note 为空时补一个可读标签（Rule34 这类只给 quality/height 的站点）。
+                        inferredHeight.takeIf { it > 0 }?.let { "${it}p" }.orEmpty()
+                    }
                     val tbr = f.optDouble("tbr", 0.0).toInt()
                     val mediaUrl = f.optString("url")
                     val formatHeaders = MediaRequestHeaderPolicy.fromJsonObject(
@@ -144,6 +158,10 @@ open class VideoServiceLocal(
                         duration = videoDuration * 1000,
                         manifestUrl = f.optString("manifest_url"),
                         protocol = f.optString("protocol").takeIf { it.isNotBlank() },
+                        // 盖章：这些 format 由本次 yt-dlp 解析产生，formatId 只在本次输入下有意义。
+                        // sourcePageUrl 留空（此层拿不到页面地址），由队列入列点补齐。
+                        downloadStrategy = DownloadStrategy.YTDLP_FORMAT.name,
+                        extractorInputUrl = originalUrl,
                         httpHeaders = MediaRequestHeaderPolicy.mergeForFormat(
                             sourceHeaders = url.headers.toMap(),
                             formatHeaders = formatHeaders,

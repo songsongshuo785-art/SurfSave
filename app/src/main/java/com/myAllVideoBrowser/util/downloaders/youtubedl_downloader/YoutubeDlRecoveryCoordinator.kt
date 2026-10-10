@@ -4,6 +4,8 @@ import com.myAllVideoBrowser.DLApplication
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.repository.ProgressRepository
 import com.myAllVideoBrowser.util.FileUtil
+import com.myAllVideoBrowser.util.downloaders.DownloadEngineKind
+import com.myAllVideoBrowser.util.downloaders.DownloadEngineKindResolver
 import com.myAllVideoBrowser.util.downloaders.DownloadQueueManager
 import com.myAllVideoBrowser.util.downloaders.DownloadTaskLogger
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
@@ -118,7 +120,8 @@ class YoutubeDlRecoveryCoordinator @Inject constructor(
     }
 
     private fun isYoutubeDlTask(task: ProgressInfo): Boolean {
-        return !task.videoInfo.isRegularDownload && !task.videoInfo.isDetectedBySuperX
+        // 与 DownloadEngineRouter / 队列同源，避免恢复路径与执行路径判据不一致。
+        return DownloadEngineKindResolver.kindOf(task) == DownloadEngineKind.YTDLP
     }
 
     private companion object {

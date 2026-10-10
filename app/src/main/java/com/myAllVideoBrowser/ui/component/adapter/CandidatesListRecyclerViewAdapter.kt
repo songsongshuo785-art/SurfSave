@@ -61,7 +61,7 @@ class CandidatesListRecyclerViewAdapter(
     private val downloadDialogListener: CandidateFormatListener
 ) : RecyclerView.Adapter<CandidatesListRecyclerViewAdapter.CandidatesViewHolder>() {
 
-    private var formats = VideoFormatUi.sortFormats(downloadCandidates.formats.formats)
+    private var formats = VideoFormatUi.sortFormats(downloadCandidates, downloadCandidates.formats.formats)
     private var displayedFormats: List<VideoFormatEntity> = collapsedFormats()
     var isExpanded = false
         private set
@@ -74,7 +74,9 @@ class CandidatesListRecyclerViewAdapter(
     // Keep the selected quality visible even when it is outside the first three options.
     private fun collapsedFormats(): List<VideoFormatEntity> {
         val selected = selectedFormat.get()?.get(downloadCandidates.id)
-        val selectedIndex = formats.indexOfFirst { VideoFormatUi.selectionKey(it) == selected }
+        val selectedIndex = formats.indexOfFirst {
+            VideoFormatUi.selectionKey(downloadCandidates, it) == selected
+        }
         return if (formats.size > 3 && selectedIndex >= 3) {
             formats.take(2) + formats[selectedIndex]
         } else formats.take(3)
@@ -90,7 +92,10 @@ class CandidatesListRecyclerViewAdapter(
         dispatchListDiff(
             oldItems = displayedFormats,
             newItems = next,
-            areItemsTheSame = { old, new -> VideoFormatUi.selectionKey(old) == VideoFormatUi.selectionKey(new) }
+            areItemsTheSame = { old, new ->
+                VideoFormatUi.selectionKey(downloadCandidates, old) ==
+                    VideoFormatUi.selectionKey(downloadCandidates, new)
+            }
         ) { displayedFormats = next }
     }
 
@@ -106,7 +111,7 @@ class CandidatesListRecyclerViewAdapter(
     @SuppressLint("SetTextI18n")
     override fun onBindViewHolder(holder: CandidatesViewHolder, position: Int) {
         val formatEntity = displayedFormats.getOrNull(position) ?: return
-        val candidate = VideoFormatUi.selectionKey(formatEntity)
+        val candidate = VideoFormatUi.selectionKey(downloadCandidates, formatEntity)
         val titleText = VideoFormatUi.title(holder.binding.root.context, formatEntity, position)
         val detailsText = VideoFormatUi.compactDetails(holder.binding.root.context, formatEntity)
 
@@ -147,7 +152,7 @@ class CandidatesListRecyclerViewAdapter(
     override fun getItemCount(): Int = displayedFormats.size
 
     fun setData(formats: List<VideoFormatEntity>) {
-        this.formats = VideoFormatUi.sortFormats(formats)
+        this.formats = VideoFormatUi.sortFormats(downloadCandidates, formats)
         updateDisplayedFormats()
     }
 }

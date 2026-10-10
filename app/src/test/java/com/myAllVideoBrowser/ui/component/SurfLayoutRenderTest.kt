@@ -168,7 +168,12 @@ class SurfLayoutRenderTest {
             mediaHolder.binding.tvDownload.layout.height <= mediaHolder.binding.tvDownload.height -
                 mediaHolder.binding.tvDownload.compoundPaddingTop - mediaHolder.binding.tvDownload.compoundPaddingBottom)
         mediaHolder.binding.tvDownload.performClick()
-        verify(mediaListener).onDownloadVideo(media, "1080", media.title)
+        // 选择键已按 strategy-aware 身份生成（旧实现是 formatId 优先，会把不同清晰度合并）。
+        verify(mediaListener).onDownloadVideo(
+            media,
+            com.myAllVideoBrowser.util.VideoFormatUi.selectionKey(media, media.formats.formats.first()),
+            media.title
+        )
         mediaHolder.binding.qualityToggle.performClick()
         assertEquals(4, mediaHolder.binding.candidatesList.adapter!!.itemCount)
         mediaHolder.binding.qualityToggle.performClick()

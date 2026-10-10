@@ -1,6 +1,7 @@
 package com.myAllVideoBrowser.util.downloaders.super_x_downloader
 
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
+import com.myAllVideoBrowser.util.downloaders.SelectedFormatSelector
 
 internal data class SuperXDownloadSource(
     val url: String,
@@ -11,8 +12,7 @@ internal data class SuperXDownloadSource(
 
 internal object SuperXDownloadSourceResolver {
     fun resolve(videoInfo: VideoInfo): SuperXDownloadSource {
-        val selectedFormat = videoInfo.formats.formats.firstOrNull()
-            ?: throw IllegalArgumentException("No selected media format was provided for SuperX download.")
+        val selectedFormat = SelectedFormatSelector.select(videoInfo, "superx")
         val resolvedMediaUrl = selectedFormat.manifestUrl
             ?.takeIf { it.isNotBlank() }
             ?: selectedFormat.url?.takeIf { it.isNotBlank() }

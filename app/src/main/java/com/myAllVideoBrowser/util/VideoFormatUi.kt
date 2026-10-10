@@ -4,17 +4,19 @@ import android.content.Context
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
+import com.myAllVideoBrowser.util.media.FormatIdentity
 import java.util.Locale
 
 object VideoFormatUi {
-    fun selectionKey(format: VideoFormatEntity): String {
-        return format.formatId?.takeIf { it.isNotBlank() }
-            ?: format.format?.takeIf { it.isNotBlank() }
-            ?: format.url?.takeIf { it.isNotBlank() }
-            ?: format.videoOnlyUrl?.takeIf { it.isNotBlank() }
-            ?: format.audioOnlyUrl?.takeIf { it.isNotBlank() }
-            ?: format.id
-    }
+    /**
+     * strategy-aware 选择键（与下载指纹同源）。
+     *
+     * 注意：绝不能再“formatId 优先”——直链 format 的 formatId 恒为 "0"/"direct"，
+     * 会让同一视频的 480/720/1080 互相吞掉；HLS/DASH 多个清晰度又共享 manifest URL，
+     * 所以身份必须由 [FormatIdentity] 按策略拼装。
+     */
+    fun selectionKey(videoInfo: VideoInfo, format: VideoFormatEntity): String =
+        FormatIdentity.of(videoInfo, format)
 
     fun defaultSelectionKey(info: VideoInfo): String {
         val format = info.formats.formats.maxWithOrNull(
@@ -24,15 +26,20 @@ object VideoFormatUi {
                 .thenBy { knownSize(it) }
         ) ?: info.formats.formats.lastOrNull()
 
-        return format?.let { selectionKey(it) } ?: "unknown"
+        return format?.let { selectionKey(info, it) } ?: "unknown"
     }
 
+    /**
+     * 选择键解析，三级兼容：新身份 → 旧 selectionKey 算法 → 旧 formatId/format 匹配。
+     * 第一条命中即返回，保证升级前/合并前写下的旧 key 仍能找回用户实际选中的那条 format。
+     */
     fun findFormat(info: VideoInfo, key: String?): VideoFormatEntity? {
         if (key.isNullOrBlank()) {
             return null
         }
 
-        return info.formats.formats.firstOrNull { selectionKey(it) == key }
+        return info.formats.formats.firstOrNull { selectionKey(info, it) == key }
+            ?: info.formats.formats.firstOrNull { FormatIdentity.legacySelectionKey(it) == key }
             ?: info.formats.formats.firstOrNull { it.formatId == key || it.format == key }
             ?: info.formats.formats.firstOrNull { it.format?.contains(key) == true }
     }
@@ -77,14 +84,17 @@ object VideoFormatUi {
         ).joinToString(" | ")
     }
 
-    fun sortFormats(formats: List<VideoFormatEntity>): List<VideoFormatEntity> {
-        return formats.distinctBy { selectionKey(it) }
+    fun sortFormats(
+        videoInfo: VideoInfo,
+        formats: List<VideoFormatEntity>
+    ): List<VideoFormatEntity> {
+        return formats.distinctBy { selectionKey(videoInfo, it) }
             .sortedWith(
                 compareByDescending<VideoFormatEntity> { streamTypeScore(it) }
                     .thenByDescending { inferredHeight(it) }
                     .thenByDescending { bitrateBps(it) ?: 0L }
                     .thenByDescending { knownSize(it) }
-                    .thenBy { selectionKey(it) }
+                    .thenBy { selectionKey(videoInfo, it) }
             )
     }
 

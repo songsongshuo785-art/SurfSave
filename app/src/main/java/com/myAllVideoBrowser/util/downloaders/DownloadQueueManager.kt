@@ -1,5 +1,6 @@
 package com.myAllVideoBrowser.util.downloaders
 
+import androidx.work.WorkManager
 import com.myAllVideoBrowser.DLApplication
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
@@ -103,7 +104,7 @@ class DownloadQueueManager @Inject constructor(
             ) {
                 taskLogger.info(task.id, "Pause requested for yt-dlp execution")
                 progressRepository.getProgressInfoById(taskId)?.let {
-                    engineRouter.pause(application, it)
+                    runEngineControl(it, "pause") { engineRouter.pause(application, it) }
                 }
             }
             return
@@ -123,7 +124,7 @@ class DownloadQueueManager @Inject constructor(
         )
         taskLogger.info(task.id, "Paused download")
         if (task.isActive) {
-            engineRouter.pause(application, paused)
+            runEngineControl(paused, "pause") { engineRouter.pause(application, paused) }
         }
         scheduleNextLocked()
     }
@@ -201,13 +202,13 @@ class DownloadQueueManager @Inject constructor(
                 ) == 1
             ) {
                 progressRepository.getProgressInfoById(task.id)?.let {
-                    engineRouter.cancel(application, it, removeFile)
+                    runEngineControl(it, "cancel") { engineRouter.cancel(application, it, removeFile) }
                 }
             }
             return
         }
         if (task.isActive || task.downloadStatus == VideoTaskState.PAUSE) {
-            engineRouter.cancel(application, task, removeFile)
+            runEngineControl(task, "cancel") { engineRouter.cancel(application, task, removeFile) }
         }
         progressRepository.deleteProgressInfo(task)
         scheduleNextLocked()
@@ -229,12 +230,12 @@ class DownloadQueueManager @Inject constructor(
                 ) == 1
             ) {
                 progressRepository.getProgressInfoById(task.id)?.let {
-                    engineRouter.stopAndSave(application, it)
+                    runEngineControl(it, "stop-and-save") { engineRouter.stopAndSave(application, it) }
                 }
             }
             return
         }
-        engineRouter.stopAndSave(application, task)
+        runEngineControl(task, "stop-and-save") { engineRouter.stopAndSave(application, task) }
     }
 
     @Synchronized
@@ -253,7 +254,7 @@ class DownloadQueueManager @Inject constructor(
             ) {
                 taskLogger.info(task.id, "Move to later requested for yt-dlp execution")
                 progressRepository.getProgressInfoById(task.id)?.let {
-                    engineRouter.pause(application, it)
+                    runEngineControl(it, "pause") { engineRouter.pause(application, it) }
                 }
             }
             return
@@ -273,7 +274,7 @@ class DownloadQueueManager @Inject constructor(
         )
         taskLogger.info(task.id, "Moved download to later")
         if (task.isActive) {
-            engineRouter.pause(application, later)
+            runEngineControl(later, "pause") { engineRouter.pause(application, later) }
         }
         scheduleNextLocked()
     }
@@ -309,6 +310,149 @@ class DownloadQueueManager @Inject constructor(
     @Synchronized
     fun onYtDlpTerminal() {
         scheduleNextLocked()
+    }
+
+    /**
+     * 控制类动作（pause / cancel / stop-and-save / mark-later）不得因为数据损坏把界面炸掉。
+     *
+     * 这些调用点在引入 `SelectedFormatSelector` 的 fail-fast 之前是不可能抛的（旧代码直接 `formats.first()`），
+     * 而且它们不是下载入口，选错清晰度的代价不存在；所以失败只记日志 + 按用户意图推进状态，
+     * 不静默吞：异常带 taskId 进 `DownloadTaskLogger`，用户在错误详情里能看到。
+     * 真正的下载入口（[scheduleNextLocked] 里的 start/resume）仍然保持 fail fast → ERROR。
+     */
+    private fun runEngineControl(task: ProgressInfo, action: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (error: Throwable) {
+            taskLogger.error(task.id, "Engine control $action failed", error)
+        }
+    }
+
+    /**
+     * 启动对账：处理「Room 里状态是 ACTIVE，但已经没有对应 Worker」的遗留任务。
+     *
+     * 死档的根因：升级/覆盖安装把下载进程干掉后，这些行会永久停在
+     * PREPARE/START/DOWNLOADING/PROXYREADY/...；而 [scheduleNextLocked] 只挑 PENDING，
+     * 于是它们既不会再被调度，又一直占着并发槽位（任务不动、新任务也进不来）。
+     *
+     * 只负责 Custom / SuperX：yt-dlp 由 YoutubeDlRecoveryCoordinator 对账，
+     * 两处都启动同一个任务会互相 REPLACE 掉正在跑的 Worker。
+     *
+     * @return 实际放回队列（PENDING）的任务 id。
+     */
+    @Synchronized
+    fun reconcileOrphans(): List<String> {
+        val candidates = progressRepository.getProgressInfosOnce()
+            .filter { it.occupiesQueueSlot && it.engineKind != DownloadEngineKind.YTDLP }
+        if (candidates.isEmpty()) {
+            return emptyList()
+        }
+
+        val resumed = mutableListOf<String>()
+        var changed = false
+        candidates.forEach { task ->
+            if (workStillActive(task)) {
+                taskLogger.info(
+                    task.id,
+                    "Startup reconciliation: worker is still scheduled, skipping status ${task.downloadStatus}"
+                )
+                return@forEach
+            }
+
+            val logPath = task.logPath.ifBlank { taskLogger.logPath(task.id) }
+            // 用户明确放在“稍后”的任务不自动起跑，但必须把槽位释放掉。
+            val decision = if (task.queuedForLater &&
+                orphanRecoveryDecision(task.downloadStatus) == OrphanRecoveryDecision.RESUME
+            ) {
+                OrphanRecoveryDecision.MARK_PAUSED
+            } else {
+                orphanRecoveryDecision(task.downloadStatus)
+            }
+
+            when (decision) {
+                OrphanRecoveryDecision.RESUME -> {
+                    progressRepository.updateQueueState(
+                        task.id,
+                        VideoTaskState.PENDING,
+                        false,
+                        "Queued",
+                        logPath
+                    )
+                    resumed += task.id
+                    changed = true
+                    taskLogger.info(
+                        task.id,
+                        "Startup reconciliation: resumed orphaned download from status ${task.downloadStatus}"
+                    )
+                }
+
+                OrphanRecoveryDecision.MARK_PAUSED -> {
+                    progressRepository.updateQueueState(
+                        task.id,
+                        VideoTaskState.PAUSE,
+                        task.queuedForLater,
+                        "Paused",
+                        logPath
+                    )
+                    changed = true
+                    taskLogger.info(task.id, "Startup reconciliation: restored interrupted pause")
+                }
+
+                OrphanRecoveryDecision.MARK_CANCELED -> {
+                    progressRepository.updateQueueState(
+                        task.id,
+                        VideoTaskState.CANCELED,
+                        false,
+                        "Canceled",
+                        logPath
+                    )
+                    changed = true
+                    taskLogger.info(task.id, "Startup reconciliation: finished interrupted cancel")
+                }
+
+                OrphanRecoveryDecision.MARK_ERROR -> {
+                    val reason = "Interrupted while publishing the file; the app was upgraded mid-download."
+                    progressRepository.updateQueueState(
+                        task.id,
+                        VideoTaskState.ERROR,
+                        false,
+                        reason,
+                        logPath
+                    )
+                    changed = true
+                    taskLogger.error(task.id, "Startup reconciliation: $reason")
+                }
+
+                OrphanRecoveryDecision.SKIP -> Unit
+            }
+        }
+
+        if (changed) {
+            scheduleNextLocked()
+        }
+        return resumed
+    }
+
+    /**
+     * 该任务的 WorkManager 作业是否还在排队/运行中。
+     *
+     * 查询失败时宁可“漏恢复”也不能“双启动”：Custom/SuperX 的 unique work 都是 REPLACE，
+     * 盲目重发会把还活着的 Worker 取消掉。
+     */
+    private fun workStillActive(task: ProgressInfo): Boolean {
+        return try {
+            WorkManager.getInstance(application)
+                .getWorkInfosForUniqueWork(task.videoInfo.id)
+                .get()
+                .any { !it.state.isFinished }
+        } catch (error: Throwable) {
+            taskLogger.warn(
+                task.id,
+                "Unable to inspect WorkManager state during startup reconciliation",
+                error
+            )
+            true
+        }
     }
 
     // 只更新终态并落库，不触发调度。供 scheduleNextLocked 在 forEach 内 catch 使用，
@@ -412,7 +556,7 @@ class DownloadQueueManager @Inject constructor(
         videoInfo: VideoInfo,
         filenameContext: DownloadFilenameTemplate.Context
     ): VideoInfo {
-        val selectedFormat = VideoFormatUi.sortFormats(videoInfo.formats.formats).firstOrNull()
+        val selectedFormat = VideoFormatUi.sortFormats(videoInfo, videoInfo.formats.formats).firstOrNull()
         return DownloadFilenameTemplate.apply(
             videoInfo = videoInfo,
             template = sharedPrefHelper.getDownloadFilenameTemplate(),
@@ -468,8 +612,13 @@ class DownloadQueueManager @Inject constructor(
         return if (logPath.isBlank()) copy(logPath = taskLogger.logPath(id)) else this
     }
 
+    // 引擎判据的唯一来源：与 DownloadEngineRouter / 启动对账 / 指纹保持一致。
+    // 绝不能再写 !videoInfo.isRegularDownload && !videoInfo.isDetectedBySuperX。
+    private val ProgressInfo.engineKind: DownloadEngineKind
+        get() = DownloadEngineKindResolver.kindOf(this)
+
     private val ProgressInfo.isYtDlpTask: Boolean
-        get() = !videoInfo.isRegularDownload && !videoInfo.isDetectedBySuperX
+        get() = engineKind == DownloadEngineKind.YTDLP
 
     private fun List<ProgressInfo>.queueSorted(): List<ProgressInfo> {
         return sortedWith(

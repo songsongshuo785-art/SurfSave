@@ -80,6 +80,11 @@ class RoomConverter {
     }
 
     private companion object {
+        /**
+         * 信封版本。**禁止提升**：`readEnvelope` 对不等版本直接抛异常，提升会让所有既有
+         * ProgressInfo / VideoInfo 行无法读取（旧任务、下载历史）。新增字段请以 nullable 形式追加到
+         * payload 内，让 Gson 对旧 JSON 留 null，再由业务层做 legacy 推断。
+         */
         const val CURRENT_VERSION = 1
         const val VERSION_KEY = "version"
         const val PAYLOAD_KEY = "payload"

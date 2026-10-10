@@ -45,6 +45,8 @@ class TelegramPostResolver @Inject constructor(
                     "Referer" to post.canonicalUrl,
                     "User-Agent" to BrowserFragment.MOBILE_USER_AGENT
                 )
+                // 刻意不盖章：这条候选的“执行语义”与改动前一致（isRegularDownload=false ⇒ 旧判据为 yt-dlp，
+                // yt-dlp 再用 originalUrl 的 extractor 解析），只加注释避免后人误以为漏盖。
                 val format = VideoFormatEntity(
                     formatId = "best",
                     format = "Telegram video",

@@ -6,6 +6,7 @@ import com.google.gson.JsonParser
 import com.myAllVideoBrowser.data.local.room.entity.VideFormatEntityList
 import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
+import com.myAllVideoBrowser.util.media.DownloadStrategy
 import java.net.URI
 import java.util.UUID
 
@@ -99,7 +100,17 @@ object TelegramYtDlpMapper {
             thumbnail = thumbnail,
             duration = durationMs,
             originalUrl = originalPost.singleUrl,
-            formats = VideFormatEntityList(formats),
+            // Telegram 的 formatId 只对“本次对帖子 URL 的 yt-dlp 解析”有意义，
+            // 因此在这里盖章，不必依赖队列入列时的策略推断。
+            formats = VideFormatEntityList(
+                formats.map { fmt ->
+                    fmt.copy(
+                        downloadStrategy = DownloadStrategy.YTDLP_FORMAT.name,
+                        extractorInputUrl = fmt.extractorInputUrl ?: originalPost.singleUrl,
+                        sourcePageUrl = fmt.sourcePageUrl ?: originalPost.singleUrl
+                    )
+                }
+            ),
             isRegularDownload = false,
             isLive = entry.boolean("is_live")
         )

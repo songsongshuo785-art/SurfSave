@@ -8,6 +8,7 @@ import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ContextUtils
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.GenericDownloader
+import com.myAllVideoBrowser.util.downloaders.SelectedFormatSelector
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -87,8 +88,9 @@ object CustomRegularDownloader : GenericDownloader() {
     }
 
     override fun getDownloadDataFromVideoInfo(videoInfo: VideoInfo): Data.Builder {
-        val videoUrl = videoInfo.firstUrlToString
-        val headers = videoInfo.downloadUrls.firstOrNull()?.headers
+        val selected = SelectedFormatSelector.select(videoInfo, "regular")
+        val videoUrl = selected.url?.takeIf { it.isNotBlank() } ?: videoInfo.firstUrlToString
+        val headers = selected.httpHeaders ?: videoInfo.downloadUrls.firstOrNull()?.headers
         val headersMap = mutableMapOf<String, String>()
 
         for ((name, value) in headers.orEmpty()) {

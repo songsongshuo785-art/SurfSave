@@ -138,7 +138,34 @@ data class VideoFormatEntity(
     @ColumnInfo(name = "audioOnlyUrl")
     @SerializedName("audioOnlyUrl")
     @Expose
-    val audioOnlyUrl: String? = null
+    val audioOnlyUrl: String? = null,
+
+    /**
+     * 下载计划（[com.myAllVideoBrowser.util.media.DownloadStrategy] 的 name）。
+     *
+     * 必须 nullable：`RoomConverter` 用裸 Gson 反序列化旧 JSON，Gson 不会注入 Kotlin 默认参数值，
+     * 因此非空默认值在旧数据上会变成 null（NPE 风险）。旧数据统一交给
+     * [com.myAllVideoBrowser.util.media.DownloadStrategyResolver] 推断，并打 LEGACY_STRATEGY 日志。
+     *
+     * 本字段是 format 上的 JSON 属性（`VideoFormatEntity` 不在 Room 的 entities 列表里），
+     * 所以新增字段**不需要** DB_VERSION 迁移；同时禁止提升 `RoomConverter.CURRENT_VERSION`。
+     */
+    @SerializedName("downloadStrategy")
+    @Expose
+    val downloadStrategy: String? = null,
+
+    /** 媒体来源页面，仅用于展示 / Referer / 诊断，**不参与下载路由**。 */
+    @SerializedName("sourcePageUrl")
+    @Expose
+    val sourcePageUrl: String? = null,
+
+    /**
+     * 产生本 format 的 formatId 的那一次 yt-dlp 实际输入 URL。
+     * 仅 YTDLP_FORMAT / PAGE_EXTRACTOR 有意义；显式策略下缺失即不变量违规（执行路径直接失败）。
+     */
+    @SerializedName("extractorInputUrl")
+    @Expose
+    val extractorInputUrl: String? = null
 ) {
     val isM3u8: Boolean
         get() {

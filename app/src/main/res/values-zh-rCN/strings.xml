@@ -167,6 +167,8 @@
     <string name="error_network_suggestion">检查网络或代理，等网页加载完成后重试。</string>
     <string name="error_auth_title">需要登录或 Cookie</string>
     <string name="error_auth_suggestion">先在浏览器标签页打开并登录，再重新检测或下载。</string>
+    <string name="error_antibot_title">网站拦截了请求</string>
+    <string name="error_antibot_suggestion">网站要求人机验证。请在浏览器标签页打开该页面，等它加载完成后再重试。</string>
     <string name="error_no_format_title">没有可下载格式</string>
     <string name="error_no_format_suggestion">先播放视频，等网页加载完成后再选择清晰度。</string>
     <string name="error_ytdlp_title">解析器可能过旧</string>
@@ -363,6 +365,7 @@
     <string name="detection_failed_generic">检测暂时失败。请播放视频后再试，或刷新页面重新检测。</string>
     <string name="detection_failed_network">网络或代理异常，请检查连接后重试。</string>
     <string name="detection_failed_auth">可能需要登录。请在当前网页登录后重试。</string>
+    <string name="detection_failed_antibot">网站要求人机验证。请等页面加载完成后再重试。</string>
     <string name="detection_failed_playlist">播放列表解析失败。请直接打开列表页面后重试。</string>
     <string name="detected_duration_live">直播</string>
     <string name="detected_duration_unknown">时长未知</string>

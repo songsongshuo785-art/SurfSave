@@ -12,6 +12,7 @@ object UserFacingError {
     enum class Category {
         NETWORK,
         AUTH_OR_COOKIE,
+        ANTI_BOT,
         NO_FORMAT,
         YTDLP_OUTDATED,
         PROXY_OR_REGION,
@@ -47,18 +48,43 @@ object UserFacingError {
                 Category.DUPLICATE
             containsAny(text, "enospc", "no space", "not enough free space", "permission denied", "eacces", "storage", "error moving file") ->
                 Category.STORAGE
+            // 具体原因必须优先于笼统的 401/403：Cloudflare 反爬页、无格式、解析器失败都会带 403 字样，
+            // 而“需要登录或 Cookie”会把它们全部说成账号问题（Hanime1 误报的旧行为）。
+            containsAny(
+                text,
+                "cloudflare",
+                "anti-bot",
+                "anti bot",
+                "captcha",
+                "just a moment",
+                "attention required",
+                "cf-chl",
+                "challenge-platform",
+                "human verification"
+            ) ->
+                Category.ANTI_BOT
+            containsAny(
+                text,
+                "no video formats found",
+                "no video",
+                "no media",
+                "no downloadable",
+                "no formats",
+                "format is not available",
+                "requested format",
+                "requested formats are not available"
+            ) ->
+                Category.NO_FORMAT
+            containsAny(text, "yt-dlp", "youtube-dl", "extractor", "unsupported url", "signature extraction", "please update") ->
+                Category.YTDLP_OUTDATED
             containsAny(text, "401", "403", "unauthorized", "forbidden", "login", "sign in", "cookie", "authenticated") ->
                 Category.AUTH_OR_COOKIE
             containsAny(text, "geo", "region", "country", "blocked in", "not available in your") ->
                 Category.PROXY_OR_REGION
             containsAny(text, "proxy", "vpn", "socks", "connect tunnel") ->
                 Category.PROXY_OR_REGION
-            containsAny(text, "yt-dlp", "youtube-dl", "extractor", "unsupported url", "signature extraction", "please update") ->
-                Category.YTDLP_OUTDATED
             containsAny(text, "playlist") ->
                 Category.PLAYLIST
-            containsAny(text, "no video", "no media", "no downloadable", "no formats", "format is not available", "requested format") ->
-                Category.NO_FORMAT
             containsAny(text, "timeout", "timed out", "unable to resolve", "unknownhost", "connection", "network", "socket", "ssl", "http 5") ->
                 Category.NETWORK
             else -> Category.UNKNOWN
@@ -98,6 +124,7 @@ object UserFacingError {
 
     fun detectionMessage(context: Context, rawMessage: String?): String {
         return when (classify(rawMessage)) {
+            Category.ANTI_BOT -> context.getString(R.string.detection_failed_antibot)
             Category.AUTH_OR_COOKIE -> context.getString(R.string.detection_failed_auth)
             Category.NETWORK,
             Category.PROXY_OR_REGION -> context.getString(R.string.detection_failed_network)
@@ -135,6 +162,7 @@ object UserFacingError {
         return when (category) {
             Category.NETWORK -> R.string.error_network_title
             Category.AUTH_OR_COOKIE -> R.string.error_auth_title
+            Category.ANTI_BOT -> R.string.error_antibot_title
             Category.NO_FORMAT -> R.string.error_no_format_title
             Category.YTDLP_OUTDATED -> R.string.error_ytdlp_title
             Category.PROXY_OR_REGION -> R.string.error_proxy_region_title
@@ -149,6 +177,7 @@ object UserFacingError {
         return when (category) {
             Category.NETWORK -> R.string.error_network_suggestion
             Category.AUTH_OR_COOKIE -> R.string.error_auth_suggestion
+            Category.ANTI_BOT -> R.string.error_antibot_suggestion
             Category.NO_FORMAT -> R.string.error_no_format_suggestion
             Category.YTDLP_OUTDATED -> R.string.error_ytdlp_suggestion
             Category.PROXY_OR_REGION -> R.string.error_proxy_region_suggestion

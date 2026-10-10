@@ -24,7 +24,9 @@ class CandidatesPresentationTest {
         VideoFormatEntity(formatId = "$height", height = height, url = "https://example.org/$height.mp4", ext = "mp4")
     }
     private val video = VideoInfo(id = "video", formats = VideFormatEntityList(formats))
-    private val selection = ObservableField<Map<String, String>>(mapOf(video.id to VideoFormatUi.selectionKey(formats.last())))
+    private val selection = ObservableField<Map<String, String>>(
+        mapOf(video.id to VideoFormatUi.selectionKey(video, formats.last()))
+    )
     private val context get() = ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.AppTheme)
 
     @Test fun collapsedListKeepsSelectedLowerQualityVisible() {
@@ -32,7 +34,7 @@ class CandidatesPresentationTest {
         assertEquals(3, adapter.itemCount)
         val holder = adapter.onCreateViewHolder(FrameLayout(context), 0)
         adapter.onBindViewHolder(holder, 2)
-        assertEquals(VideoFormatUi.selectionKey(formats.last()), holder.binding.downloadCandidate)
+        assertEquals(VideoFormatUi.selectionKey(video, formats.last()), holder.binding.downloadCandidate)
         assertEquals(true, holder.binding.isCandidateSelected)
         adapter.setExpanded(true)
         assertEquals(5, adapter.itemCount)

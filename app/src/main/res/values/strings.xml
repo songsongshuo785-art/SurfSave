@@ -52,6 +52,7 @@
   <string name="detection_failed_generic">Detection failed. Play the video, then refresh detection.</string>
   <string name="detection_failed_network">Network or proxy problem. Check the connection, then retry.</string>
   <string name="detection_failed_auth">Login may be required. Sign in on this page, then retry.</string>
+  <string name="detection_failed_antibot">The site asked for a human check. Wait for the page to finish loading, then retry.</string>
   <string name="detection_failed_playlist">Playlist parsing failed. Open the list page directly, then retry.</string>
   <string name="detected_duration_live">Live</string>
   <string name="detected_duration_unknown">Duration unknown</string>
@@ -250,6 +251,8 @@
   <string name="error_network_suggestion">Check the connection or proxy, then retry after the page finishes loading.</string>
   <string name="error_auth_title">Login or cookie required</string>
   <string name="error_auth_suggestion">Open the page in the browser tab, sign in if needed, then try again.</string>
+  <string name="error_antibot_title">Site blocked the request</string>
+  <string name="error_antibot_suggestion">The site asked for a human check. Open the page in the browser tab, wait for it to finish loading, then retry.</string>
   <string name="error_no_format_title">No downloadable format</string>
   <string name="error_no_format_suggestion">Start playback or choose another quality after the page loads.</string>
   <string name="error_ytdlp_title">Extractor may be outdated</string>

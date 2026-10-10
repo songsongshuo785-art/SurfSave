@@ -5,6 +5,7 @@ import com.myAllVideoBrowser.data.local.room.entity.VideFormatEntityList
 import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.util.FileNameCleaner
+import com.myAllVideoBrowser.util.media.DownloadStrategy
 import java.net.URI
 import java.util.Locale
 
@@ -146,7 +147,10 @@ data class BrowserDownloadRequest(
             ext = extension,
             url = url,
             httpHeaders = downloadHeaders,
-            fileSize = contentLength.coerceAtLeast(0L)
+            fileSize = contentLength.coerceAtLeast(0L),
+            // 盖章：WebView 直接把下载交给了宿主，URL 即下载目标。
+            downloadStrategy = DownloadStrategy.DIRECT_HTTP.name,
+            sourcePageUrl = pageUrl?.takeIf { it.isNotBlank() } ?: url
         )
 
         return VideoInfo(

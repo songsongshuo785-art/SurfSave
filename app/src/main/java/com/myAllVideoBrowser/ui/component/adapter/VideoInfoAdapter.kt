@@ -225,7 +225,7 @@ class VideoInfoAdapter(
             val context = binding.root.context
             val key = model.selectedFormats.get()?.get(info.id)
             val format = VideoFormatUi.findFormat(info, key)
-                ?: VideoFormatUi.sortFormats(info.formats.formats).firstOrNull()
+                ?: VideoFormatUi.sortFormats(info, info.formats.formats).firstOrNull()
             val quality = format?.let { VideoFormatUi.qualityLabel(it) }.orEmpty()
             binding.sizeTextView.text = format?.let { VideoFormatUi.displaySize(context, it) }.orEmpty()
             binding.tvDownload.text = if (quality.isNotBlank()) {

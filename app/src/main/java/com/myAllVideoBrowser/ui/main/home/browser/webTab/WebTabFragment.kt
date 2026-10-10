@@ -122,6 +122,9 @@ import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
 import com.myAllVideoBrowser.util.SiteDataCleaner
 import com.myAllVideoBrowser.util.SiteOrigin
 import com.myAllVideoBrowser.util.VideoFormatUi
+import com.myAllVideoBrowser.util.media.DownloadStrategy
+import com.myAllVideoBrowser.util.media.DownloadStrategyResolver
+import com.myAllVideoBrowser.util.site_adapters.KvsFlashvarsAdapter
 import com.myAllVideoBrowser.util.telegram.TelegramPostResolver
 import com.myAllVideoBrowser.util.telegram.TelegramPostUrl
 import com.myAllVideoBrowser.util.telegram.TelegramImportSession
@@ -166,6 +169,7 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
         private const val MEDIA_PROBE_BRIDGE_NAME = "SuperXMediaProbe"
         private const val MAX_MEDIA_PROBE_PAYLOAD_LENGTH = 8_192
         private const val MAX_PAGE_MEDIA_METADATA_PAYLOAD_LENGTH = 16_384
+        private const val MAX_KVS_FLASHVARS_PAYLOAD_LENGTH = 32_768
         private const val MEDIA_PROBE_THROTTLE_MS = 4_000L
         private val IMAGE_SCAN_SCRIPT = """
             (function() {
@@ -1316,6 +1320,13 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
     private var translationDebounceJob: Job? = null
     private var translationDocumentGeneration = 0L
     private var mediaPageGeneration = 0L
+    // 站点适配器（KVS flashvars）最近一次成功挂载的（页面世代, 候选 id），用于跳过重复提取。
+    private var lastKvsAttachmentGeneration = -1L
+    private var lastKvsAttachmentVideoId: String? = null
+    // 页面就绪时预读到的 KVS 清单。候选先到、flashvars 后到时不会被时序卡住。
+    private var pendingKvsPayload: KvsFlashvarsAdapter.Payload? = null
+    private var pendingKvsPayloadGeneration = -1L
+    private var pendingKvsPayloadSourceUrl: String? = null
     private var translationFailureNotifiedGeneration = -1L
     private var translationRerunRequested = false
     private var lastAutoTranslationStartedAt = 0L
@@ -1955,6 +1966,9 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         // (The FAB pulse already fires via downloadButtonStateCallback.)
         animateVideoFoundBadge()
 
+        // 站点适配器：KVS 页面把 flashvars 里的多清晰度补到刚推送的候选上（只读脚本，不动播放器）。
+        maybeAttachKvsQualities(webTab.getWebView())
+
         val isDownloadsVisible = isDetectedVideosTabFragmentVisible()
         val isCond = !tabViewModel.isDownloadDialogShown.get() && !isDownloadsVisible
         if (context != null && mainActivity.settingsViewModel.getVideoAlertState()
@@ -2280,16 +2294,46 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
     ) {
         val selectedFormat = VideoFormatUi.findFormat(videoInfo, format)
             ?: videoInfo.formats.formats.firstOrNull()
+
+        // 必须基于 prepare 之后的 format 做策略解析：Telegram 策略会清空所有 URL 并转成 YTDLP，
+        // 若拿“改造前”的 format 解析，会把 YTDLP 覆盖回 DIRECT。
+        val prepared = selectedFormat?.let {
+            TelegramDownloadPolicy.prepareFormatForQueue(videoInfo.originalUrl, it)
+        }
+        val resolution = prepared?.let { DownloadStrategyResolver.resolve(videoInfo, it) }
+        val strategy = resolution?.strategy
+
+        val stamped = prepared?.let { fmt ->
+            fmt.copy(
+                downloadStrategy = requireNotNull(strategy).name,
+                sourcePageUrl = fmt.sourcePageUrl
+                    ?: videoInfo.originalUrl.takeIf { it.isNotBlank() },
+                extractorInputUrl = when {
+                    strategy != DownloadStrategy.YTDLP_FORMAT &&
+                        strategy != DownloadStrategy.PAGE_EXTRACTOR -> null
+
+                    !fmt.extractorInputUrl.isNullOrBlank() -> fmt.extractorInputUrl
+                    else -> resolution.extractorInputUrl
+                }
+            )
+        }
+
         val info = videoInfo.copy(
             id = UUID.randomUUID().toString(),
             title = FileNameCleaner.cleanFileName(videoTitle),
-            formats = VideFormatEntityList(
-                listOfNotNull(
-                    selectedFormat?.let {
-                        TelegramDownloadPolicy.prepareFormatForQueue(videoInfo.originalUrl, it)
-                    }
-                )
-            )
+            formats = VideFormatEntityList(listOfNotNull(stamped)),
+            // legacy compatibility mirror / UI hint：下载路由的权威只有 DownloadEngineKindResolver，
+            // 这两个旧标记只镜像 selected format 的实际执行策略，不再参与控制逻辑。
+            isRegularDownload = if (strategy != null) {
+                strategy == DownloadStrategy.DIRECT_HTTP
+            } else {
+                videoInfo.isRegularDownload
+            },
+            isDetectedBySuperX = if (strategy != null) {
+                strategy == DownloadStrategy.HLS_MANIFEST || strategy == DownloadStrategy.DASH_MANIFEST
+            } else {
+                videoInfo.isDetectedBySuperX
+            }
         )
 
         mainActivity.mainViewModel.downloadVideoEvent.value = info
@@ -2405,6 +2449,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             },
             onPageReady = { webView ->
                 capturePageMediaMetadata(webView)
+                captureKvsFlashvars(webView)
                 maybeResolveTelegramPost(webView)
             },
             shouldBlockMainFrameNavigation = { targetUrl, hasUserGesture, isMainFrame ->
@@ -4234,6 +4279,145 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             }.getOrNull() ?: return@evaluateJavascript
             videoDetectionTabViewModel.updatePageMediaMetadata(generation, metadata)
         }
+    }
+
+    /**
+     * 站点适配器（KVS 系列真播页）：只读地读出 `window.flashvars` 里的多清晰度清单，
+     * 等在 [maybeAttachKvsQualities] 里挂到候选上。
+     *
+     * 关键约束：
+     * - **不复用** 会重建播放器 DOM / 改写 `video.src` 的 `KVS_PLAYER_RECOVERY_SCRIPT`，
+     *   那个脚本在播放器健康时直接返回 `'video-ok'`，正常页面永远拿不到清单。
+     * - 失败（非 KVS 页面、无 flashvars、解析失败）什么都不做，退回原有嗅探链路。
+     */
+    private fun captureKvsFlashvars(webView: WebView?) {
+        if (webView == null) {
+            return
+        }
+        val pageUrl = webView.url?.takeIf { it.startsWith("http") } ?: return
+        val generation = mediaPageGeneration
+        webView.evaluateJavascript(KvsFlashvarsAdapter.SCRIPT) { result ->
+            val parsed = parseKvsResult(result)
+            if (parsed == null) {
+                AppLogger.d("KVS_FLASHVARS: no contribution (not kvs or unparsable)")
+                return@evaluateJavascript
+            }
+            if (generation != mediaPageGeneration || webView.url != pageUrl) {
+                AppLogger.d("KVS_FLASHVARS: discarded stale capture generation=$generation")
+                return@evaluateJavascript
+            }
+            pendingKvsPayload = parsed
+            pendingKvsPayloadGeneration = generation
+            pendingKvsPayloadSourceUrl = parsed.pageUrl.takeIf { it.startsWith("http") } ?: pageUrl
+            AppLogger.d(
+                "KVS_FLASHVARS: captured items=" + parsed.items.size +
+                    " unknownType=" + parsed.skippedUnknownTypeCount +
+                    " invalidUrl=" + parsed.invalidUrlCount +
+                    " generation=" + generation
+            )
+        }
+    }
+
+    /**
+     * 把站点清单挂到“刚推送的那条候选”上。
+     *
+     * 回包必须仍属于当前页面与当时那条候选：先用 `mediaPageGeneration` 与当前 URL 双重校验，
+     * 页面世代再交给 [VideoDetectionTabViewModel.mergeSiteAdapterFormats] 做最终裁定。
+     */
+    private fun maybeAttachKvsQualities(webView: WebView?) {
+        if (webView == null) {
+            return
+        }
+        val pageUrl = webView.url?.takeIf { it.startsWith("http") } ?: return
+        val videoId = (videoDetectionTabViewModel.downloadButtonState.get()
+            as? DownloadButtonStateCanDownload)?.info?.id?.takeIf { it.isNotBlank() } ?: return
+        if (lastKvsAttachmentGeneration == mediaPageGeneration &&
+            lastKvsAttachmentVideoId == videoId
+        ) {
+            return
+        }
+
+        val generation = mediaPageGeneration
+        val sourceUrl = pendingKvsPayloadSourceUrl
+        val cached = pendingKvsPayload
+        if (cached != null && sourceUrl != null && pendingKvsPayloadGeneration == generation) {
+            attachKvsQualities(webView, generation, videoId, cached, sourceUrl)
+            return
+        }
+
+        // 页面就绪钩子没拿到清单（例如站点在加载后才注入 flashvars）：候选出现时再读一次。
+        webView.evaluateJavascript(KvsFlashvarsAdapter.SCRIPT) { result ->
+            val parsed = parseKvsResult(result)
+            if (parsed == null) {
+                AppLogger.d("KVS_FLASHVARS: no contribution (not kvs or unparsable)")
+                return@evaluateJavascript
+            }
+            if (generation != mediaPageGeneration || webView.url != pageUrl) {
+                AppLogger.d("KVS_FLASHVARS: discarded stale result generation=$generation")
+                return@evaluateJavascript
+            }
+            val parsedSourceUrl = parsed.pageUrl.takeIf { it.startsWith("http") } ?: pageUrl
+            pendingKvsPayload = parsed
+            pendingKvsPayloadGeneration = generation
+            pendingKvsPayloadSourceUrl = parsedSourceUrl
+            attachKvsQualities(webView, generation, videoId, parsed, parsedSourceUrl)
+        }
+    }
+
+    private fun attachKvsQualities(
+        webView: WebView,
+        generation: Long,
+        videoId: String,
+        payload: KvsFlashvarsAdapter.Payload,
+        sourceUrl: String
+    ) {
+        if (generation != mediaPageGeneration) {
+            AppLogger.d("KVS_FLASHVARS: dropped before attach generation=$generation")
+            return
+        }
+        if (payload.items.isEmpty()) {
+            AppLogger.d(
+                "KVS_FLASHVARS: no usable quality items=" + payload.items.size +
+                    " unknownType=" + payload.skippedUnknownTypeCount +
+                    " invalidUrl=" + payload.invalidUrlCount
+            )
+            return
+        }
+        val formats = KvsFlashvarsAdapter.toVideoFormats(
+            payload = payload,
+            pageUrl = sourceUrl,
+            userAgent = webView.settings?.userAgentString,
+            cookie = CookieManager.getInstance().getCookie(sourceUrl)
+        )
+        val applied = videoDetectionTabViewModel.mergeSiteAdapterFormats(
+            pageGeneration = generation,
+            preferredVideoId = videoId,
+            formats = formats
+        )
+        if (applied) {
+            lastKvsAttachmentGeneration = generation
+            lastKvsAttachmentVideoId = videoId
+        }
+        AppLogger.d(
+            "KVS_FLASHVARS: items=" + payload.items.size +
+                " formats=" + formats.size +
+                " unknownType=" + payload.skippedUnknownTypeCount +
+                " invalidUrl=" + payload.invalidUrlCount +
+                " applied=" + applied
+        )
+    }
+
+    /** 脚本回包 → 结构体。长度上限、空串、非 JSON、非 KVS 页面一律当作“无贡献”。 */
+    private fun parseKvsResult(result: String?): KvsFlashvarsAdapter.Payload? {
+        val payload = decodeJavascriptString(result)
+        if (payload.isBlank()) {
+            return null
+        }
+        if (payload.length > MAX_KVS_FLASHVARS_PAYLOAD_LENGTH) {
+            AppLogger.d("KVS_FLASHVARS: ignored oversized payload")
+            return null
+        }
+        return KvsFlashvarsAdapter.parse(payload)
     }
 
     private fun onTelegramNavigationStarted(pageUrl: String) {

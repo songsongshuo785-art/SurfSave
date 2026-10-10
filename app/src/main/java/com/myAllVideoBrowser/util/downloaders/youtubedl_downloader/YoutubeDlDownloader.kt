@@ -9,9 +9,11 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import com.google.gson.Gson
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
+import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ContextUtils
+import com.myAllVideoBrowser.util.downloaders.SelectedFormatSelector
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.GenericDownloader
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
@@ -104,20 +106,22 @@ object YoutubeDlDownloader : GenericDownloader() {
         cacheKey: String,
         includeFormat: Boolean
     ): Data.Builder {
-        val videoUrl = if (videoInfo.downloadUrls.isNotEmpty()) {
-            videoInfo.originalUrl
+        // 只有真正要执行/续跑下载时才严格校验选中的 format
+        // （pause / cancel / stop-and-save / recover-finalization 不需要，也不应因数据问题而失败）。
+        val videoUrl = if (includeFormat) {
+            resolveExecutionUrl(videoInfo)
         } else {
-            videoInfo.formats.formats.firstOrNull()?.url.orEmpty()
+            legacyExecutionUrl(videoInfo)
         }
         val data = Data.Builder()
             .putString(Constants.URL_KEY, videoUrl)
             .putString(Constants.TITLE_KEY, videoInfo.title)
             .putString(Constants.FILENAME_KEY, videoInfo.name)
-            .putString(Constants.ORIGIN_KEY, videoInfo.originalUrl)
+            .putString(Constants.ORIGIN_KEY, videoUrl)
             .putString(Constants.TASK_ID_KEY, videoInfo.id)
 
         if (includeFormat) {
-            videoInfo.formats.formats.firstOrNull()?.let { format ->
+            selectedFormatForExecution(videoInfo)?.let { format ->
                 val encoded = Base64.encodeToString(
                     Gson().toJson(format).toByteArray(Charsets.UTF_8),
                     Base64.DEFAULT
@@ -133,4 +137,37 @@ object YoutubeDlDownloader : GenericDownloader() {
         }
         return data
     }
+
+    /**
+     * yt-dlp 的执行目标 URL。
+     *
+     * 必须是「产生这个 formatId 的那一次 yt-dlp 输入」，而不是 `videoInfo.originalUrl`：
+     * 否则「页面 URL + 直链 format」的混合对象会再次把页面地址交给 yt-dlp 的 generic extractor
+     * （Hanime1 撞 Cloudflare 的根因）。
+     */
+    private fun resolveExecutionUrl(videoInfo: VideoInfo): String {
+        val selected = SelectedFormatSelector.select(videoInfo, "ytdlp")
+        selected.extractorInputUrl?.takeIf { it.isNotBlank() }?.let { return it }
+
+        val fallback = videoInfo.originalUrl.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException(
+                "ytdlp: task ${videoInfo.id} has neither extractorInputUrl nor originalUrl."
+            )
+        AppLogger.w(
+            "DOWNLOAD_STRATEGY: LEGACY_STRATEGY reason=missing_extractor_input task=${videoInfo.id}"
+        )
+        return fallback
+    }
+
+    /** 控制类动作（pause/cancel/stop-and-save）沿用改动前的 URL 计算，避免无意义的行为变更。 */
+    private fun legacyExecutionUrl(videoInfo: VideoInfo): String =
+        if (videoInfo.downloadUrls.isNotEmpty()) {
+            videoInfo.originalUrl
+        } else {
+            videoInfo.formats.formats.firstOrNull()?.url.orEmpty()
+        }
+
+    /** 与 [resolveExecutionUrl] 同一条 format，保证 -f 的 formatId 与实际输入 URL 同源。 */
+    private fun selectedFormatForExecution(videoInfo: VideoInfo): VideoFormatEntity? =
+        SelectedFormatSelector.select(videoInfo, "ytdlp-format")
 }

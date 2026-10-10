@@ -13,7 +13,7 @@ import com.myAllVideoBrowser.util.ContextUtils
 import com.myAllVideoBrowser.util.CrashLogWriter
 import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.SharedPrefHelper
-import com.myAllVideoBrowser.util.downloaders.youtubedl_downloader.YoutubeDlRecoveryCoordinator
+import com.myAllVideoBrowser.util.downloaders.DownloadStartupRecoveryCoordinator
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.DaggerWorkerFactory
 import com.myAllVideoBrowser.util.proxy_utils.ProxyService
 import com.yausername.ffmpeg.FFmpeg
@@ -48,7 +48,7 @@ open class DLApplication : DaggerApplication() {
     lateinit var migrationManager: MigrationManager
 
     @Inject
-    lateinit var youtubeDlRecoveryCoordinator: YoutubeDlRecoveryCoordinator
+    lateinit var downloadStartupRecoveryCoordinator: DownloadStartupRecoveryCoordinator
 
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
@@ -91,7 +91,9 @@ open class DLApplication : DaggerApplication() {
             }
 
             initializeYoutubeDl()
-            youtubeDlRecoveryCoordinator.recover()
+            // 唯一的启动恢复入口：内部先跑 yt-dlp 恢复，再做 Custom/SuperX 孤儿对账。
+            // 两段都不会与仍然存活的 Worker 抢同一个任务（对账前会查 WorkManager）。
+            downloadStartupRecoveryCoordinator.recover()
         }
     }
 

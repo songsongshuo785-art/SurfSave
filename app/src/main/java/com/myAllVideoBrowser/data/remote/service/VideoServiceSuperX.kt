@@ -10,6 +10,7 @@ import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
 import com.myAllVideoBrowser.util.downloaders.super_x_downloader.ScopedHttpRequestExecutor
 import com.myAllVideoBrowser.util.hls_parser.HlsPlaylistParser
 import com.myAllVideoBrowser.util.hls_parser.MpdPlaylistParser
+import com.myAllVideoBrowser.util.media.DownloadStrategy
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import okhttp3.Request
 import java.io.IOException
@@ -196,6 +197,8 @@ class VideoServiceSuperX(
                             formatId = "hls-${height}p-${variant.bandwidth}",
                             format = "hls-${height}p-${variant.bandwidth}",
                             formatNote = "${height}p",
+                            // 盖章：由 SuperX 自己的 HLS 解析产生（format-local 强证据）。
+                            downloadStrategy = DownloadStrategy.HLS_MANIFEST.name,
                             ext = "mp4",
                             vcodec = MediaCodecClassifier.firstVideoCodec(variant.codecs)
                                 ?: "unknown",
@@ -246,6 +249,7 @@ class VideoServiceSuperX(
                         formatId = "hls-media",
                         format = "hls-${inferredHeight}p",
                         formatNote = "${inferredHeight}p",
+                        downloadStrategy = DownloadStrategy.HLS_MANIFEST.name,
                         ext = "mp4",
                         vcodec = "unknown",
                         acodec = "unknown",
@@ -320,6 +324,7 @@ class VideoServiceSuperX(
                 formatId = "mpd-${rep.height}p-${rep.bandwidth}",
                 format = "mpd-${rep.height}p-${rep.bandwidth}",
                 formatNote = "${rep.height}p",
+                downloadStrategy = DownloadStrategy.DASH_MANIFEST.name,
                 ext = "mp4",
                 vcodec = MediaCodecClassifier.firstVideoCodec(rep.codecs) ?: "unknown",
                 acodec = MediaCodecClassifier.firstAudioCodec(rep.codecs) ?: "unknown",

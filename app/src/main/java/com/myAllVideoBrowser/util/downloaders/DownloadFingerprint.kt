@@ -2,6 +2,7 @@ package com.myAllVideoBrowser.util.downloaders
 
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
+import com.myAllVideoBrowser.util.media.FormatIdentity
 import java.net.URI
 import java.security.MessageDigest
 import java.util.Locale
@@ -42,26 +43,17 @@ object DownloadFingerprint {
     }
 
     fun fromVideoInfo(videoInfo: VideoInfo): String {
-        val normalizedUrls = collectUrls(videoInfo)
-            .mapNotNull { normalizeUrl(it) }
-            .distinct()
-            .sorted()
-            .ifEmpty { listOf("title:${videoInfo.title.trim().lowercase(Locale.US)}") }
-
-        val selectedFormat = videoInfo.formats.formats.firstOrNull()
-        val formatIdentity = listOf(
-            selectedFormat?.formatId.orEmpty(),
-            selectedFormat?.height?.takeIf { it > 0 }?.toString().orEmpty(),
-            selectedFormat?.vcodec.orEmpty(),
-            selectedFormat?.acodec.orEmpty(),
-            videoInfo.ext
-        ).joinToString(":")
-
+        // 指纹的"主身份"与选择键同源：引擎种类 + strategy-aware FormatIdentity。
+        // 不再把 downloadUrls / originalUrl / 所有候选 URL 混进来：那些是"这个页面见过什么"，
+        // 而不是"这一次要下载哪个文件"（否则 720p 与 1080p 会得到相同指纹）。
+        // 旧数据（未盖章）仍取 first format，与改动前一致。
+        val selected = videoInfo.formats.formats.firstOrNull()
         val raw = listOf(
-            if (videoInfo.isRegularDownload) "regular" else "stream",
-            if (videoInfo.isDetectedBySuperX) "superx" else "ytdlp",
-            normalizedUrls.joinToString("|"),
-            formatIdentity
+            DownloadEngineKindResolver.kindOf(videoInfo, selected).name,
+            selected?.let {
+                FormatIdentity.of(videoInfo, it) { url -> normalizeUrl(url.orEmpty()).orEmpty() }
+            }.orEmpty(),
+            videoInfo.ext
         ).joinToString("#")
 
         return sha256(raw)
@@ -116,19 +108,6 @@ object DownloadFingerprint {
             .sorted()
 
         return kept.takeIf { it.isNotEmpty() }?.joinToString("&")
-    }
-
-    private fun collectUrls(videoInfo: VideoInfo): List<String> {
-        val formatUrls = videoInfo.formats.formats.flatMap { format ->
-            listOfNotNull(
-                format.url,
-                format.manifestUrl,
-                format.videoOnlyUrl,
-                format.audioOnlyUrl
-            )
-        }
-        val requestUrls = videoInfo.downloadUrls.map { it.url }
-        return formatUrls + requestUrls + listOf(videoInfo.originalUrl)
     }
 
     private fun sha256(raw: String): String {

@@ -33,10 +33,15 @@ import com.myAllVideoBrowser.util.CookieUtils
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.util.UserFacingError
 import com.myAllVideoBrowser.util.VideoFormatUi
+import com.myAllVideoBrowser.util.media.DownloadStrategy
 import com.myAllVideoBrowser.util.contentLengthOrUnknown
 import com.myAllVideoBrowser.util.telegram.TelegramPostResolution
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import com.myAllVideoBrowser.util.scheduler.BaseSchedulers
+import com.myAllVideoBrowser.util.site_adapters.SiteAdapterAttachment
+import com.myAllVideoBrowser.util.site_adapters.SiteAdapterAttachmentPolicy
+import com.myAllVideoBrowser.util.site_adapters.SiteAdapterCandidate
+import com.myAllVideoBrowser.util.site_adapters.SiteAdapterFormatMerge
 import io.reactivex.rxjava3.disposables.Disposable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -382,7 +387,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 detected = detected + resolved
                 orderedIds += resolved.id
                 lastResolvedVideo = resolved
-                VideoFormatUi.defaultSelectionKey(resolved)
+                // 保持用户在本次会话里已选中的那条 format，只把旧 key 迁移成新身份。
+                reselectKey(resolved, resolvedSelections[resolved.id])
                     .takeUnless { it == "unknown" }
                     ?.let { resolvedSelections[resolved.id] = it }
             }
@@ -606,6 +612,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
             val merged = mergeDuplicateVideoInfo(duplicate, newInfo)
             setDetectedVideosNow(detectedVideos - duplicate + merged)
             setButtonState(DownloadButtonStateCanDownload(merged))
+            // 合并后立即把旧选择键升级为新身份，但不改变用户实际选中的那条 format。
+            reselectAfterMerge(merged)
             AppLogger.d("MERGED DUPLICATED VIDEO INFO: $newInfo")
             return
         }
@@ -634,6 +642,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
         if (duplicate != null) {
             val merged = mergeDuplicateVideoInfo(duplicate, newInfo)
             setDetectedVideosNow(detectedMedia - duplicate + merged)
+            reselectAfterMerge(merged)
             return
         }
 
@@ -818,11 +827,11 @@ open class VideoDetectionTabViewModel @Inject constructor(
     }
 
     private fun autoSelectBestFormat(videoInfo: VideoInfo) {
-        val bestKey = VideoFormatUi.defaultSelectionKey(videoInfo)
-        if (bestKey == "unknown") return
         val current = selectedFormats.get().orEmpty()
-        if (!current.containsKey(videoInfo.id)) {
-            selectedFormats.set(current + (videoInfo.id to bestKey))
+        val resolved = reselectKey(videoInfo, current[videoInfo.id]) ?: return
+        if (resolved == "unknown") return
+        if (current[videoInfo.id] != resolved) {
+            selectedFormats.set(current + (videoInfo.id to resolved))
         }
     }
 
@@ -843,6 +852,90 @@ open class VideoDetectionTabViewModel @Inject constructor(
         setDetectedVideosNow(updatedVideos)
     }
 
+    /**
+     * 站点适配器（KVS flashvars 等）补出来的清晰度，合并进该页面的播放器候选。
+     *
+     * 竞态安全（约束 5）：`pageGeneration` 必须是当前页面世代，否则直接丢弃——旧页面的清单
+     * 绝不允许混进新页面；页面切换会走 [beginPageContext] 并清掉旧候选，所以“候选已不存在”也一并丢弃。
+     *
+     * 合并规则（约束 4）：挂到同一条候选下，身份仍然复用 `FormatIdentity`；
+     * 适配器清单里与既有格式 **URL 相同** 的条目不新增行，只把 `_text` 标签补到既有行上，
+     * 避免同一个清晰度出现两行。
+     *
+     * @return 是否真的改动了候选列表（幂等：重复调用不会引起界面抖动）。
+     */
+    @Synchronized
+    fun mergeSiteAdapterFormats(
+        pageGeneration: Long,
+        preferredVideoId: String?,
+        formats: List<VideoFormatEntity>
+    ): Boolean {
+        if (formats.isEmpty()) {
+            return false
+        }
+
+        val currentGeneration = protectedMediaPageTracker.snapshot().generation
+        if (currentGeneration != pageGeneration) {
+            AppLogger.d(
+                "SITE_ADAPTER: discarded stale generation=$pageGeneration current=$currentGeneration"
+            )
+            return false
+        }
+
+        val candidates = detectedVideosList.get().orEmpty().map {
+            SiteAdapterCandidate(videoId = it.id, normalizedUrls = mediaIdentityUrls(it))
+        }
+        val adapterUrls = formats
+            .flatMap { listOfNotNull(it.url, it.manifestUrl) }
+            .map { normalizeMediaUrl(it) }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        val decision = SiteAdapterAttachmentPolicy.decide(candidates, adapterUrls, preferredVideoId)
+        if (decision !is SiteAdapterAttachment.Attach) {
+            AppLogger.d(
+                "SITE_ADAPTER: skipped decision=$decision candidates=${candidates.size} urls=${adapterUrls.size}"
+            )
+            return false
+        }
+
+        var applied = false
+        runOnMain {
+            val current = detectedVideosList.get().orEmpty()
+            val target = current.firstOrNull { it.id == decision.videoId } ?: return@runOnMain
+            val existingFormats = target.formats.formats
+
+            val mergeResult = SiteAdapterFormatMerge.merge(
+                existing = existingFormats,
+                incoming = formats,
+                urlIdentity = ::normalizeMediaUrl,
+                identityOf = { format -> VideoFormatUi.selectionKey(target, format) }
+            )
+            if (!mergeResult.changed) {
+                return@runOnMain
+            }
+
+            val result = mergeDuplicateVideoInfo(
+                target,
+                target.copy(formats = VideFormatEntityList(mergeResult.formats))
+            )
+            val beforeIds = existingFormats.map { VideoFormatUi.selectionKey(target, it) }.toSet()
+            val afterIds = result.formats.formats.map { VideoFormatUi.selectionKey(result, it) }.toSet()
+
+            setDetectedVideosNow(current - target + result)
+            setButtonState(DownloadButtonStateCanDownload(result))
+            // 合并后把旧的选中键升级为新身份，但不改变用户实际选中的那条 format。
+            reselectAfterMerge(result)
+            applied = true
+            AppLogger.d(
+                "SITE_ADAPTER: attached video=${target.id} overlap=${decision.overlap} " +
+                    "added=${mergeResult.addedCount} labels=${mergeResult.labelUpdateCount} " +
+                    "qualities=${beforeIds.size}->${afterIds.size} total=${result.formats.formats.size}"
+            )
+        }
+        return applied
+    }
+
     protected fun isVideoInfoDuplicate(existing: VideoInfo, newInfo: VideoInfo): Boolean {
         val existingUrls = mediaIdentityUrls(existing)
         val newUrls = mediaIdentityUrls(newInfo)
@@ -861,8 +954,14 @@ open class VideoDetectionTabViewModel @Inject constructor(
     }
 
     private fun mergeDuplicateVideoInfo(existing: VideoInfo, newInfo: VideoInfo): VideoInfo {
-        val mergedFormats = (existing.formats.formats + newInfo.formats.formats)
-            .distinctBy { normalizeMediaUrl(VideoFormatUi.selectionKey(it)) }
+        // 身份必须按「该 format 自己的来源」计算：合并后的 VideoInfo 携带的是 VideoInfo 级标记，
+        // 用它给 newInfo 的 format 算身份会把来源信息污染掉（进而把直链格式误判成其它策略）。
+        val mergedFormats = (
+            existing.formats.formats.map { existing to it } +
+                newInfo.formats.formats.map { newInfo to it }
+            )
+            .distinctBy { (owner, format) -> VideoFormatUi.selectionKey(owner, format) }
+            .map { it.second }
 
         return existing.copy(
             title = existing.title.ifBlank { newInfo.title },
@@ -873,10 +972,40 @@ open class VideoDetectionTabViewModel @Inject constructor(
             downloadUrls = (existing.downloadUrls + newInfo.downloadUrls)
                 .distinctBy { normalizeMediaUrl(it.url) },
             formats = VideFormatEntityList(mergedFormats),
+            // legacy compatibility mirror，仅用于展示/旧逻辑读取；路由权威是 DownloadEngineKindResolver。
             isRegularDownload = existing.isRegularDownload && newInfo.isRegularDownload,
             isLive = existing.isLive || newInfo.isLive,
             isDetectedBySuperX = existing.isDetectedBySuperX || newInfo.isDetectedBySuperX
         )
+    }
+
+    /**
+     * 选择键迁移：**保持用户原来实际选中的那条 format**，只把旧 key 升级成新身份；
+     * 只有旧 key 完全解析不到任何 format 时才退回到默认最优。
+     *
+     * 不得写成「重新跑一遍 best selection」——那会在 merge 进来一条 1080p 后
+     * 把用户刚刚手动选的 720p 自动改掉。
+     */
+    private fun reselectKey(info: VideoInfo, oldKey: String?): String? {
+        if (oldKey != null) {
+            val preserved = VideoFormatUi.findFormat(info, oldKey)
+            if (preserved != null) {
+                return VideoFormatUi.selectionKey(info, preserved)
+            }
+        }
+        return VideoFormatUi.defaultSelectionKey(info)
+    }
+
+    /** 合并/刷新后统一入口：把该视频的选中值迁移到新身份（无选中时不启发式选中）。 */
+    private fun reselectAfterMerge(info: VideoInfo) {
+        runOnMain {
+            val current = selectedFormats.get().orEmpty()
+            val oldKey = current[info.id] ?: return@runOnMain
+            val migrated = reselectKey(info, oldKey) ?: return@runOnMain
+            if (migrated != oldKey && migrated != "unknown") {
+                selectedFormats.set(current + (info.id to migrated))
+            }
+        }
     }
 
     private fun normalizeTitle(title: String): String {
@@ -1566,7 +1695,10 @@ open class VideoDetectionTabViewModel @Inject constructor(
                                 httpHeaders = requestData.headers,
                                 width = inferredWidth,
                                 height = inferredHeight,
-                                fileSize = normalizedContentLength
+                                fileSize = normalizedContentLength,
+                                // 盖章：WebView 探针拿到的直链，已知可下载。
+                                downloadStrategy = DownloadStrategy.DIRECT_HTTP.name,
+                                sourcePageUrl = sourcePageUrl
                             )
                         )
                     ),
