@@ -51,7 +51,7 @@ object DownloadFingerprint {
         val raw = listOf(
             DownloadEngineKindResolver.kindOf(videoInfo, selected).name,
             selected?.let {
-                FormatIdentity.of(videoInfo, it) { url -> normalizeUrl(url.orEmpty()).orEmpty() }
+                FormatIdentity.ofWithNormalizer(videoInfo, it, ::normalizeUrl)
             }.orEmpty(),
             videoInfo.ext
         ).joinToString("#")
@@ -59,10 +59,15 @@ object DownloadFingerprint {
         return sha256(raw)
     }
 
-    internal fun normalizeUrl(input: String): String? {
-        val trimmed = input.trim()
+    /**
+     * 比 UI 侧 [com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.MediaUrlIdentity] 更宽的
+     * 指纹专用归一化：还剔 gclid/session/auth 等 volatile 键、排序剩余参数、归一化默认端口。
+     * 函数类型与 `FormatIdentity.ofWithNormalizer` 的入参一致（`(String?) -> String`）。
+     */
+    internal fun normalizeUrl(input: String?): String {
+        val trimmed = input?.trim().orEmpty()
         if (trimmed.isBlank()) {
-            return null
+            return ""
         }
 
         return runCatching {

@@ -17,15 +17,23 @@ import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.MediaUrlIdentit
 internal object FormatIdentity {
 
     /**
+     * 普通入口（UI / 检测去重）：固定使用保守的 [MediaUrlIdentity]。
+     * 更宽的归一化策略只能通过 [ofWithNormalizer] 显式注入，避免随手换一个 normalizer。
+     */
+    fun of(videoInfo: VideoInfo, format: VideoFormatEntity): String =
+        ofWithNormalizer(videoInfo, format, MediaUrlIdentity::of)
+
+    /**
      * @param urlNormalizer URL 归一化器。UI / 检测去重使用 [MediaUrlIdentity]
-     *        （保守：只去签名类参数与 utm_ 前缀，gclid / session / ref 等一律保留）；
-     *        `DownloadFingerprint` 传入自己更宽的归一化器（还会剥 gclid、session、ref、source 等跟踪参数），
+     *        （保守：只去签名类参数与 utm_ 前缀，gclid / session / ref / source 等一律保留，
+     *        且保持 query 参数原顺序）；`DownloadFingerprint` 传入自己更宽的归一化器
+     *        （还会剥 gclid、session、ref、source 等跟踪参数，排序稳定参数并归一化默认端口），
      *        以保持既有的重复下载拦截强度。
      */
-    fun of(
+    internal fun ofWithNormalizer(
         videoInfo: VideoInfo,
         format: VideoFormatEntity,
-        urlNormalizer: (String?) -> String = MediaUrlIdentity::of
+        urlNormalizer: (String?) -> String
     ): String {
         val resolution = DownloadStrategyResolver.resolve(videoInfo, format)
         val parts = when (resolution.strategy) {

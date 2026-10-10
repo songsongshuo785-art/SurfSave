@@ -36,16 +36,24 @@ internal object DownloadStrategyResolver {
         }
 
         if (hasSuperXProvenance(format)) {
-            val strategy = if (format.isMpd) {
-                DownloadStrategy.DASH_MANIFEST
-            } else {
-                DownloadStrategy.HLS_MANIFEST
+            // 不能「非 MPD 默认 HLS」：老 format 可能只有 manifestRequestUrl 而没有清单类型证据，
+            // 这种数据必须继续往下走到 legacy 回退，由本函数统一决定最终策略。
+            val strategy = when {
+                format.isMpd -> DownloadStrategy.DASH_MANIFEST
+                format.isM3u8 -> DownloadStrategy.HLS_MANIFEST
+                else -> null
             }
-            return DownloadStrategyResolution(
-                strategy = strategy,
-                provenance = DownloadStrategyProvenance.LEGACY,
-                extractorInputUrl = null,
-                isValid = true
+            if (strategy != null) {
+                return DownloadStrategyResolution(
+                    strategy = strategy,
+                    provenance = DownloadStrategyProvenance.LEGACY,
+                    extractorInputUrl = null,
+                    isValid = true
+                )
+            }
+            AppLogger.w(
+                "DOWNLOAD_STRATEGY: SUSPECT_PROVENANCE formatId=${format.formatId} " +
+                    "reason=superx_evidence_without_manifest_type"
             )
         }
 
@@ -108,6 +116,15 @@ internal object DownloadStrategyResolver {
             formatId.equals("hls-media", ignoreCase = true) ||
             formatId.startsWith("mpd-", ignoreCase = true)
     }
+
+    /**
+     * 「已盖章」的权威判据：持久化字符串能解析成**当前版本认识的**枚举值。
+     * 未知值（例如更高版本写入的 `DIRECT_FILE_V2`）不算盖章 —— 它由 legacy 路径安全接管，
+     * 与 [resolve] 里 `parseStrategy` 返回 null 后的回落语义保持一致。
+     * `SelectedFormatSelector` / `DownloadEngineKindResolver` 必须共用这一个判据。
+     */
+    fun hasValidExplicitStrategy(format: VideoFormatEntity): Boolean =
+        parseStrategy(format.downloadStrategy) != null
 
     /** 禁止裸 `Enum.valueOf()`：持久化字符串可能来自更早/更高版本或已损坏数据。 */
     private fun parseStrategy(raw: String?): DownloadStrategy? {

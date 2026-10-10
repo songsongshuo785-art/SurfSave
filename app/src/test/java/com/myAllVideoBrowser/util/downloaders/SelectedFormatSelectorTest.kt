@@ -43,6 +43,16 @@ class SelectedFormatSelectorTest {
     }
 
     @Test
+    fun unknownStampKeepsLegacyMultiFormatBehaviour() {
+        // 未知的持久化值（例如更高版本写入的 strategy）不算盖章：必须与 UNKNOWN_STRATEGY→legacy
+        // 回落语义一致，不能把升级用户的老任务直接抛死。
+        val first = format(formatId = "0", downloadStrategy = "DIRECT_FILE_V2", url = "https://cdn/480.mp4")
+        val second = format(formatId = "1", url = "https://cdn/1080.mp4")
+
+        assertEquals(first, SelectedFormatSelector.select(videoInfo(listOf(first, second)), "test"))
+    }
+
+    @Test
     fun explicitYtDlpWithoutExtractorInputFailsFast() {
         val only = format(formatId = "137", downloadStrategy = DownloadStrategy.YTDLP_FORMAT.name)
 

@@ -37,9 +37,11 @@ internal object DownloadEngineKindResolver {
         val selected = format ?: videoInfo.formats.formats.firstOrNull()
             ?: return legacyKindOf(videoInfo)
 
-        val hasExplicitStrategy = selected.downloadStrategy != null ||
-            videoInfo.formats.formats.any { it.downloadStrategy != null }
-        if (!hasExplicitStrategy) {
+        // 与 SelectedFormatSelector / DownloadStrategyResolver 同一语义：只有能解析成功的显式
+        // strategy 才算盖章；未知的持久化值（例如未来版本的 `DIRECT_FILE_V2`）必须退回 legacyKindOf，
+        // 否则旧 SuperX 任务（isRegularDownload=false + isDetectedBySuperX=true，format 无清单证据）
+        // 会被 resolver 的 legacy 顺序算成 YTDLP。
+        if (videoInfo.formats.formats.none(DownloadStrategyResolver::hasValidExplicitStrategy)) {
             return legacyKindOf(videoInfo)
         }
 

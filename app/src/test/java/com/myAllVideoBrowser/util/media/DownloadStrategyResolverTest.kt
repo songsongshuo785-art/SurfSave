@@ -92,6 +92,38 @@ class DownloadStrategyResolverTest {
         assertEquals(DownloadStrategy.DASH_MANIFEST, resolution.strategy)
     }
 
+    @Test
+    fun superXEvidenceWithoutManifestTypeFallsBackToLegacyInference() {
+        // 老 format 可能只带 manifestRequestUrl 而没有清单类型证据（formatId/protocol/扩展名都判不出来）。
+        // 这种情况不能「非 MPD 默认 HLS」，必须继续往下走到 legacy 回退。
+        val video = videoInfo()
+        val format = format(
+            url = "https://cdn.example/stream",
+            manifestRequestUrl = "https://cdn.example/stream"
+        )
+
+        val resolution = DownloadStrategyResolver.resolve(video, format)
+
+        assertEquals(DownloadStrategy.YTDLP_FORMAT, resolution.strategy)
+        assertEquals(DownloadStrategyProvenance.LEGACY, resolution.provenance)
+        assertEquals("https://page.example/watch?v=1", resolution.extractorInputUrl)
+    }
+
+    @Test
+    fun hasValidExplicitStrategyOnlyAcceptsKnownPersistedValues() {
+        assertTrue(
+            DownloadStrategyResolver.hasValidExplicitStrategy(
+                format(downloadStrategy = DownloadStrategy.HLS_MANIFEST.name)
+            )
+        )
+        assertFalse(
+            DownloadStrategyResolver.hasValidExplicitStrategy(
+                format(downloadStrategy = "DIRECT_FILE_V2")
+            )
+        )
+        assertFalse(DownloadStrategyResolver.hasValidExplicitStrategy(format()))
+    }
+
     private fun videoInfo(
         isRegularDownload: Boolean = false,
         isDetectedBySuperX: Boolean = false
@@ -109,6 +141,7 @@ class DownloadStrategyResolverTest {
         formatId: String? = null,
         url: String? = "https://cdn.example/video.mp4",
         manifestUrl: String? = null,
+        manifestRequestUrl: String? = null,
         protocol: String? = null,
         downloadStrategy: String? = null,
         extractorInputUrl: String? = null
@@ -116,6 +149,7 @@ class DownloadStrategyResolverTest {
         formatId = formatId,
         url = url,
         manifestUrl = manifestUrl,
+        manifestRequestUrl = manifestRequestUrl,
         protocol = protocol,
         downloadStrategy = downloadStrategy,
         extractorInputUrl = extractorInputUrl

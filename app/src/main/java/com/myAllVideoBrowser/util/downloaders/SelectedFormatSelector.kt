@@ -24,7 +24,9 @@ internal object SelectedFormatSelector {
         }
 
         if (formats.size > 1) {
-            if (formats.any { it.downloadStrategy != null }) {
+            // 只认「可成功解析的显式 strategy」：未知持久化值不算盖章，走下面的 legacy 兼容路径，
+            // 与 DownloadStrategyResolver 的 UNKNOWN_STRATEGY → legacy 回落保持一致。
+            if (formats.any(DownloadStrategyResolver::hasValidExplicitStrategy)) {
                 throw IllegalStateException(
                     "$context: stamped download task carries ${formats.size} formats."
                 )

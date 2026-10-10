@@ -60,6 +60,18 @@ class DownloadEngineKindResolverTest {
     }
 
     @Test
+    fun unknownStampFallsBackToLegacyFlags() {
+        // 未知的持久化 strategy 不算盖章：旧 SuperX 任务不能被 resolver 的 legacy 顺序
+        // （isRegularDownload → format 级证据 → YTDLP）误判成 YTDLP。
+        val video = videoInfo(
+            isDetectedBySuperX = true,
+            formats = listOf(format(downloadStrategy = "DIRECT_FILE_V2", url = "https://cdn/v.mp4"))
+        )
+
+        assertEquals(DownloadEngineKind.SUPERX, DownloadEngineKindResolver.kindOf(video))
+    }
+
+    @Test
     fun stampedYtDlpFormatUsesYtDlp() {
         val video = videoInfo(
             formats = listOf(

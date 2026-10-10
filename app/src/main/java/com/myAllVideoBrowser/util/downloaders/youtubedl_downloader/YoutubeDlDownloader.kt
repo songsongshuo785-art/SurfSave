@@ -13,8 +13,11 @@ import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
 import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ContextUtils
+import com.myAllVideoBrowser.util.downloaders.DownloadEngineKind
+import com.myAllVideoBrowser.util.downloaders.DownloadEngineKindResolver
 import com.myAllVideoBrowser.util.downloaders.SelectedFormatSelector
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.GenericDownloader
+import com.myAllVideoBrowser.util.media.DownloadStrategyResolver
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
@@ -144,19 +147,20 @@ object YoutubeDlDownloader : GenericDownloader() {
      * 必须是「产生这个 formatId 的那一次 yt-dlp 输入」，而不是 `videoInfo.originalUrl`：
      * 否则「页面 URL + 直链 format」的混合对象会再次把页面地址交给 yt-dlp 的 generic extractor
      * （Hanime1 撞 Cloudflare 的根因）。
+     *
+     * **只读 resolver 的结果**：`extractorInputUrl` 的 LEGACY 回退（`videoInfo.originalUrl`）只允许
+     * 发生在 `DownloadStrategyResolver` 内部，这里不再有第二套 explicit/legacy 判据。
      */
     private fun resolveExecutionUrl(videoInfo: VideoInfo): String {
         val selected = SelectedFormatSelector.select(videoInfo, "ytdlp")
-        selected.extractorInputUrl?.takeIf { it.isNotBlank() }?.let { return it }
-
-        val fallback = videoInfo.originalUrl.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException(
-                "ytdlp: task ${videoInfo.id} has neither extractorInputUrl nor originalUrl."
-            )
-        AppLogger.w(
-            "DOWNLOAD_STRATEGY: LEGACY_STRATEGY reason=missing_extractor_input task=${videoInfo.id}"
-        )
-        return fallback
+        val resolution = DownloadStrategyResolver.resolve(videoInfo, selected)
+        // 用「执行引擎是 yt-dlp」而不是字面的 YTDLP_FORMAT：路由把 PAGE_EXTRACTOR 也交给本引擎。
+        require(DownloadEngineKindResolver.engineKindOf(resolution) == DownloadEngineKind.YTDLP) {
+            "ytdlp: task ${videoInfo.id} resolved to ${resolution.strategy.name}."
+        }
+        return requireNotNull(resolution.extractorInputUrl?.takeIf { it.isNotBlank() }) {
+            "ytdlp: task ${videoInfo.id} has no extractor input URL."
+        }
     }
 
     /** 控制类动作（pause/cancel/stop-and-save）沿用改动前的 URL 计算，避免无意义的行为变更。 */
