@@ -4313,8 +4313,15 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
                 "KVS_FLASHVARS: captured items=" + parsed.items.size +
                     " unknownType=" + parsed.skippedUnknownTypeCount +
                     " invalidUrl=" + parsed.invalidUrlCount +
+                    " manifest=" + parsed.skippedManifestCount +
                     " generation=" + generation
             )
+            // A：候选先到、flashvars 后到时的补挂。
+            // 上面的缓存写入不再只等 `onVideoPushed()`：若候选已经推送过而当时清单还没就绪，
+            // 这里会立刻用刚缓存的清单再走一次挂载；`maybeAttachKvsQualities` 内部的 generation、
+            // 当前 URL、候选 id 校验与「已挂载过就不重复」守卫（仅在 applied==true 时置位）已经足够
+            // 防止过期或重复结果。
+            maybeAttachKvsQualities(webView)
         }
     }
 
@@ -4379,7 +4386,8 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             AppLogger.d(
                 "KVS_FLASHVARS: no usable quality items=" + payload.items.size +
                     " unknownType=" + payload.skippedUnknownTypeCount +
-                    " invalidUrl=" + payload.invalidUrlCount
+                    " invalidUrl=" + payload.invalidUrlCount +
+                    " manifest=" + payload.skippedManifestCount
             )
             return
         }

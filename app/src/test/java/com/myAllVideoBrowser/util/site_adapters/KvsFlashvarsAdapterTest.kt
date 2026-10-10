@@ -59,9 +59,10 @@ class KvsFlashvarsAdapterTest {
 
         assertEquals(KvsFlashvarsAdapter.ResourceKind.HLS, parsed.items[0].kind)
         assertEquals(KvsFlashvarsAdapter.ResourceKind.DASH, parsed.items[1].kind)
-        // 清单落地后是分片拼接的容器，与 VideoServiceSuperX 的既有取值一致。
-        assertEquals("mp4", parsed.items[0].extension)
-        assertEquals("mp4", parsed.items[1].extension)
+        // 清单类条目的扩展名照实记录，但不会被映射成可下载格式（见下一条测试）。
+        assertEquals("m3u8", parsed.items[0].extension)
+        assertEquals("mpd", parsed.items[1].extension)
+        assertEquals(2, parsed.skippedManifestCount)
     }
 
     @Test
@@ -157,25 +158,29 @@ class KvsFlashvarsAdapterTest {
     }
 
     @Test
-    fun toVideoFormats_stampsManifestQualitiesWithSuperXStrategies() {
+    fun toVideoFormats_dropsManifestQualitiesInsteadOfFakingSuperXFormats() {
         val pageUrl = "https://site.example/video/1/"
         val parsed = requireNotNull(
             KvsFlashvarsAdapter.parse(
                 """{"status":"ok","pageUrl":"$pageUrl","items":[
                      {"url":"https://cdn.example/hls/master.m3u8","label":"HLS"},
-                     {"url":"https://cdn.example/dash/manifest.mpd","label":"DASH"}
+                     {"url":"https://cdn.example/dash/manifest.mpd","label":"DASH"},
+                     {"url":"https://cdn.example/1080.mp4","label":"1080p"}
                    ]}"""
             )
         )
 
         val formats = KvsFlashvarsAdapter.toVideoFormats(parsed, pageUrl, "TestAgent/1.0", null)
 
-        assertEquals(DownloadStrategy.HLS_MANIFEST.name, formats[0].downloadStrategy)
-        assertEquals("m3u8_native", formats[0].protocol)
-        assertEquals(formats[0].url, formats[0].manifestUrl)
-        assertEquals(formats[0].url, formats[0].manifestRequestUrl)
-        assertEquals(DownloadStrategy.DASH_MANIFEST.name, formats[1].downloadStrategy)
-        assertEquals("http_dash_segments", formats[1].protocol)
+        // B2：`kvs-N` 与 SuperX worker 真正查找的 `hls-{height}p-{bandwidth}` /
+        // `mpd-{height}p-{bandwidth}` 对不上，自造 format 只会把 master 清单下载变成
+        // "selected format ID could not be found"。本轮只稳定支持直链多清晰度。
+        assertEquals(2, parsed.skippedManifestCount)
+        assertEquals(1, formats.size)
+        assertEquals("https://cdn.example/1080.mp4", formats.single().url)
+        assertEquals(DownloadStrategy.DIRECT_HTTP.name, formats.single().downloadStrategy)
+        assertEquals(null, formats.single().manifestUrl)
+        assertEquals(null, formats.single().manifestRequestUrl)
     }
 
     /** 构造与脚本回包同形的 JSON（video_url + video_alt_url..5，按传入顺序）。 */

@@ -78,7 +78,15 @@ internal object KvsFlashvarsAdapter {
         val pageUrl: String,
         val items: List<Item>,
         val skippedUnknownTypeCount: Int,
-        val invalidUrlCount: Int
+        val invalidUrlCount: Int,
+        /**
+         * 清单类条目（HLS/DASH）的数量。它们**不会**被 [toVideoFormats] 映射成可下载格式（B2）：
+         * `kvs-N` 这类自造 formatId 与 SuperX worker 真正查找的 `hls-{height}p-{bandwidth}` /
+         * `mpd-{height}p-{bandwidth}` 对不上，master 清单会直接以
+         * "The selected format ID … could not be found in the … manifest" 失败。
+         * 本组件只稳定支持直链多清晰度，清单交给既有 `VideoServiceSuperX`（后续单独一轮）。
+         */
+        val skippedManifestCount: Int
     )
 
     data class Item(
@@ -121,6 +129,7 @@ internal object KvsFlashvarsAdapter {
         val array = json.get("items")?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
         val items = mutableListOf<Item>()
         var skippedUnknownType = 0
+        var skippedManifest = 0
         var invalidUrl = 0
         array.forEach { element ->
             if (!element.isJsonObject) {
@@ -148,22 +157,27 @@ internal object KvsFlashvarsAdapter {
                 // 标签原样保留（只去掉 HTML 转义），不解析、不推断分辨率。
                 label = label,
                 kind = kind,
-                extension = extensionOf(url, kind)
+                extension = rawExtension(url)
             )
+            if (kind != ResourceKind.DIRECT) {
+                skippedManifest++
+            }
         }
 
         return Payload(
             pageUrl = json.stringOrNull("pageUrl").orEmpty().trim(),
             items = items,
             skippedUnknownTypeCount = skippedUnknownType,
-            invalidUrlCount = invalidUrl
+            invalidUrlCount = invalidUrl,
+            skippedManifestCount = skippedManifest
         )
     }
 
     /**
      * 映射成下载格式。
      *
-     * - 类型决定策略：mp4 等直链 → `DIRECT_HTTP`；`.m3u8` → `HLS_MANIFEST`；`.mpd` → `DASH_MANIFEST`。
+     * - **只映射直链**（[ResourceKind.DIRECT] → `DIRECT_HTTP`）。幂等：清单类条目（HLS/DASH）一律丢弃，
+     *   数量由调用方从 [Payload.skippedManifestCount] 读到并写日志（B2：不自造能直接交给 SuperX 的 format）。
      * - `_text` 标签原样放进 `formatNote`/`format`；**不设置 height**（不凭空推断分辨率）。
      * - 请求头按 `MediaRequestHeaderPolicy` 的同源边界生成：同源才带 Cookie，跨域只带 Referer/UA。
      */
@@ -184,16 +198,17 @@ internal object KvsFlashvarsAdapter {
             sourceHeaders["Cookie"] = cookie
         }
 
-        return payload.items.mapIndexed { index, item ->
-            val headers = MediaRequestHeaderPolicy.mergeForFormat(
-                sourceHeaders = sourceHeaders,
-                formatHeaders = emptyMap(),
-                sourceUrl = pageUrl,
-                mediaUrl = item.url
-            )
-            val label = item.label.takeIf { it.isNotBlank() }
-            when (item.kind) {
-                ResourceKind.DIRECT -> VideoFormatEntity(
+        return payload.items
+            .filter { it.kind == ResourceKind.DIRECT }
+            .mapIndexed { index, item ->
+                val headers = MediaRequestHeaderPolicy.mergeForFormat(
+                    sourceHeaders = sourceHeaders,
+                    formatHeaders = emptyMap(),
+                    sourceUrl = pageUrl,
+                    mediaUrl = item.url
+                )
+                val label = item.label.takeIf { it.isNotBlank() }
+                VideoFormatEntity(
                     formatId = "kvs-$index",
                     format = label,
                     formatNote = label,
@@ -203,38 +218,7 @@ internal object KvsFlashvarsAdapter {
                     sourcePageUrl = pageUrl,
                     httpHeaders = headers
                 )
-
-                ResourceKind.HLS -> VideoFormatEntity(
-                    formatId = "kvs-$index",
-                    format = label,
-                    formatNote = label,
-                    ext = MANIFEST_EXTENSION,
-                    url = item.url,
-                    manifestUrl = item.url,
-                    protocol = HLS_PROTOCOL,
-                    manifestRequestUrl = item.url,
-                    manifestRequestHeaders = headers,
-                    httpHeaders = headers,
-                    downloadStrategy = DownloadStrategy.HLS_MANIFEST.name,
-                    sourcePageUrl = pageUrl
-                )
-
-                ResourceKind.DASH -> VideoFormatEntity(
-                    formatId = "kvs-$index",
-                    format = label,
-                    formatNote = label,
-                    ext = MANIFEST_EXTENSION,
-                    url = item.url,
-                    manifestUrl = item.url,
-                    protocol = DASH_PROTOCOL,
-                    manifestRequestUrl = item.url,
-                    manifestRequestHeaders = headers,
-                    httpHeaders = headers,
-                    downloadStrategy = DownloadStrategy.DASH_MANIFEST.name,
-                    sourcePageUrl = pageUrl
-                )
             }
-        }
     }
 
     private fun com.google.gson.JsonObject.stringOrNull(name: String): String? {
@@ -255,12 +239,6 @@ internal object KvsFlashvarsAdapter {
         }
     }
 
-    private fun extensionOf(url: String, kind: ResourceKind): String = when (kind) {
-        // 清单下载落地后是分片拼接的容器，与 VideoServiceSuperX 的既有取值保持一致。
-        ResourceKind.HLS, ResourceKind.DASH -> MANIFEST_EXTENSION
-        ResourceKind.DIRECT -> rawExtension(url)
-    }
-
     /**
      * 取「路径部分的扩展名」。
      * KVS 的直链常带尾部斜杠和签名参数（`.../1080.mp4/?br=..&hash=..`），因此先去掉 query/fragment 与尾部斜杠。
@@ -275,8 +253,4 @@ internal object KvsFlashvarsAdapter {
         val lower = url.lowercase(Locale.US)
         return (lower.startsWith("http://") || lower.startsWith("https://")) && url.length > 8
     }
-
-    private const val MANIFEST_EXTENSION = "mp4"
-    private const val HLS_PROTOCOL = "m3u8_native"
-    private const val DASH_PROTOCOL = "http_dash_segments"
 }

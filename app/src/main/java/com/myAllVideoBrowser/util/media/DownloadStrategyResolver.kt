@@ -124,7 +124,17 @@ internal object DownloadStrategyResolver {
      * `SelectedFormatSelector` / `DownloadEngineKindResolver` 必须共用这一个判据。
      */
     fun hasValidExplicitStrategy(format: VideoFormatEntity): Boolean =
-        parseStrategy(format.downloadStrategy) != null
+        isKnownStrategy(format.downloadStrategy)
+
+    /**
+     * 纯判据：持久化字符串是否等于当前版本认识的枚举值。**不打日志**。
+     * 展示路径（列表渲染 / DiffUtil / 排序）会高频调用它，不能因为一个未知值反复刷
+     * `UNKNOWN_STRATEGY`；异常值只在真正参与解析时（[parseStrategy]）记录一次。
+     */
+    private fun isKnownStrategy(raw: String?): Boolean {
+        val value = raw?.trim().orEmpty()
+        return value.isNotEmpty() && DownloadStrategy.entries.any { it.name == value }
+    }
 
     /** 禁止裸 `Enum.valueOf()`：持久化字符串可能来自更早/更高版本或已损坏数据。 */
     private fun parseStrategy(raw: String?): DownloadStrategy? {

@@ -9,6 +9,7 @@ import com.myAllVideoBrowser.data.local.room.entity.toDownloadRequestData
 import com.myAllVideoBrowser.util.CookieUtils
 import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
 import com.myAllVideoBrowser.util.media.DownloadStrategy
+import com.myAllVideoBrowser.util.media.PlainMediaStrategyPolicy
 import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
 import com.myAllVideoBrowser.util.AppLogger
 import com.yausername.youtubedl_android.YoutubeDL
@@ -97,6 +98,7 @@ open class VideoServiceLocal(
 
             val formats = mutableListOf<VideoFormatEntity>()
             val formatsArray = json.optJSONArray("formats")
+            val extractorName = json.optString("extractor").ifBlank { json.optString("extractor_key") }
 
             if (formatsArray != null) {
                 for (i in 0 until formatsArray.length()) {
@@ -130,6 +132,22 @@ open class VideoServiceLocal(
                     val formatHeaders = MediaRequestHeaderPolicy.fromJsonObject(
                         f.optJSONObject("http_headers")
                     )
+                    val protocolValue = f.optString("protocol").takeIf { it.isNotBlank() }
+                    val vcodecValue = f.optString("vcodec", "none")
+                    val acodecValue = f.optString("acodec", "none")
+
+                    // A′：generic/html5 单条普通媒体地址本身就是可独立执行的下载目标，盖 DIRECT_HTTP。
+                    // 否则会被盖成 YTDLP_FORMAT，下载侧重新解析页面后用 -f 去匹配一个跨解析不稳定的
+                    // format_id（Hanime1 22554 / Rule34 4391917 的真实失败路径）。
+                    val directHttp = PlainMediaStrategyPolicy.shouldStampDirectHttp(
+                        extractor = extractorName,
+                        formatCount = formatsArray.length(),
+                        url = mediaUrl,
+                        protocol = protocolValue,
+                        ext = f.optString("ext"),
+                        vcodec = vcodecValue,
+                        acodec = acodecValue
+                    )
 
                     // Create localization label: "original [en]" or just "[en]"
                     val localizedNote = when {
@@ -157,11 +175,17 @@ open class VideoServiceLocal(
                         bitrate = tbr.takeIf { it > 0 }?.toLong()?.times(1000L),
                         duration = videoDuration * 1000,
                         manifestUrl = f.optString("manifest_url"),
-                        protocol = f.optString("protocol").takeIf { it.isNotBlank() },
-                        // 盖章：这些 format 由本次 yt-dlp 解析产生，formatId 只在本次输入下有意义。
-                        // sourcePageUrl 留空（此层拿不到页面地址），由队列入列点补齐。
-                        downloadStrategy = DownloadStrategy.YTDLP_FORMAT.name,
-                        extractorInputUrl = originalUrl,
+                        protocol = protocolValue,
+                        // 盖章：formatId 只在「产生它的那次 yt-dlp 输入」下有意义。
+                        // DIRECT_HTTP 时不记录 extractorInputUrl（执行时不再跑 yt-dlp），
+                        // 页面地址改记在 sourcePageUrl 上，仅作来源与 Referer 溯源。
+                        downloadStrategy = if (directHttp) {
+                            DownloadStrategy.DIRECT_HTTP.name
+                        } else {
+                            DownloadStrategy.YTDLP_FORMAT.name
+                        },
+                        extractorInputUrl = if (directHttp) null else originalUrl,
+                        sourcePageUrl = if (directHttp) originalUrl else null,
                         httpHeaders = MediaRequestHeaderPolicy.mergeForFormat(
                             sourceHeaders = url.headers.toMap(),
                             formatHeaders = formatHeaders,

@@ -17,6 +17,7 @@ import com.myAllVideoBrowser.util.downloaders.generic_downloader.workers.Generic
 import com.google.gson.Gson
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.FileUtil
+import com.myAllVideoBrowser.util.media.FormatCodecEvidence
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.youtubedl_android.YoutubeDLResponse
@@ -330,19 +331,21 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
         val threadsCount = sharedPrefHelper.getM3u8DownloaderThreadCount()
         request.addOption("-N", threadsCount)
 
-        val isAudioOnly = vFormat.vcodec == "none" && vFormat.acodec != "none"
+        val isAudioOnly = FormatCodecEvidence.isAudioOnly(vFormat.vcodec, vFormat.acodec)
 
         if (isAudioOnly) {
             request.addOption("--audio-quality", "0")
             request.addOption("--extract-audio")
             request.addOption("--audio-format", "mp3")
         } else {
-            val videoOnly = vFormat.vcodec != "none" && vFormat.acodec == "none"
-            if (videoOnly) {
-                request.addOption("-f", "${vFormat.formatId}+bestaudio")
-            } else {
-                request.addOption("-f", "${vFormat.formatId}")
-            }
+            // D2：只有「明确的视频 codec + 明确的音轨缺失」才追加 `+bestaudio`。
+            // 缺省/未知 codec（html5/generic 解析的典型形态）不再当成 video-only：
+            // 否则给一条完整 MP4 追加 `+bestaudio`，yt-dlp 会直接报
+            // `Requested format is not available`（Hanime1 22554 的真实失败路径）。
+            val formatSelector = requireNotNull(
+                FormatCodecEvidence.formatSelector(vFormat.formatId, vFormat.vcodec, vFormat.acodec)
+            ) { "yt-dlp: audio-only format reached the video selector branch." }
+            request.addOption("-f", formatSelector)
 
             request.addOption("--recode-video", "mp4")
             request.addOption("--merge-output-format", "mp4")

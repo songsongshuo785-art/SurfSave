@@ -75,6 +75,26 @@ object UserFacingError {
                 "requested formats are not available"
             ) ->
                 Category.NO_FORMAT
+            // TLS/传输层错误必须优先于笼统的 yt-dlp/extractor 关键字：yt-dlp 的 SSL 报错正文里
+            // **一定**含 "yt-dlp"（问题模板链接 https://github.com/yt-dlp/yt-dlp/issues 与
+            // `yt-dlp -U` 提示），否则会被误报成“解析器可能过旧”，把 TLS 问题指到错误的方向。
+            containsAny(
+                text,
+                "[ssl:",
+                "ssl:",
+                "sslerror",
+                "ssl error",
+                "ssl connect",
+                "ssl_read",
+                "sslhandshake",
+                "ssl handshake",
+                "tlsv1",
+                "tls handshake",
+                "certificate",
+                "unexpected_eof_while_reading",
+                "eof occurred in violation"
+            ) ->
+                Category.NETWORK
             containsAny(text, "yt-dlp", "youtube-dl", "extractor", "unsupported url", "signature extraction", "please update") ->
                 Category.YTDLP_OUTDATED
             containsAny(text, "401", "403", "unauthorized", "forbidden", "login", "sign in", "cookie", "authenticated") ->

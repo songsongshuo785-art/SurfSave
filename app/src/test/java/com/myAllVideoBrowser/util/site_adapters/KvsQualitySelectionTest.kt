@@ -7,8 +7,10 @@ import com.myAllVideoBrowser.util.VideoFormatUi
 import com.myAllVideoBrowser.util.downloaders.DownloadEngineKind
 import com.myAllVideoBrowser.util.downloaders.DownloadEngineKindResolver
 import com.myAllVideoBrowser.util.downloaders.SelectedFormatSelector
+import com.myAllVideoBrowser.util.media.DownloadStrategy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -76,7 +78,9 @@ class KvsQualitySelectionTest {
     }
 
     @Test
-    fun manifestQualitiesGoToTheSuperXEngine() {
+    fun manifestQualitiesAreNotOfferedAsKvsDownloadsAnyMore() {
+        // B2 回归：KVS 只报清单时，适配器不得造出 `kvs-N` 这种 SuperX worker 找不到的 format。
+        // 候选保持网络嗅探到的直链，而不是被一个必然失败的 manifest format 顶掉。
         val candidate = candidateFromPayload(
             """{"status":"ok","pageUrl":"$pageUrl","items":[
                  {"url":"https://cdn.example/hls/720.m3u8","label":"720p"},
@@ -84,12 +88,14 @@ class KvsQualitySelectionTest {
                ]}"""
         )
 
-        val payload = selectAndBuildQueuePayload(candidate, label = "1080p")
-
-        assertEquals(DownloadEngineKind.SUPERX, DownloadEngineKindResolver.kindOf(payload))
+        assertEquals(1, candidate.formats.formats.size)
         assertEquals(
-            "https://cdn.example/hls/1080.m3u8",
-            SelectedFormatSelector.select(payload, "test").url
+            "https://rule34video.com/get_file/1/480.mp4/?br=800&hash=a",
+            candidate.formats.formats.single().url
+        )
+        assertTrue(
+            "KVS 清单不得出现在候选列表里",
+            candidate.formats.formats.none { it.downloadStrategy == DownloadStrategy.HLS_MANIFEST.name }
         )
     }
 
