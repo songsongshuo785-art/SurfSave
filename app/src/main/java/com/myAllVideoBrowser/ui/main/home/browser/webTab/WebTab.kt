@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.Message
 import android.webkit.WebView
+import com.myAllVideoBrowser.util.BrowserWebViewStateStore
 import java.util.UUID
 
 enum class WebTabNavigationPurpose {
@@ -52,16 +53,57 @@ class WebTab(
         this.webview = webview
     }
 
-    fun saveWebViewState(): Boolean {
-        val currentWebView = webview ?: return false
+    /** Result of a successful `WebView.saveState()` capture, in-memory and on disk. */
+    data class WebViewStateCapture(
+        val state: Bundle,
+        val savedUrl: String,
+        val entryCount: Int,
+        val currentIndex: Int
+    )
+
+    /**
+     * Captures the WebView navigation state on the WebView thread. Returns `null` when there is no
+     * WebView or the state is empty. The in-memory [savedState] is refreshed as a side effect.
+     */
+    fun captureWebViewState(): WebViewStateCapture? {
+        val currentWebView = webview ?: return null
         val state = Bundle()
-        val restoredList = currentWebView.saveState(state)
-        return if (restoredList != null && !state.isEmpty) {
-            savedState = Bundle(state)
-            true
-        } else {
-            false
+        val savedList = runCatching { currentWebView.saveState(state) }.getOrNull() ?: return null
+        if (state.isEmpty) {
+            return null
         }
+        savedState = Bundle(state)
+        return WebViewStateCapture(
+            state = Bundle(state),
+            savedUrl = savedList.currentItem?.url ?: currentWebView.url ?: url,
+            entryCount = savedList.size,
+            currentIndex = savedList.currentIndex
+        )
+    }
+
+    fun saveWebViewState(): Boolean {
+        return captureWebViewState() != null
+    }
+
+    /**
+     * Captures the current state and persists it for the next process start (cold start,
+     * `force-stop`, app upgrade or background process death). Returns `false` when the tab cannot
+     * be persisted: home tab, no WebView, non-http document or a state too large to store.
+     */
+    fun persistWebViewState(
+        store: BrowserWebViewStateStore = BrowserWebViewStateStore.shared()
+    ): Boolean {
+        if (isHome()) {
+            return false
+        }
+        val capture = captureWebViewState() ?: return false
+        return store.saveAsync(
+            id,
+            capture.state,
+            capture.savedUrl,
+            capture.entryCount,
+            capture.currentIndex
+        )
     }
 
     fun getSavedState(): Bundle? {

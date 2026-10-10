@@ -116,6 +116,10 @@ import com.myAllVideoBrowser.ui.main.player.PlaybackTargetMenuItem
 import com.myAllVideoBrowser.ui.main.player.PlaybackTargetResolver
 import com.myAllVideoBrowser.ui.main.player.PlaybackTargetStore
 import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.BrowserWebViewStateMeta
+import com.myAllVideoBrowser.util.BrowserWebViewStateRestorePolicy
+import com.myAllVideoBrowser.util.BrowserWebViewStateStore
+import com.myAllVideoBrowser.util.RestoredHistoryFacts
 import com.myAllVideoBrowser.util.AppUtil
 import com.myAllVideoBrowser.util.FileNameCleaner
 import com.myAllVideoBrowser.util.MediaRequestHeaderPolicy
@@ -317,6 +321,12 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
         private const val MENU_OPEN_LINK_CURRENT_WINDOW = 1001
         private const val MENU_OPEN_LINK_NEW_WINDOW = 1002
         private const val MENU_OPEN_LINK_BACKGROUND_WINDOW = 1003
+
+        /** Coalesces navigation-driven state writes so history stays durable without writing on every step. */
+        private const val WEBVIEW_STATE_PERSIST_DELAY_MS = 1_200L
+
+        /** How long to wait before treating a restored but still empty document as a failure. */
+        private const val RESTORED_PAGE_RECOVERY_DELAY_MS = 2_500L
 
         private val MEDIA_PROBE_SCRIPT = """
             (function() {
@@ -1526,7 +1536,7 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
             message.sendToTarget()
             webTab.flushMessage()
         } else if (shouldLoadInitialPage) {
-            tabViewModel.loadPage(webTab.getUrl())
+            tabViewModel.loadPage(pendingInitialPageUrl ?: webTab.getUrl())
         } else {
             tabViewModel.setTabTextInput(webTab.getWebView()?.url ?: webTab.getUrl(), isForce = true)
             tabViewModel.currentTitle.set(webTab.getWebView()?.title ?: webTab.getTitle())
@@ -1762,6 +1772,8 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
         AppLogger.d("SITE_DATA: requested clear origin=$origin")
         // deleteOrigin 对已加载的文档不生效(页面内存里仍有一份),必须刷新页面。
         webView.reload()
+        // The stored snapshot still holds the pre-clear document; keeping it would resurrect it.
+        BrowserWebViewStateStore.shared().delete(webTab.id)
         Toast.makeText(requireContext(), R.string.clear_site_web_data_reset, Toast.LENGTH_SHORT).show()
     }
 
@@ -1835,6 +1847,7 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
         if (!outState.isEmpty) {
             webTab.setSavedState(outState)
         }
+        webTab.persistWebViewState()
     }
 
     override fun onViewStateRestored(savedInstanceState: Bundle?) {
@@ -1868,7 +1881,8 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
 dataBinding.fab.animate().cancel()
         customWebChromeClient?.dispose()
         contentBlockWebController.detach()
-        webTab.saveWebViewState()
+        statePersistHandler.removeCallbacks(statePersistRunnable)
+        webTab.persistWebViewState()
         webTab.getWebView()?.let { detachWebView(it) }
         customWebChromeClient = null
         super.onDestroyView()
@@ -1880,10 +1894,17 @@ dataBinding.fab.animate().cancel()
         if (customWebChromeClient?.isCustomViewShown() != true) {
             captureVisibleTabThumbnail()
         }
-        webTab.saveWebViewState()
+        webTab.persistWebViewState()
         onWebViewPause()
         backPressedCallback.isEnabled = false
         super.onPause()
+    }
+
+    override fun onStop() {
+        // Leaving the foreground is the last reliable hook before the process may be killed.
+        statePersistHandler.removeCallbacks(statePersistRunnable)
+        webTab.persistWebViewState()
+        super.onStop()
     }
 
     private fun cancelTranslationWork() {
@@ -2339,6 +2360,22 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         mainActivity.mainViewModel.downloadVideoEvent.value = info
     }
 
+    /**
+     * State resolved for a freshly created WebView. [meta] is only present when the state came from
+     * the durable per-tab snapshot, which is what the strict restore validation compares against.
+     */
+    private data class RestorableTabState(
+        val state: Bundle,
+        val meta: BrowserWebViewStateMeta?,
+        val persisted: Boolean
+    )
+
+    private val statePersistHandler = Handler(Looper.getMainLooper())
+    private val statePersistRunnable = Runnable { persistWebViewStateNow() }
+
+    /** URL that must be loaded when a stored snapshot had to be rejected. */
+    private var pendingInitialPageUrl: String? = null
+
     private fun recreateWebView(savedInstanceState: Bundle?): Boolean {
         val existingWebView = webTab.getWebView()
         val needsNewWebView = existingWebView == null
@@ -2346,15 +2383,41 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             webTab.setWebView(WebView(requireContext()))
         }
 
-        val stateToRestore = if (needsNewWebView) {
-            savedInstanceState?.takeIf { !it.isEmpty } ?: webTab.getSavedState()
+        // Order: the system bundle for this view, then the in-memory state of the tab, and finally
+        // the durable snapshot written by a previous process (cold start / upgrade / kill).
+        val restorableState = if (needsNewWebView) {
+            systemStateToRestore(savedInstanceState) ?: persistedStateToRestore()
         } else {
             null
         }
+        pendingInitialPageUrl = null
         var restored = false
-        if (stateToRestore != null) {
-            restored = webTab.getWebView()?.restoreState(stateToRestore) != null
+        if (restorableState != null) {
+            val history = runCatching {
+                webTab.getWebView()?.restoreState(restorableState.state)
+            }.getOrNull()
+            val facts = history?.let {
+                RestoredHistoryFacts(it.size, it.currentIndex, it.currentItem?.url)
+            }
+            restored = facts != null && BrowserWebViewStateRestorePolicy.isAcceptable(
+                facts = facts,
+                expectedUrl = restorableState.meta?.savedUrl,
+                expectedEntryCount = restorableState.meta?.entryCount
+            )
             if (restored) {
+                webTab.clearSavedState()
+                scheduleRestoredPageRecovery()
+            } else {
+                // A rejected snapshot is dropped instead of being retried: it is stale, damaged or
+                // unreadable after a WebView update. The tab falls back to a plain URL load.
+                if (restorableState.persisted) {
+                    AppLogger.w(
+                        "WEBVIEW_STATE_RESTORE rejected tab=${webTab.id} " +
+                            "entries=${facts?.entryCount} index=${facts?.currentIndex}"
+                    )
+                    BrowserWebViewStateStore.shared().delete(webTab.id)
+                    pendingInitialPageUrl = restorableState.meta?.savedUrl
+                }
                 webTab.clearSavedState()
             }
         }
@@ -2362,6 +2425,55 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         webTab.markActive()
         AppLogger.d("WEBVIEW_REHYDRATE id=${webTab.id} created=$needsNewWebView restored=$restored")
         return needsNewWebView && !restored && webTab.getMessage() == null
+    }
+
+    private fun systemStateToRestore(savedInstanceState: Bundle?): RestorableTabState? {
+        val state = savedInstanceState?.takeIf { !it.isEmpty } ?: webTab.getSavedState()
+            ?: return null
+        return RestorableTabState(state, meta = null, persisted = false)
+    }
+
+    private fun persistedStateToRestore(): RestorableTabState? {
+        if (webTab.isHome()) {
+            return null
+        }
+        val loaded = BrowserWebViewStateStore.shared().load(webTab.id) ?: return null
+        return RestorableTabState(loaded.state, loaded.meta, persisted = true)
+    }
+
+    /**
+     * `restoreState()` does not restore the rendered page, so a restored document that stays empty
+     * is reloaded once. History is untouched by `reload()`.
+     */
+    private fun scheduleRestoredPageRecovery() {
+        val restoredWebView = webTab.getWebView() ?: return
+        restoredWebView.postDelayed({
+            if (webTab.getWebView() !== restoredWebView) {
+                return@postDelayed
+            }
+            if (restoredWebView.url.isNullOrBlank()) {
+                AppLogger.w(
+                    "WEBVIEW_STATE_RESTORE empty document after restore tab=${webTab.id}, reloading"
+                )
+                runCatching { restoredWebView.reload() }
+            }
+        }, RESTORED_PAGE_RECOVERY_DELAY_MS)
+    }
+
+    /** Navigation-driven persistence, debounced so long chains of pushes write once. */
+    private fun scheduleWebViewStatePersist() {
+        if (webTab.isHome()) {
+            return
+        }
+        statePersistHandler.removeCallbacks(statePersistRunnable)
+        statePersistHandler.postDelayed(statePersistRunnable, WEBVIEW_STATE_PERSIST_DELAY_MS)
+    }
+
+    private fun persistWebViewStateNow() {
+        if (!isAdded) {
+            return
+        }
+        webTab.persistWebViewState()
     }
 
     /**
@@ -2436,6 +2548,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             contentBlockCoordinator,
             onNavigationStateChanged = {
                 updateNavigationButtons()
+                scheduleWebViewStatePersist()
             },
             onRenderProcessLost = { lostWebView, didCrash ->
                 handleRenderProcessLost(lostWebView, didCrash)
@@ -2556,6 +2669,9 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         destroyLostWebView(lostWebView ?: webTab.getWebView())
         webTab.setWebView(null)
         webTab.clearSavedState()
+        // A lost renderer process can leave an unusable snapshot behind; drop it so the rebuilt
+        // WebView starts from the URL instead of a broken state bundle.
+        BrowserWebViewStateStore.shared().delete(webTab.id)
 
         if (targetUrl.isBlank()) {
             tabManagerProvider.getUpdateTabEvent().value = webTab.copyWith(

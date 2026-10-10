@@ -692,6 +692,9 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         val currentIndex = browserViewModel.currentTab.get()
         val wasSelected = currentIndex == index
         tabToClose?.saveWebViewState()
+        // The tab is gone: drop its durable snapshot so it cannot be restored again. The in-memory
+        // state above is kept for the undo action.
+        tabToClose?.let { BrowserWebViewStateStore.shared().delete(it.id) }
         val snapshotTab = tabToClose?.copyWith(
             pageThumbnail = null,
             webview = null,
@@ -782,6 +785,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
 
     private fun finalizeClosedTab(snapshot: ClosedTabSnapshot) {
         BrowserThumbnailStore.delete(snapshot.tab.getPageThumbnailPath())
+        BrowserWebViewStateStore.shared().delete(snapshot.tab.id)
         snapshot.tab.clearSavedState()
     }
 
@@ -949,7 +953,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
             .coerceIn(HOME_TAB_INDEX, tabs.lastIndex.coerceAtLeast(HOME_TAB_INDEX))
         tabs.getOrNull(currentIndex)
             ?.takeIf { !it.isHome() }
-            ?.saveWebViewState()
+            ?.persistWebViewState()
     }
 
     private fun syncWebViewPlaybackState(
@@ -987,7 +991,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
         tabs
             .filter { !it.isHome() && it.id !in keepIds }
             .forEach { tab ->
-                tab.saveWebViewState()
+                tab.persistWebViewState()
                 detachAndDestroyWebView(tab.getWebView())
                 tab.setWebView(null)
                 AppLogger.d("WEBVIEW_EVICT id=${tab.id} liveCount=$MAX_LIVE_WEB_TABS")

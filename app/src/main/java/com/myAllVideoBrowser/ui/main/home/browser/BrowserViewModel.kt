@@ -9,6 +9,7 @@ import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
 import com.myAllVideoBrowser.util.BrowserThumbnailStore
+import com.myAllVideoBrowser.util.BrowserWebViewStateStore
 import javax.inject.Inject
 
 //@OpenForTesting
@@ -84,6 +85,7 @@ class BrowserViewModel @Inject constructor(
     override fun onCleared() {
         clearRecentlyClosedTabs().forEach { snapshot ->
             BrowserThumbnailStore.delete(snapshot.tab.getPageThumbnailPath())
+            BrowserWebViewStateStore.shared().delete(snapshot.tab.id)
             snapshot.tab.clearSavedState()
         }
         super.onCleared()
@@ -97,6 +99,8 @@ class BrowserViewModel @Inject constructor(
 
         val restoredTabs = sharedPrefHelper.restoreBrowserSessionTabs()
         if (restoredTabs.isEmpty()) {
+            // No tab is restored in this process, so nothing on disk is still reachable.
+            BrowserWebViewStateStore.shared().trimToTabs(emptySet())
             return
         }
 
@@ -105,6 +109,9 @@ class BrowserViewModel @Inject constructor(
         val restoredIndex = sharedPrefHelper.restoreBrowserSessionCurrentIndex()
             .coerceIn(HOME_TAB_INDEX, restoredList.lastIndex)
         currentTab.set(restoredIndex)
+        // Drop snapshots of tabs that no longer exist (for example after an upgrade, or a crash
+        // between closing a tab and removing its file).
+        BrowserWebViewStateStore.shared().trimToTabs(restoredTabs.map { it.id }.toSet())
     }
 }
 
