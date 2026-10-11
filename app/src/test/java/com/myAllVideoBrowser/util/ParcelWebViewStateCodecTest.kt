@@ -60,4 +60,18 @@ class ParcelWebViewStateCodecTest {
         codec.decode(bytes.copyOf(bytes.size / 2))
         codec.decode(bytes.copyOf(2))
     }
+
+    @Test
+    fun `parceled size grows with the payload and is measurable`() {
+        val small = Bundle().apply { putString("url", "https://example.com") }
+        val large = Bundle().apply { putString("history", "x".repeat(64 * 1024)) }
+
+        val smallSize = ParcelWebViewStateCodec.parceledSizeBytes(small)
+        val largeSize = ParcelWebViewStateCodec.parceledSizeBytes(large)
+
+        assertNotNull(smallSize)
+        assertNotNull(largeSize)
+        assertEquals(true, smallSize!! > 0)
+        assertEquals(true, largeSize!! > smallSize!!)
+    }
 }

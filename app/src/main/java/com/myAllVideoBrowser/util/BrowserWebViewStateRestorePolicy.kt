@@ -22,7 +22,8 @@ object BrowserWebViewStateRestorePolicy {
     fun isAcceptable(
         facts: RestoredHistoryFacts,
         expectedUrl: String? = null,
-        expectedEntryCount: Int? = null
+        expectedEntryCount: Int? = null,
+        expectedCurrentIndex: Int? = null
     ): Boolean {
         if (facts.entryCount < 1) {
             return false
@@ -34,24 +35,33 @@ object BrowserWebViewStateRestorePolicy {
         if (currentUrl.isNullOrBlank() || !currentUrl.startsWith("http")) {
             return false
         }
-        if (expectedEntryCount != null && expectedEntryCount >= 1 &&
-            facts.entryCount < expectedEntryCount
-        ) {
+        if (expectedEntryCount == null || expectedEntryCount < 1) {
+            return true
+        }
+        if (facts.entryCount < expectedEntryCount) {
             // History shrank: the stack was not preserved, so a clean URL load is more honest.
             return false
         }
-        if (expectedUrl != null && expectedEntryCount != null &&
-            facts.entryCount == expectedEntryCount && !sameDocument(expectedUrl, currentUrl)
-        ) {
+        if (facts.entryCount > expectedEntryCount) {
+            // The restored document navigated on its own and only appended entries; that never
+            // replaces the stored current document, so the snapshot position is still valid.
+            return true
+        }
+        if (expectedCurrentIndex != null && facts.currentIndex != expectedCurrentIndex) {
+            // Same length but a different position: the stack is not the stored one.
+            return false
+        }
+        if (expectedUrl != null && !sameDocument(expectedUrl, currentUrl)) {
             return false
         }
         return true
     }
 
     /**
-     * Same document comparison: scheme + host + port + path, ignoring query, fragment and a
-     * trailing slash. A redirect or SPA navigation changes the entry count instead, which is
-     * handled by the caller's entry-count rule.
+     * Same document comparison. Everything except the fragment is significant: page identity
+     * routinely lives in the query (`watch?v=`, `?id=`, `?q=`), so ignoring it would let a restore
+     * accept a different page of the same path. Both sides come from one save/restore pair, so the
+     * normal case compares equal strings.
      */
     fun sameDocument(left: String?, right: String?): Boolean {
         if (left.isNullOrBlank() || right.isNullOrBlank()) {
@@ -60,14 +70,11 @@ object BrowserWebViewStateRestorePolicy {
         if (left == right) {
             return true
         }
-        val leftKey = documentKey(left) ?: return false
-        val rightKey = documentKey(right) ?: return false
-        return leftKey == rightKey
+        return withoutFragment(left) == withoutFragment(right)
     }
 
-    private fun documentKey(value: String): String? {
-        val url = value.toHttpUrlOrNull() ?: return null
-        val path = url.encodedPath.trimEnd('/')
-        return "${url.scheme}://${url.host}:${url.port}$path"
+    private fun withoutFragment(value: String): String {
+        val url = value.toHttpUrlOrNull() ?: return value.substringBefore('#')
+        return url.newBuilder().fragment(null).build().toString()
     }
 }

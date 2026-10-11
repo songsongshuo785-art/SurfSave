@@ -18,7 +18,54 @@ class BrowserWebViewStateRestorePolicyTest {
             BrowserWebViewStateRestorePolicy.isAcceptable(
                 facts = restored,
                 expectedUrl = "https://example.com/c",
-                expectedEntryCount = 3
+                expectedEntryCount = 3,
+                expectedCurrentIndex = 2
+            )
+        )
+    }
+
+    @Test
+    fun `rejects a stack of the same length at a different position`() {
+        // Only the position differs: the current document is the expected one, so the URL check
+        // cannot catch it and the index comparison is the only guard that can.
+        assertFalse(
+            BrowserWebViewStateRestorePolicy.isAcceptable(
+                facts = restored.copy(currentIndex = 1),
+                expectedUrl = "https://example.com/c",
+                expectedEntryCount = 3,
+                expectedCurrentIndex = 2
+            )
+        )
+    }
+
+    @Test
+    fun `rejects a same path document with a different query`() {
+        assertFalse(
+            BrowserWebViewStateRestorePolicy.isAcceptable(
+                facts = restored.copy(
+                    entryCount = 1,
+                    currentIndex = 0,
+                    currentUrl = "https://example.com/watch?v=B"
+                ),
+                expectedUrl = "https://example.com/watch?v=A",
+                expectedEntryCount = 1,
+                expectedCurrentIndex = 0
+            )
+        )
+    }
+
+    @Test
+    fun `accepts a same path document that differs only in the fragment`() {
+        assertTrue(
+            BrowserWebViewStateRestorePolicy.isAcceptable(
+                facts = restored.copy(
+                    entryCount = 1,
+                    currentIndex = 0,
+                    currentUrl = "https://example.com/watch?v=A#player"
+                ),
+                expectedUrl = "https://example.com/watch?v=A",
+                expectedEntryCount = 1,
+                expectedCurrentIndex = 0
             )
         )
     }
@@ -33,7 +80,8 @@ class BrowserWebViewStateRestorePolicyTest {
                     currentUrl = "https://www.example.com/c"
                 ),
                 expectedUrl = "https://example.com/c",
-                expectedEntryCount = 3
+                expectedEntryCount = 3,
+                expectedCurrentIndex = 2
             )
         )
     }
@@ -81,7 +129,8 @@ class BrowserWebViewStateRestorePolicyTest {
             BrowserWebViewStateRestorePolicy.isAcceptable(
                 facts = restored.copy(entryCount = 1, currentIndex = 0, currentUrl = "https://example.com/c"),
                 expectedUrl = "https://example.com/c",
-                expectedEntryCount = 3
+                expectedEntryCount = 3,
+                expectedCurrentIndex = 2
             )
         )
     }
@@ -92,20 +141,39 @@ class BrowserWebViewStateRestorePolicyTest {
             BrowserWebViewStateRestorePolicy.isAcceptable(
                 facts = restored.copy(currentUrl = "https://other.test/c"),
                 expectedUrl = "https://example.com/c",
-                expectedEntryCount = 3
+                expectedEntryCount = 3,
+                expectedCurrentIndex = 2
             )
         )
     }
 
     @Test
-    fun `same document ignores query fragment and trailing slash`() {
-        assertTrue(
+    fun `same document keeps the query and ignores only the fragment`() {
+        assertFalse(
             BrowserWebViewStateRestorePolicy.sameDocument(
                 "https://example.com/watch?v=1",
                 "https://example.com/watch?utm_source=x#player"
             )
         )
+        assertFalse(
+            BrowserWebViewStateRestorePolicy.sameDocument(
+                "https://example.com/watch?v=A",
+                "https://example.com/watch?v=B"
+            )
+        )
         assertTrue(
+            BrowserWebViewStateRestorePolicy.sameDocument(
+                "https://example.com/watch?v=A#player",
+                "https://example.com/watch?v=A"
+            )
+        )
+        assertTrue(
+            BrowserWebViewStateRestorePolicy.sameDocument(
+                "https://example.com/a?q=1",
+                "https://example.com/a?q=1"
+            )
+        )
+        assertFalse(
             BrowserWebViewStateRestorePolicy.sameDocument(
                 "https://example.com/a/",
                 "https://example.com/a"

@@ -37,4 +37,20 @@ class ParcelWebViewStateCodec : WebViewStateCodec {
             parcel.recycle()
         }
     }.getOrNull()
+
+    companion object {
+        /**
+         * Size the bundle would occupy in a Binder transaction, or `null` when it cannot be
+         * measured. Used to decide whether the state may enter the activity saved state at all.
+         */
+        fun parceledSizeBytes(state: Bundle): Int? = runCatching {
+            val parcel = Parcel.obtain()
+            try {
+                parcel.writeBundle(state)
+                parcel.dataSize()
+            } finally {
+                parcel.recycle()
+            }
+        }.getOrNull()
+    }
 }
