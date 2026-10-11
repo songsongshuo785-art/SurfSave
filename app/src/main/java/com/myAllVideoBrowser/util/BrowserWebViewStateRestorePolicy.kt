@@ -42,13 +42,10 @@ object BrowserWebViewStateRestorePolicy {
             // History shrank: the stack was not preserved, so a clean URL load is more honest.
             return false
         }
-        if (facts.entryCount > expectedEntryCount) {
-            // The restored document navigated on its own and only appended entries; that never
-            // replaces the stored current document, so the snapshot position is still valid.
-            return true
-        }
+        // Extra entries are tolerated only while the stored position and document still hold: a
+        // restore that grew *and* moved the current entry (A→B→C at B coming back as A→B→C→D at D)
+        // is not the stored stack. Both checks stay active regardless of the entry count.
         if (expectedCurrentIndex != null && facts.currentIndex != expectedCurrentIndex) {
-            // Same length but a different position: the stack is not the stored one.
             return false
         }
         if (expectedUrl != null && !sameDocument(expectedUrl, currentUrl)) {

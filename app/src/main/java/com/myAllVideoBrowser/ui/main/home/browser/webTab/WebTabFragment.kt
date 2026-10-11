@@ -117,6 +117,7 @@ import com.myAllVideoBrowser.ui.main.player.PlaybackTargetResolver
 import com.myAllVideoBrowser.ui.main.player.PlaybackTargetStore
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.BrowserSavedStateBudget
+import com.myAllVideoBrowser.util.BrowserSavedStateSchema
 import com.myAllVideoBrowser.util.BrowserWebViewStateMeta
 import com.myAllVideoBrowser.util.BrowserWebViewStateRestorePolicy
 import com.myAllVideoBrowser.util.BrowserWebViewStateStore
@@ -1852,6 +1853,10 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
 
+        // Written on every save, also when the snapshot below is skipped: its absence is what marks
+        // a legacy (pre-cap) saved state.
+        outState.putInt(BrowserSavedStateSchema.KEY, BrowserSavedStateSchema.CURRENT)
+
         // The full history stays in memory and on disk; only a small snapshot may enter the system
         // bundle, because the whole activity saved state travels in one Binder transaction.
         val webViewState = Bundle()
@@ -2444,14 +2449,12 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
                     BrowserWebViewStateStore.shared().delete(webTab.id)
                     pendingInitialPageUrl = candidate.meta?.savedUrl
                 }
+                // `restoreState()` mutates the instance and starts loading its entry, so the next
+                // candidate and the plain URL fallback must both start from a clean instance; a
+                // pending load of the rejected state could otherwise commit into the accepted list.
+                replaceWebViewAfterRejectedRestore()
+                webTab.clearSavedState()
             }
-        }
-        if (!restored && candidates.isNotEmpty()) {
-            // Every candidate was rejected. The attempts already pushed their unusable
-            // back/forward lists into this WebView, where a plain loadUrl would stack the fallback
-            // page on top of rejected history; only a new instance makes the rejection clean.
-            replaceWebViewAfterRejectedRestore()
-            webTab.clearSavedState()
         }
 
         webTab.markActive()
@@ -2469,13 +2472,17 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
     private fun restorableTabStates(savedInstanceState: Bundle?): List<RestorableTabState> {
         val candidates = mutableListOf<RestorableTabState>()
         val pendingViewState = savedInstanceState?.takeIf { !it.isEmpty }
+        val isCurrentFormat = pendingViewState != null && BrowserSavedStateSchema.isCurrentFormat(
+            pendingViewState.getInt(BrowserSavedStateSchema.KEY, 0)
+        )
 
         val systemState = pendingViewState?.getBundle(SYSTEM_WEBVIEW_STATE_KEY)
             ?.takeIf { !it.isEmpty }
         if (systemState != null) {
             candidates += RestorableTabState(systemState, meta = null, persisted = false)
-        } else if (pendingViewState != null) {
-            // Before the size cap the WebView state was written straight into the view bundle.
+        } else if (pendingViewState != null && !isCurrentFormat) {
+            // Only a legacy saved state may hold the WebView state directly in the view bundle. In
+            // the current format the missing key is authoritative: the snapshot was skipped.
             candidates += RestorableTabState(pendingViewState, meta = null, persisted = false)
         }
 
@@ -2719,7 +2726,6 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         val rejectedWebView = webTab.getWebView() ?: return
         webTab.setWebView(WebView(requireContext()))
         destroyDiscardedWebView(rejectedWebView)
-        AppLogger.w("WEBVIEW_STATE_RESTORE dropped rejected history tab=${webTab.id}")
     }
 
     private fun handleRenderProcessLost(lostWebView: WebView?, didCrash: Boolean) {

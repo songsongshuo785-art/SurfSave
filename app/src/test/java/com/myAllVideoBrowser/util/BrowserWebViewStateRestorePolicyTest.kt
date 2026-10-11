@@ -71,13 +71,42 @@ class BrowserWebViewStateRestorePolicyTest {
     }
 
     @Test
-    fun `accepts a restored save that already grew through a redirect`() {
+    fun `accepts extra entries only while the stored position and document hold`() {
         assertTrue(
+            BrowserWebViewStateRestorePolicy.isAcceptable(
+                facts = restored.copy(entryCount = 4),
+                expectedUrl = "https://example.com/c",
+                expectedEntryCount = 3,
+                expectedCurrentIndex = 2
+            )
+        )
+    }
+
+    @Test
+    fun `rejects a larger stack whose current entry moved`() {
+        // Stored A→B→C at index 2 (C); restored as A→B→C→D at index 3 (D). The extra entry must
+        // not bypass the position and document checks.
+        assertFalse(
             BrowserWebViewStateRestorePolicy.isAcceptable(
                 facts = restored.copy(
                     entryCount = 4,
                     currentIndex = 3,
-                    currentUrl = "https://www.example.com/c"
+                    currentUrl = "https://example.com/d"
+                ),
+                expectedUrl = "https://example.com/c",
+                expectedEntryCount = 3,
+                expectedCurrentIndex = 2
+            )
+        )
+    }
+
+    @Test
+    fun `rejects a larger stack whose current document changed at the stored position`() {
+        assertFalse(
+            BrowserWebViewStateRestorePolicy.isAcceptable(
+                facts = restored.copy(
+                    entryCount = 4,
+                    currentUrl = "https://example.com/other"
                 ),
                 expectedUrl = "https://example.com/c",
                 expectedEntryCount = 3,
