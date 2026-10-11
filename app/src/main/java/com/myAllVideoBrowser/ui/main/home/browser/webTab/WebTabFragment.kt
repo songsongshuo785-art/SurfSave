@@ -131,7 +131,10 @@ import com.myAllVideoBrowser.util.SiteOrigin
 import com.myAllVideoBrowser.util.VideoFormatUi
 import com.myAllVideoBrowser.util.media.DownloadStrategy
 import com.myAllVideoBrowser.util.media.DownloadStrategyResolver
+import com.myAllVideoBrowser.util.site_adapters.FilterPanelStateBridge
 import com.myAllVideoBrowser.util.site_adapters.KvsFlashvarsAdapter
+import com.myAllVideoBrowser.util.site_adapters.Rule34FilterPanelProbe
+import com.myAllVideoBrowser.util.site_adapters.SiteScrollGesturePolicy
 import com.myAllVideoBrowser.util.telegram.TelegramPostResolver
 import com.myAllVideoBrowser.util.telegram.TelegramPostUrl
 import com.myAllVideoBrowser.util.telegram.TelegramImportSession
@@ -146,6 +149,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
@@ -1376,6 +1380,16 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
     private var playbackLaunchPending = false
     private var mediaProbeScriptHandler: ScriptHandler? = null
     private val mediaProbeBridge = MediaProbeBridge()
+
+    /**
+     * Rule34 过滤器面板状态（站点探针异步上报）。仅易失状态：不进会话存储、不进磁盘快照。
+     * 主线程读写，`setOnChildScrollUpCallback` 也只在主线程被调用。
+     */
+    private var filterPanelOpen = false
+    private val filterPanelStateBridge = FilterPanelStateBridge { open ->
+        statePersistHandler.post { onFilterPanelStateChanged(open) }
+    }
+    private var filterPanelScriptHandler: ScriptHandler? = null
     private val translationBridge = TranslationBridge()
     private val recentMediaProbeEvents = mutableMapOf<String, Long>()
     private var previousFabState: DownloadButtonState? = null
@@ -1563,7 +1577,11 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
         )
         fragmentWebTabBinding.swipeRefresh.setOnChildScrollUpCallback { _, _ ->
             tabViewModel.isTabInputFocused.get() ||
-                webTab.getWebView()?.canScrollVertically(-1) == true
+                webTab.getWebView()?.canScrollVertically(-1) == true ||
+                SiteScrollGesturePolicy.shouldSuppressPullToRefresh(
+                    host = currentWebHost(),
+                    panelOpen = filterPanelOpen
+                )
         }
         fragmentWebTabBinding.swipeRefresh.setOnRefreshListener {
             tabListener.onBrowserReloadClicked()
@@ -1776,6 +1794,7 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
 
         siteDataCleaner.requestClearOriginWebStorage(origin)
         AppLogger.d("SITE_DATA: requested clear origin=$origin")
+        resetFilterPanelGuard()
         // deleteOrigin 对已加载的文档不生效(页面内存里仍有一份),必须刷新页面。
         // 清理后的历史不能再存活:内存态、磁盘态与 WebView 自身的 back/forward list 都要清,
         // 否则后续任一持久化都会把清理前的 A→B→C 重新写回。
@@ -1910,6 +1929,8 @@ dataBinding.fab.animate().cancel()
         contentBlockWebController.detach()
         statePersistHandler.removeCallbacks(statePersistRunnable)
         webTab.persistWebViewState()
+        resetFilterPanelGuard()
+        removeFilterPanelProbe()
         webTab.getWebView()?.let { detachWebView(it) }
         customWebChromeClient = null
         super.onDestroyView()
@@ -1923,6 +1944,7 @@ dataBinding.fab.animate().cancel()
         }
         webTab.persistWebViewState()
         onWebViewPause()
+        resetFilterPanelGuard()
         backPressedCallback.isEnabled = false
         super.onPause()
     }
@@ -1953,6 +1975,7 @@ dataBinding.fab.animate().cancel()
             webView.evaluateJavascript(INSTALL_TRANSLATION_OBSERVER_SCRIPT, null)
             maybeAutoTranslatePage(webView)
         }
+        refreshFilterPanelGuard()
         updateBackPressedCallbackState()
         updateNavigationButtons()
     }
@@ -1970,7 +1993,9 @@ dataBinding.fab.animate().cancel()
         thumbnailJob?.cancel()
         playerRecoveryJob?.cancel()
         removeMediaProbeScriptHandler()
+        removeFilterPanelProbe()
         webTab.getWebView()?.removeJavascriptInterface(TRANSLATION_BRIDGE_NAME)
+        webTab.getWebView()?.removeJavascriptInterface(Rule34FilterPanelProbe.BRIDGE_NAME)
         tabViewModel.stop()
         videoDetectionTabViewModel.stop()
 mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRouteCallBack)
@@ -2618,6 +2643,8 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             onPageContextStarted = { tabId, pageUrl ->
                 contentBlockWebController.injectCurrentDocument(currentWebView)
                 onTranslationNavigationStarted()
+                // 新文档：面板状态随旧文档失效，由页面侧探针重新建立。
+                resetFilterPanelGuard()
                 mediaPageGeneration = videoDetectionTabViewModel.beginPageContext(pageUrl)
                 onTelegramNavigationStarted(pageUrl)
                 tabManagerProvider.onTabNavigationStarted(tabId, pageUrl)
@@ -2674,9 +2701,11 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             )
         }
         currentWebView?.addJavascriptInterface(mediaProbeBridge, MEDIA_PROBE_BRIDGE_NAME)
+        currentWebView?.addJavascriptInterface(filterPanelStateBridge, Rule34FilterPanelProbe.BRIDGE_NAME)
         currentWebView?.addJavascriptInterface(translationBridge, TRANSLATION_BRIDGE_NAME)
         currentWebView?.let(contentBlockWebController::attach)
         installDocumentStartMediaProbe(currentWebView)
+        installDocumentStartFilterPanelProbe(currentWebView)
         updateNavigationButtons()
 
         val webSettings = webTab.getWebView()?.settings
@@ -2726,6 +2755,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         val rejectedWebView = webTab.getWebView() ?: return
         webTab.setWebView(WebView(requireContext()))
         destroyDiscardedWebView(rejectedWebView)
+        resetFilterPanelGuard()
     }
 
     private fun handleRenderProcessLost(lostWebView: WebView?, didCrash: Boolean) {
@@ -2742,6 +2772,8 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         destroyDiscardedWebView(lostWebView ?: webTab.getWebView())
         webTab.setWebView(null)
         webTab.clearSavedState()
+        resetFilterPanelGuard()
+        removeFilterPanelProbe()
         // A lost renderer process can leave an unusable snapshot behind; drop it so the rebuilt
         // WebView starts from the URL instead of a broken state bundle.
         BrowserWebViewStateStore.shared().delete(webTab.id)
@@ -2790,6 +2822,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             webView.setDownloadListener(null)
             webView.webChromeClient = null
             webView.webViewClient = WebViewClient()
+            webView.removeJavascriptInterface(Rule34FilterPanelProbe.BRIDGE_NAME)
             webView.destroy()
         }.onFailure {
             AppLogger.e("Failed to destroy discarded WebView: ${it.javaClass.simpleName}")
@@ -2989,6 +3022,75 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         }
         mediaProbeScriptHandler = null
     }
+
+    /**
+     * 站点定向的面板状态探针：只在受管站点上工作（脚本自带域名守卫），不可用时静默降级为
+     * "不抑制"，即完全保持修复前行为。
+     */
+    private fun installDocumentStartFilterPanelProbe(webView: WebView?) {
+        if (webView == null) {
+            return
+        }
+
+        removeFilterPanelProbe()
+
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            return
+        }
+
+        filterPanelScriptHandler = runCatching {
+            WebViewCompat.addDocumentStartJavaScript(
+                webView,
+                Rule34FilterPanelProbe.SCRIPT,
+                setOf("*")
+            )
+        }.onFailure {
+            AppLogger.d(
+                "FILTER_PANEL_PROBE: document-start injection unavailable: " +
+                    it.javaClass.simpleName
+            )
+        }.getOrNull()
+    }
+
+    private fun removeFilterPanelProbe() {
+        val handler = filterPanelScriptHandler
+        if (handler != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            runCatching { handler.remove() }
+        }
+        filterPanelScriptHandler = null
+        filterPanelOpen = false
+    }
+
+    /** 探针上报的翻转：只在翻转时打一行日志（与 #25 约定一致）。 */
+    private fun onFilterPanelStateChanged(open: Boolean) {
+        if (filterPanelOpen == open) {
+            return
+        }
+        filterPanelOpen = open
+        AppLogger.d("RULE34_PULL_REFRESH_GUARD active=$open")
+    }
+
+    /** 导航/切标签/重建/清站点数据时立即复位；新文档由探针重新建立状态。 */
+    private fun resetFilterPanelGuard() {
+        if (!filterPanelOpen) {
+            return
+        }
+        filterPanelOpen = false
+        AppLogger.d("RULE34_PULL_REFRESH_GUARD active=false")
+    }
+
+    /** 回到前台/切回标签时强制页面侧重新上报（否则面板仍开着但原生刚被复位）。 */
+    private fun refreshFilterPanelGuard() {
+        if (!SiteScrollGesturePolicy.isPanelGuardedHost(currentWebHost())) {
+            return
+        }
+        runCatching {
+            webTab.getWebView()?.evaluateJavascript(Rule34FilterPanelProbe.REEVALUATE_SCRIPT, null)
+        }
+    }
+
+    private fun currentWebHost(): String? =
+        (webTab.getWebView()?.url ?: webTab.getUrl()).toHttpUrlOrNull()?.host
 
     private fun injectPageScripts(webView: WebView?) {
         injectMediaProbe(webView)
@@ -4220,6 +4322,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
             webView.webChromeClient = null
             webView.webViewClient = WebViewClient()
             webView.removeJavascriptInterface(MEDIA_PROBE_BRIDGE_NAME)
+            webView.removeJavascriptInterface(Rule34FilterPanelProbe.BRIDGE_NAME)
             (webView.parent as? ViewGroup)?.removeView(webView)
         }.onFailure {
             AppLogger.e("Failed to detach WebView: ${it.message}")
