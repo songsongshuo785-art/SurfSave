@@ -85,7 +85,7 @@ SurfSave也是我Vibe Coding尝试的一个项目。当前各方各面略显粗�
 ## 下载与安装
 
 - **下载 APK**：[GitHub Releases](https://github.com/songsongshuo785-art/SurfSave/releases)
-- **当前源码版本**：`v0.8.33`
+- **当前源码版本**：`v0.8.34`
 - **系统要求**：Android 7.0+（API 24）
 
 ### 选择哪个 APK？
@@ -144,10 +144,10 @@ SurfSave也是我Vibe Coding尝试的一个项目。当前各方各面略显粗�
 
 ```powershell
 # 在 GitHub 构建，并把正式签名候选下载到 app/build/outputs/apk/release/
-.\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.33
+.\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.34
 
 # 安装并确认该候选包后，将同一批字节发布到 GitHub Release
-.\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.33
+.\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.34
 ```
 
 唯一的标准手机测试包是

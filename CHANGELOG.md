@@ -1,13 +1,27 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.34] - 2026-11-02
+
+### Added
+- Added image detection alongside video detection, with a media-library view, image preview, and move/delete handling for saved images.
+- Added a per-site popup exception and a "Clear site web data" action so a stuck page player can drop its persisted CDN line without clearing the whole profile.
+- Added read-only KVS quality discovery, so rule34video and other KVS sites list every quality exposed by the page instead of only the one currently playing.
+- Added a shared download-strategy and format-identity layer, giving the download engine, the selected format, and the persisted task record one authoritative source.
+- Added a playback-position gate that keeps saving progress for on-demand media even when media3 reports it as live, and skips untrustworthy positions instead of writing 0 over a real one.
+- Added durable per-tab WebView navigation history, keeping each tab's back/forward stack across restart, upgrade, and background process death.
+- Added suppression of pull-to-refresh while the rule34video filter panel is open.
 
 ### Changed
-- Prepared the next release identity as `0.8.33` with a monotonically higher version code.
+- Prepared the next release identity as `0.8.34` with a version code that stays above every diagnostic build distributed so far and above the release commit timestamp checked by CI.
 - Made the signed arm64 APK in the canonical release-candidate directory the only standard phone-test package; diagnostic outputs can no longer be presented as equivalent test artifacts.
 - Relabeled diagnostic exports as internal engineering artifacts so they are not mistaken for user acceptance packages.
+- Download engines now derive both their target URL and their `-f` format from the user's actual selection instead of legacy booleans, and orphaned active tasks are reconciled at startup.
 
 ### Fixed
+- Fixed blank tab cards, tabs opening as another tab, and evicted WebViews that never reloaded.
+- Fixed downloads failing with a misleading "login or cookie required" message, including Cloudflare challenges and TLS errors.
+- Fixed downloads that died permanently when the app was upgraded mid-download, and quality labels disappearing from detected videos.
+- Fixed stale media lingering after navigating back to a tab's initial page, and image probes blocking the same image after a navigation.
 - Rejected debuggable or V2-unsigned APKs during release-candidate verification, preventing diagnostic builds from being delivered as formally testable packages.
 
 ## [0.8.32] - 2026-08-28

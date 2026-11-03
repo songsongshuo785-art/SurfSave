@@ -1,0 +1,10 @@
+### Added
+- Image detection, media-library view, and image preview
+- Per-site popup exceptions and a "Clear site web data" action
+- Read-only KVS quality discovery on supported sites
+
+### Fixed
+- Blank tab cards and evicted WebViews not reloading
+- Downloads failing with misleading login/cookie errors
+- Playback progress staying frozen on on-demand media
+- Rule34 filter panel triggering pull-to-refresh
