@@ -1521,7 +1521,8 @@ class FileUtil @Inject constructor() {
                     "descriptorSize=${targetLengthProbe?.descriptorSize} " +
                     "assetDescriptorSize=${targetLengthProbe?.assetDescriptorSize} " +
                     "countedSize=${targetLengthProbe?.countedSize} " +
-                    "cleanupFailure=${cleanupFailure} 设备API=${Build.VERSION.SDK_INT}",
+                    "设备API=${Build.VERSION.SDK_INT}" +
+                    if (cleanupFailure != null) "\n[清理] $cleanupFailure" else "",
                 error
             )
         }
