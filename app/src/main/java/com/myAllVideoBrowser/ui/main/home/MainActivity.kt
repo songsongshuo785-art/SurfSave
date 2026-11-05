@@ -309,7 +309,7 @@ class MainActivity : BaseActivity() {
             Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
             else -> null
         }
-        return UrlInputNormalizer.extractBestInput(rawInput)
+        return UrlInputNormalizer.extractUrlFromText(rawInput)
     }
 
     private fun isProbablyUrl(input: String): Boolean {

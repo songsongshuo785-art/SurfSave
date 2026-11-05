@@ -227,6 +227,8 @@ class BrowserHomeFragment : BaseWebTabFragment() {
 
     private fun submitHomeSearch() {
         val input = binding.homeEtSearch.text?.toString()?.trim().orEmpty()
+        // 建议下拉展开时，回车/点击搜索按钮可能先被下拉拦截；提交前先收起。
+        binding.homeEtSearch.dismissDropDown()
         if (input.isBlank()) {
             binding.homeEtSearch.requestFocus()
             appUtil.showSoftKeyboard(binding.homeEtSearch)
@@ -249,7 +251,7 @@ class BrowserHomeFragment : BaseWebTabFragment() {
             ?.toString()
             ?.trim()
             .orEmpty()
-        val input = UrlInputNormalizer.extractBestInput(clipboardText)
+        val input = UrlInputNormalizer.extractUrlFromText(clipboardText)
 
         if (input.isNullOrBlank() || !UrlInputNormalizer.isProbablyWebAddress(input)) {
             AppLogger.d("Clipboard does not contain a web link: '$clipboardText'")
