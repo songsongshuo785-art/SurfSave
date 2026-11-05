@@ -177,6 +177,31 @@ class CustomFileDownloaderTest {
     }
 
     @Test
+    fun changedResourceIdentity_clearsStaleResumeStateAndFallsBackToSingleStream() {
+        val oldLength = 1_500L
+        val newPayload = "N".repeat(1_600)
+        outputFile.writeBytes(ByteArray(oldLength.toInt()))
+        writeRangeLayout(oldLength, listOf(0L..1499L))
+        File(downloadDirectory, "chunk_0").writeText("500", Charsets.UTF_8)
+
+        // The resource changed length. Range probing also returns 200, so the downloader must
+        // reject the stale resume state, clear it, and safely restart as a single stream.
+        server.enqueue(MockResponse().setResponseCode(200).setBody(newPayload))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(newPayload))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(newPayload))
+
+        val listener = RecordingDownloadListener()
+        createDownloader(listener).download()
+
+        assertEquals(1, listener.successCount.get())
+        assertEquals(0, listener.failures.size)
+        assertEquals(1, listener.terminalCount())
+        assertArrayEquals(newPayload.toByteArray(), outputFile.readBytes())
+        assertFalse(File(downloadDirectory, "range_layout_v1.json").exists())
+        assertFalse(File(downloadDirectory, "chunk_0").exists())
+    }
+
+    @Test
     fun ignoredRangeProbe_fallsBackToSingleStreamAndSucceedsOnce() {
         val payload = "stream-tail-".repeat(137)
         server.enqueue(MockResponse().setResponseCode(200).setBody(payload))
