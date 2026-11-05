@@ -1754,7 +1754,7 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
 
     override fun refreshVideoDetection() {
         val webView = webTab.getWebView()
-        val currentUrl = webView?.url ?: tabViewModel.getTabTextInput().get()
+        val currentUrl = webView?.url ?: tabViewModel.getTabTextInput()
         if (currentUrl.isNullOrBlank() || !currentUrl.startsWith("http")) {
             Toast.makeText(requireContext(), R.string.translate_page_unavailable, Toast.LENGTH_SHORT).show()
             return
@@ -3315,7 +3315,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         if (mediaType == ContentType.IMAGE && kind == "image-scan") {
             val pageUrl = event.optString("pageUrl", "")
                 .ifBlank { webTab.getWebView()?.url.orEmpty() }
-                .ifBlank { tabViewModel.getTabTextInput().get().orEmpty() }
+                .ifBlank { tabViewModel.getTabTextInput().orEmpty() }
             val userAgent = webTab.getWebView()?.settings?.userAgentString
                 ?: tabViewModel.userAgent.get()
                 ?: BrowserFragment.MOBILE_USER_AGENT
@@ -3356,7 +3356,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
 
         val pageUrl = event.optString("pageUrl", "")
             .ifBlank { webTab.getWebView()?.url.orEmpty() }
-            .ifBlank { tabViewModel.getTabTextInput().get().orEmpty() }
+            .ifBlank { tabViewModel.getTabTextInput().orEmpty() }
         val userAgent = webTab.getWebView()?.settings?.userAgentString
             ?: tabViewModel.userAgent.get()
             ?: BrowserFragment.MOBILE_USER_AGENT
@@ -4349,7 +4349,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
                 it.startsWith("http://", ignoreCase = true) ||
                     it.startsWith("https://", ignoreCase = true)
             }
-            ?: tabViewModel.getTabTextInput().get()
+            ?: tabViewModel.getTabTextInput()
                 ?.takeIf {
                     it.startsWith("http://", ignoreCase = true) ||
                         it.startsWith("https://", ignoreCase = true)
