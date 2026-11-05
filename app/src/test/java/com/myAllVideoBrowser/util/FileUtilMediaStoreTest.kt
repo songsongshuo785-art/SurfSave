@@ -127,6 +127,33 @@ class FileUtilMediaStoreTest {
     }
 
     @Test
+    fun publishMediaCopy_preservesSourceUntilCommit_andCleanupRollsBackTarget() {
+        val provider = mediaProvider(displayName = "unused.mp4", rowExists = false)
+        register(MediaStore.AUTHORITY, provider)
+        val source = File(context.filesDir, "transaction-source.mp4").apply { writeMedia(this) }
+
+        try {
+            val result = FileUtil().publishMediaCopy(
+                context,
+                Uri.fromFile(source),
+                "transaction-target.mp4"
+            )
+
+            assertTrue(result is FileUtil.PublishResult.Success)
+            val published = result as FileUtil.PublishResult.Success
+            assertTrue(source.isFile)
+            assertTrue(provider.rowExists)
+            assertEquals("transaction-target.mp4", provider.displayName)
+
+            assertTrue(FileUtil().cleanupPublishedMedia(context, published.uri))
+            assertFalse(provider.rowExists)
+            assertTrue(source.isFile)
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
     fun sourceDeleteFailure_rejectsPublicationAndCleansTarget() {
         val targetProvider = mediaProvider(displayName = "unused.mp4", rowExists = false).apply {
             updateResult = 1
