@@ -346,30 +346,56 @@ class VideoViewModel @Inject constructor(
     fun moveVideoToDownloads(context: Context, video: LocalVideo) {
         viewModelScope.launch {
             val movedMedia = withContext(Dispatchers.IO) {
-                runCatching {
-                    val target = fileUtil.uniqueMediaTarget(
-                        context,
-                        File(fileUtil.publicDownloadsDir, video.name)
+                val target = fileUtil.uniqueMediaTarget(
+                    context,
+                    File(fileUtil.publicDownloadsDir, video.name)
+                )
+                when (val published = runCatching {
+                    fileUtil.publishMediaCopy(context, video.uri, target.name)
+                }.getOrElse { error ->
+                    AppLogger.e("Failed to publish moved video", error)
+                    FileUtil.PublishResult.Failed(
+                        error.message ?: "Media publication failed",
+                        error.stackTraceToString()
                     )
-                    if (!fileUtil.moveMedia(context, video.uri, target.toUri())) {
-                        return@runCatching null
+                }) {
+                    is FileUtil.PublishResult.Failed -> null
+                    is FileUtil.PublishResult.Success -> {
+                        val replacedRows = runCatching {
+                            progressRepository.replaceFinalMediaUri(
+                                video.uri.toString(),
+                                published.uri.toString()
+                            )
+                        }.getOrElse { error ->
+                            AppLogger.e("Failed to update moved video metadata binding", error)
+                            0
+                        }
+                        if (replacedRows <= 0) {
+                            fileUtil.cleanupPublishedMedia(context, published.uri)
+                            null
+                        } else {
+                            if (replacedRows != 1) {
+                                AppLogger.w(
+                                    "Moved video updated $replacedRows ProgressInfo rows for ${video.uri}."
+                                )
+                            }
+                            if (!fileUtil.deletePublishedSource(context, video.uri)) {
+                                AppLogger.w(
+                                    "Moved video metadata committed to ${published.uri}, " +
+                                        "but the old source could not be removed."
+                                )
+                            }
+                            MovedMedia(
+                                uri = published.uri,
+                                name = published.fileName
+                            )
+                        }
                     }
-                    MovedMedia(
-                        uri = fileUtil.resolveMediaUri(context, target) ?: target.toUri(),
-                        name = target.name
-                    )
-                }.getOrNull()
+                }
             }
             if (movedMedia == null) {
                 moveFailedEvent.value = Unit
                 return@launch
-            }
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    progressRepository.replaceFinalMediaUri(video.uri.toString(), movedMedia.uri.toString())
-                }.onFailure { error ->
-                    AppLogger.e("Failed to update moved video metadata binding", error)
-                }
             }
             val list = localVideos.get()?.toMutableList() ?: mutableListOf()
             list.firstOrNull { sameUri(it.uri, video.uri) }?.let { moved ->
