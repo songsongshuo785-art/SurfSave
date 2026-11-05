@@ -34,6 +34,7 @@ class VideoServiceSuperXHlsCandidateTest {
         crossOriginServer.start()
         val proxyClient = OkHttpProxyClient(
             OkHttpClient.Builder().build(),
+            OkHttpClient.Builder().build(),
             proxyProvider = { Proxy.noProxy() },
             proxyCredentialsProvider = { "" to "" }
         )

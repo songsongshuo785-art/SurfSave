@@ -9,6 +9,7 @@ import com.myAllVideoBrowser.data.remote.service.VideoService
 import com.myAllVideoBrowser.data.remote.service.VideoServiceSuperX
 import com.myAllVideoBrowser.data.remote.service.VideoServiceLocal
 import com.myAllVideoBrowser.di.qualifier.ApplicationContext
+import com.myAllVideoBrowser.di.qualifier.DownloadHttpClient
 import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import dagger.Module
@@ -35,6 +36,22 @@ class NetworkModule {
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
+     * 下载专用客户端：后台切网/Doze 时 30 秒读超时太短，
+     * 这里放宽到 120 秒；连接和写入仍保持保守值。
+     */
+    @Singleton
+    @Provides
+    @DownloadHttpClient
+    fun provideDownloadHttpClient(cookieJar: PersistentCookieJar): OkHttpClient {
+        return OkHttpClient.Builder()
+            .cookieJar(cookieJar)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
             .build()
     }
 

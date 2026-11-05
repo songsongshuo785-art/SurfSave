@@ -17,6 +17,7 @@ class OkHttpProxyClientTest {
 
     private val proxyClient = OkHttpProxyClient(
         OkHttpClient.Builder().build(),
+        OkHttpClient.Builder().build(),
         proxyProvider = { currentProxy },
         proxyCredentialsProvider = { currentProxy.user to currentProxy.password }
     )

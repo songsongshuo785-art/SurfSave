@@ -2,6 +2,7 @@ package com.myAllVideoBrowser.util.proxy_utils
 
 import com.myAllVideoBrowser.data.local.model.Proxy as AppProxy
 import com.myAllVideoBrowser.data.local.model.ProxyType
+import com.myAllVideoBrowser.di.qualifier.DownloadHttpClient
 import okhttp3.Authenticator
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
@@ -11,15 +12,18 @@ import javax.inject.Inject
 
 class OkHttpProxyClient internal constructor(
     private val okHttpClient: OkHttpClient,
+    private val downloadBaseClient: OkHttpClient,
     private val proxyProvider: () -> AppProxy,
     private val proxyCredentialsProvider: () -> Pair<String, String>
 ) {
     @Inject
     constructor(
         okHttpClient: OkHttpClient,
+        @DownloadHttpClient downloadHttpClient: OkHttpClient,
         proxyController: CustomProxyController
     ) : this(
         okHttpClient,
+        downloadHttpClient,
         { proxyController.getCurrentRunningProxy() },
         { proxyController.getProxyCredentials() }
     )
@@ -37,6 +41,8 @@ class OkHttpProxyClient internal constructor(
 
     private var currentConfig: ProxyCacheKey? = null
     private var httpClientCached: OkHttpClient? = null
+    private var downloadConfig: ProxyCacheKey? = null
+    private var downloadClientCached: OkHttpClient? = null
 
     @Synchronized
     fun getProxyOkHttpClient(): OkHttpClient {
@@ -51,16 +57,37 @@ class OkHttpProxyClient internal constructor(
         )
 
         if (httpClientCached == null || config != currentConfig) {
-            httpClientCached = buildClient(config)
+            httpClientCached = buildClient(config, okHttpClient)
             currentConfig = config
         }
 
         return requireNotNull(httpClientCached)
     }
 
-    private fun buildClient(config: ProxyCacheKey): OkHttpClient {
+    /** 下载专用：同样的代理配置，但基于更长读超时的客户端。 */
+    @Synchronized
+    fun getProxyDownloadOkHttpClient(): OkHttpClient {
+        val proxy = getProxy()
+        val credentials = proxyCredentialsProvider()
+        val config = ProxyCacheKey(
+            type = proxy.type,
+            host = proxy.host,
+            port = proxy.port,
+            username = credentials.first,
+            password = credentials.second
+        )
+
+        if (downloadClientCached == null || config != downloadConfig) {
+            downloadClientCached = buildClient(config, downloadBaseClient)
+            downloadConfig = config
+        }
+
+        return requireNotNull(downloadClientCached)
+    }
+
+    private fun buildClient(config: ProxyCacheKey, base: OkHttpClient): OkHttpClient {
         if (config.isDirect) {
-            return okHttpClient.newBuilder()
+            return base.newBuilder()
                 .proxy(JavaProxy.NO_PROXY)
                 .proxyAuthenticator(Authenticator { _, _ -> null })
                 .build()
@@ -82,7 +109,7 @@ class OkHttpProxyClient internal constructor(
             )
         }
 
-        val builder = okHttpClient.newBuilder()
+        val builder = base.newBuilder()
             .proxy(JavaProxy(javaProxyType, InetSocketAddress(config.host, port)))
         if (javaProxyType == JavaProxy.Type.HTTP &&
             (config.username.isNotBlank() || config.password.isNotBlank())

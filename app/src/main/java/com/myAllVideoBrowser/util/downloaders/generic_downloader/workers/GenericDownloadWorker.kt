@@ -1,6 +1,7 @@
 package com.myAllVideoBrowser.util.downloaders.generic_downloader.workers
 
 import android.content.Context
+import android.os.Build
 import android.util.Base64
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -29,6 +30,10 @@ abstract class GenericDownloadWorker(appContext: Context, workerParams: WorkerPa
 
     private val finishing = AtomicBoolean(false)
     private val continuationCompleted = AtomicBoolean(false)
+
+    private companion object {
+        const val STOP_REASON_UNAVAILABLE = Int.MIN_VALUE
+    }
 
     abstract fun finishWork(item: VideoTaskItem?)
 
@@ -75,6 +80,7 @@ abstract class GenericDownloadWorker(appContext: Context, workerParams: WorkerPa
         return suspendCancellableCoroutine { continuation ->
             setWorkContinuation(continuation)
             continuation.invokeOnCancellation {
+                logStopReason()
                 onWorkCancelled()
             }
             try {
@@ -136,6 +142,47 @@ abstract class GenericDownloadWorker(appContext: Context, workerParams: WorkerPa
 
     open fun afterDone() {
 
+    }
+
+    /**
+     * WorkManager 停止 Worker 时记录 stopReason。
+     * CoroutineWorker.onStopped() 是 final，这里在 invokeOnCancellation 里读取。
+     * 必须同步、轻量：不做数据库查询，也不启动异步任务（进程可能马上被回收）。
+     */
+    private fun logStopReason() {
+        val taskId = inputData.getString(GenericDownloader.Constants.TASK_ID_KEY).orEmpty()
+        val reasonCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            stopReason
+        } else {
+            STOP_REASON_UNAVAILABLE
+        }
+        AppLogger.d(
+            "DOWNLOAD_WORKER_STOP: taskId=$taskId worker=${javaClass.simpleName} " +
+                "attempt=$runAttemptCount stopReason=${stopReasonName(reasonCode)}($reasonCode) " +
+                "sdkInt=${Build.VERSION.SDK_INT}"
+        )
+    }
+
+    private fun stopReasonName(code: Int): String = when (code) {
+        -256 -> "NOT_STOPPED"
+        -512 -> "UNKNOWN"
+        -128 -> "FOREGROUND_SERVICE_TIMEOUT"
+        1 -> "CANCELLED_BY_APP"
+        2 -> "PREEMPT"
+        3 -> "TIMEOUT"
+        4 -> "DEVICE_STATE"
+        5 -> "CONSTRAINT_BATTERY_NOT_LOW"
+        6 -> "CONSTRAINT_CHARGING"
+        7 -> "CONSTRAINT_CONNECTIVITY"
+        8 -> "CONSTRAINT_DEVICE_IDLE"
+        9 -> "CONSTRAINT_STORAGE_NOT_LOW"
+        10 -> "QUOTA"
+        11 -> "BACKGROUND_RESTRICTION"
+        12 -> "APP_STANDBY"
+        13 -> "USER"
+        14 -> "SYSTEM_PROCESSING"
+        15 -> "ESTIMATED_APP_LAUNCH_TIME_CHANGED"
+        else -> "UNAVAILABLE"
     }
 
     fun setDone() {
