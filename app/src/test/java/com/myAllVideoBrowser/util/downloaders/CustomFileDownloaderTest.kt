@@ -151,6 +151,32 @@ class CustomFileDownloaderTest {
     }
 
     @Test
+    fun validResumeState_isPreservedWhenRangeProbeTemporarilyFails() {
+        val payload = "R".repeat(1_500)
+        outputFile.writeBytes(ByteArray(payload.length))
+        writeRangeLayout(1_500L, listOf(0L..1499L))
+        File(downloadDirectory, "chunk_0").writeText("500", Charsets.UTF_8)
+
+        // inspectResource() succeeds and preserves the same identity; the subsequent Range probe
+        // returns 200, simulating a temporary server/proxy failure to honor byte ranges.
+        server.enqueue(MockResponse().setResponseCode(200).setBody(payload))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(payload))
+
+        val listener = RecordingDownloadListener()
+        createDownloader(listener).download()
+
+        assertEquals(0, listener.successCount.get())
+        assertEquals(1, listener.failures.size)
+        assertEquals(1, listener.terminalCount())
+        val failure = listener.failures.single()
+        assertTrue(failure is com.myAllVideoBrowser.util.downloaders.DownloadHttpException)
+        assertTrue(failure.message.orEmpty().contains("Range temporarily unavailable"))
+        assertTrue(File(downloadDirectory, "range_layout_v1.json").isFile)
+        assertTrue(File(downloadDirectory, "chunk_0").isFile)
+        assertEquals("500", File(downloadDirectory, "chunk_0").readText(Charsets.UTF_8))
+    }
+
+    @Test
     fun ignoredRangeProbe_fallsBackToSingleStreamAndSucceedsOnce() {
         val payload = "stream-tail-".repeat(137)
         server.enqueue(MockResponse().setResponseCode(200).setBody(payload))
