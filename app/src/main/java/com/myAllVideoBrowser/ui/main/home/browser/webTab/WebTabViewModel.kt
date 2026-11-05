@@ -214,8 +214,8 @@ class WebTabViewModel @Inject constructor(
         }
     }
 
-    /** 只读兼容入口；返回当前页面 URL，不能作为可写状态使用。 */
-    fun getTabTextInput(): ObservableField<String> = currentPageUrl
+    /** 只读兼容入口；仅返回当前页面 URL 的值，不暴露可变 ObservableField。 */
+    fun getTabTextInput(): String = currentPageUrl.get().orEmpty()
 
     fun getCurrentPageUrl(): ObservableField<String> = currentPageUrl
 
