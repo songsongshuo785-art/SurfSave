@@ -74,7 +74,26 @@ class PlaybackPositionPolicyTest {
     }
 
     @Test
-    fun localIdentity_usesStableContentUri() {
+    fun localIdentity_prefersDownloadIdOverUri() {
+        val first = PlaybackPositionKey.forMedia(
+            source = VideoPlayerFragment.SOURCE_VIDEO_LIBRARY,
+            mediaUrl = "content://media/external/video/media/7",
+            mediaIdentity = "progress-uuid-a",
+            mediaKind = PlaybackMediaKind.AUTO
+        )
+        val moved = PlaybackPositionKey.forMedia(
+            source = VideoPlayerFragment.SOURCE_VIDEO_LIBRARY,
+            mediaUrl = "file:///storage/emulated/0/Download/SurfSave/7.mp4",
+            mediaIdentity = "progress-uuid-a",
+            mediaKind = PlaybackMediaKind.AUTO
+        )
+
+        assertEquals("local-download:progress-uuid-a", first)
+        assertEquals(first, moved)
+    }
+
+    @Test
+    fun localIdentity_fallsBackToNormalizedUriWithoutDownloadId() {
         val key = PlaybackPositionKey.forMedia(
             source = VideoPlayerFragment.SOURCE_VIDEO_LIBRARY,
             mediaUrl = "content://media/external/video/media/7",
@@ -82,7 +101,40 @@ class PlaybackPositionPolicyTest {
             mediaKind = PlaybackMediaKind.AUTO
         )
 
-        assertEquals("local:content://media/external/video/media/7", key)
+        assertEquals("local-uri:content://media/external/video/media/7", key)
+    }
+
+    @Test
+    fun endMargin_isDynamicForShortVideos() {
+        val tenSeconds = PlaybackPositionPolicy.endMarginMs(10_000L)
+        val oneMinute = PlaybackPositionPolicy.endMarginMs(60_000L)
+        val fiveMinutes = PlaybackPositionPolicy.endMarginMs(300_000L)
+
+        assertEquals(1_000L, tenSeconds)
+        assertEquals(3_000L, oneMinute)
+        assertEquals(15_000L, fiveMinutes)
+    }
+
+    @Test
+    fun shortVideo_keepsMiddlePosition() {
+        val decision = PlaybackPositionPolicy.restore(
+            SavedPlaybackPosition(30_000L, 60_000L, 1L),
+            currentDurationMs = 60_000L
+        )
+
+        assertEquals(30_000L, decision.positionMs)
+        assertTrue(!decision.shouldClear)
+    }
+
+    @Test
+    fun shortVideo_clearsOnlyInsideDynamicMargin() {
+        val nearEnd = PlaybackPositionPolicy.restore(
+            SavedPlaybackPosition(59_000L, 60_000L, 1L),
+            currentDurationMs = 60_000L
+        )
+
+        assertNull(nearEnd.positionMs)
+        assertTrue(nearEnd.shouldClear)
     }
 
     @Test

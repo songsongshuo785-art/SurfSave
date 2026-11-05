@@ -46,6 +46,24 @@ class PlaybackPositionStore @Inject constructor(
         preferences.edit { remove(storageKey(mediaKey)) }
     }
 
+    /**
+     * 旧 key 迁移：新 key 已存在时不覆盖；旧 key 不存在时 no-op。
+     * 返回 true 表示实际发生了迁移。
+     */
+    fun move(oldKey: String, newKey: String): Boolean {
+        if (oldKey.isBlank() || newKey.isBlank() || oldKey == newKey) return false
+        val oldStorage = storageKey(oldKey)
+        val newStorage = storageKey(newKey)
+        if (oldStorage == newStorage) return false
+        if (preferences.contains(newStorage)) return false
+        val encoded = preferences.getString(oldStorage, null) ?: return false
+        preferences.edit {
+            putString(newStorage, encoded)
+            remove(oldStorage)
+        }
+        return true
+    }
+
     private fun prune(nowMs: Long) {
         val entries = mutableListOf<Pair<String, PersistedPosition>>()
         val invalidKeys = mutableListOf<String>()

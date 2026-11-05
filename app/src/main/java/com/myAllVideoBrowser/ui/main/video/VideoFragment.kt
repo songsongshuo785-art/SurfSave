@@ -405,6 +405,7 @@ class VideoFragment : BaseFragment() {
             putExtra(VideoPlayerFragment.VIDEO_NAME, localVideo.name)
             putExtra(VideoPlayerFragment.VIDEO_URL, localVideo.uri.toString())
             putExtra(VideoPlayerFragment.VIDEO_SOURCE, VideoPlayerFragment.SOURCE_VIDEO_LIBRARY)
+            putExtra(VideoPlayerFragment.VIDEO_MEDIA_IDENTITY, localVideo.playbackIdentity)
         }
         // 共享元素过渡：缩略图 → 播放器变形。源 View 点击瞬间设 transitionName
         //（adapter bind 时清除，保证屏幕上仅被点击项有此名，避免重名冲突）。

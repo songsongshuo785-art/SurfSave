@@ -162,6 +162,7 @@ class VideoViewModel @Inject constructor(
             }
             video.quality = progressInfo?.let { resolveQuality(it) }.orEmpty()
             video.sourceUrl = progressInfo?.let { resolveSourceUrl(it) }.orEmpty()
+            video.playbackIdentity = progressInfo?.id.orEmpty()
             video.originalThumbnailUrl = progressInfo?.videoInfo?.thumbnail.orEmpty()
             video.durationMillis = if (video.isImage) {
                 0L

@@ -59,4 +59,51 @@ class PlaybackPositionStoreTest {
         assertEquals(false, shortId.contains("secret"))
         assertEquals("", store.shortId(""))
     }
+
+    @Test
+    fun move_legacyKeyToStableKey() {
+        val store = PlaybackPositionStore(org.robolectric.RuntimeEnvironment.getApplication())
+        val legacyKey = "local:content://media/video/7-${System.nanoTime()}"
+        val stableKey = "local-download:uuid-${System.nanoTime()}"
+        store.save(legacyKey, positionMs = 45_000L, durationMs = 120_000L, nowMs = 100L)
+
+        val moved = store.move(legacyKey, stableKey)
+
+        assertEquals(true, moved)
+        assertEquals(
+            SavedPlaybackPosition(45_000L, 120_000L, 100L),
+            store.get(stableKey)
+        )
+        assertNull(store.get(legacyKey))
+        store.remove(stableKey)
+    }
+
+    @Test
+    fun move_doesNotOverwriteExistingStableKey() {
+        val store = PlaybackPositionStore(org.robolectric.RuntimeEnvironment.getApplication())
+        val legacyKey = "local:content://media/video/8-${System.nanoTime()}"
+        val stableKey = "local-download:uuid-${System.nanoTime()}"
+        store.save(legacyKey, positionMs = 10_000L, durationMs = 120_000L, nowMs = 100L)
+        store.save(stableKey, positionMs = 90_000L, durationMs = 120_000L, nowMs = 200L)
+
+        val moved = store.move(legacyKey, stableKey)
+
+        assertEquals(false, moved)
+        assertEquals(
+            SavedPlaybackPosition(90_000L, 120_000L, 200L),
+            store.get(stableKey)
+        )
+        store.remove(legacyKey)
+        store.remove(stableKey)
+    }
+
+    @Test
+    fun move_missingLegacyKeyIsNoOp() {
+        val store = PlaybackPositionStore(org.robolectric.RuntimeEnvironment.getApplication())
+        val legacyKey = "local:missing-${System.nanoTime()}"
+        val stableKey = "local-download:missing-${System.nanoTime()}"
+
+        assertEquals(false, store.move(legacyKey, stableKey))
+        assertNull(store.get(stableKey))
+    }
 }

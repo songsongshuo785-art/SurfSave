@@ -15,6 +15,11 @@ data class LocalVideo(
     var mimeType: String = ""
     var quality: String = ""
     var sourceUrl: String = ""
+    /**
+     * 播放进度的稳定身份：来自下载记录 `ProgressInfo.id`。
+     * 不持久化到文件；每次扫描时由 [com.myAllVideoBrowser.ui.main.video.VideoViewModel] 重新填充。
+     */
+    var playbackIdentity: String = ""
     /** Source-provided cover URL, if the completed download still has one. */
     var originalThumbnailUrl: String = ""
     var thumbnailFrameMicros: Long = 1_000_000L
