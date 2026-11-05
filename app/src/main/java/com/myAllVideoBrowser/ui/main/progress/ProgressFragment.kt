@@ -1,5 +1,6 @@
 package com.myAllVideoBrowser.ui.main.progress
 
+import android.app.Activity
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -17,6 +18,9 @@ import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.doOnLayout
 import androidx.databinding.Observable
@@ -75,6 +79,14 @@ class ProgressFragment : BaseFragment() {
     private lateinit var fileDownloadAdapter: BrowserFileDownloadAdapter
     private var selectedFilter = R.id.downloads_all
     private var progressGridLayoutListener: View.OnLayoutChangeListener? = null
+
+    private val deleteHistoryAuthLauncher: ActivityResultLauncher<IntentSenderRequest> =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            progressViewModel.onDeleteHistoryAuthResult(
+                requireContext(),
+                result.resultCode == Activity.RESULT_OK
+            )
+        }
 
     private fun updateProgressGridSpanCount() {
         if (!::dataBinding.isInitialized) return
@@ -170,6 +182,9 @@ class ProgressFragment : BaseFragment() {
         updateDownloadSectionUi()
         progressViewModel.refreshBrowserFileDownloads()
         handleHistoryEvents()
+        progressViewModel.deleteHistoryAuthEvent.observe(viewLifecycleOwner) { sender ->
+            deleteHistoryAuthLauncher.launch(IntentSenderRequest.Builder(sender).build())
+        }
     }
 
     override fun onDestroyView() {
