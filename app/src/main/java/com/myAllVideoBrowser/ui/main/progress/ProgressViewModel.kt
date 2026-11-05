@@ -3,6 +3,8 @@ package com.myAllVideoBrowser.ui.main.progress
 import androidx.annotation.VisibleForTesting
 import androidx.databinding.ObservableField
 import androidx.lifecycle.viewModelScope
+import android.content.Context
+import android.content.IntentSender
 import android.net.Uri
 import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
@@ -60,6 +62,8 @@ class ProgressViewModel @Inject constructor(
     val browserFileLaunchEvent = SingleLiveEvent<BrowserFileLaunchRequest>()
     val browserFileMessageEvent = SingleLiveEvent<Int>()
     val historyMessageEvent = SingleLiveEvent<Int>()
+    val deleteHistoryAuthEvent = SingleLiveEvent<IntentSender>()
+    private var pendingHistoryDelete: PendingHistoryDelete? = null
     private val executor2 = Executors.newFixedThreadPool(1).asCoroutineDispatcher()
     private var browserFileSyncJob: Job? = null
     @Volatile
@@ -306,8 +310,13 @@ class ProgressViewModel @Inject constructor(
                 }
 
                 is FileUtil.DeleteMediaResult.NeedsAuth -> {
+                    pendingHistoryDelete = PendingHistoryDelete(
+                        originalUriString = uriString,
+                        retryUri = result.retryUri,
+                        verificationUri = result.verificationUri
+                    )
                     viewModelScope.launch {
-                        historyMessageEvent.value = R.string.progress_history_delete_needs_auth
+                        deleteHistoryAuthEvent.value = result.intentSender
                     }
                 }
 
@@ -319,6 +328,42 @@ class ProgressViewModel @Inject constructor(
             }
         }
     }
+
+    fun onDeleteHistoryAuthResult(context: Context, granted: Boolean) {
+        val pending = pendingHistoryDelete
+        pendingHistoryDelete = null
+        if (!granted) {
+            return
+        }
+        if (pending == null) {
+            historyMessageEvent.value = R.string.progress_history_delete_failed
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val deleted = if (pending.retryUri == null) {
+                fileUtil.isUriDefinitelyAbsent(context, pending.verificationUri)
+            } else {
+                when (fileUtil.deleteMedia(context, pending.retryUri)) {
+                    is FileUtil.DeleteMediaResult.Success -> true
+                    is FileUtil.DeleteMediaResult.NeedsAuth -> false
+                    is FileUtil.DeleteMediaResult.Failed -> false
+                }
+            }
+            if (deleted) {
+                progressRepository.clearFinalMediaUri(pending.originalUriString)
+            } else {
+                viewModelScope.launch {
+                    historyMessageEvent.value = R.string.progress_history_delete_failed
+                }
+            }
+        }
+    }
+
+    private data class PendingHistoryDelete(
+        val originalUriString: String,
+        val retryUri: Uri?,
+        val verificationUri: Uri
+    )
 
     fun openTaskDetails(downloadId: Long) {
         val task = progressInfos.get()?.find { it.downloadId == downloadId } ?: return
