@@ -6,6 +6,9 @@ import androidx.databinding.ObservableField
 import androidx.databinding.ObservableInt
 import androidx.lifecycle.viewModelScope
 //import com.allVideoDownloaderXmaster.OpenForTesting
+import com.myAllVideoBrowser.migration.MigrationManager
+import com.myAllVideoBrowser.migration.PrivateVideoMoveResult
+import com.myAllVideoBrowser.migration.PrivateVideoSummary
 import com.myAllVideoBrowser.ui.main.base.BaseViewModel
 import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.CookieProfileStore
@@ -29,6 +32,8 @@ class SettingsViewModel @Inject constructor(
     private val sharedPrefHelper: SharedPrefHelper,
     private val cookieProfileStore: CookieProfileStore,
     private val ytdlpUpdateManager: YtdlpUpdateManager,
+    private val fileUtil: FileUtil,
+    private val migrationManager: MigrationManager,
 ) :
     BaseViewModel() {
     val isDrmEnabled = ObservableBoolean(false)
@@ -37,6 +42,11 @@ class SettingsViewModel @Inject constructor(
     val maxConcurrentDownloads = ObservableInt(2)
     val videoDetectionThreshold = ObservableInt(4 * 1024 * 1024)
     val storageType = ObservableField(StorageType.SD)
+    val storagePath = ObservableField("")
+    val privateVideoSummary = ObservableField(PrivateVideoSummary())
+    val confirmPrivateStorageEvent = SingleLiveEvent<StorageType>()
+    val privateVideoMoveEvent = SingleLiveEvent<PrivateVideoMoveResult>()
+    val privateVideoMoveFailedEvent = SingleLiveEvent<String>()
 
     val clearCookiesEvent = SingleLiveEvent<Void?>()
     val openVideoFolderEvent = SingleLiveEvent<Void?>()
@@ -120,6 +130,7 @@ class SettingsViewModel @Inject constructor(
             } else {
                 storageType.set(StorageType.HIDDEN)
             }
+            refreshStorageInfo()
         }
     }
 
@@ -457,6 +468,7 @@ class SettingsViewModel @Inject constructor(
             storageType.set(StorageType.SD)
             sharedPrefHelper.setIsExternalUse(true)
             sharedPrefHelper.setIsAppDirUse(false)
+            refreshStorageInfo()
         }
     }
 
@@ -468,6 +480,7 @@ class SettingsViewModel @Inject constructor(
             storageType.set(StorageType.HIDDEN)
             sharedPrefHelper.setIsExternalUse(false)
             sharedPrefHelper.setIsAppDirUse(true)
+            refreshStorageInfo()
         }
     }
 
@@ -479,6 +492,54 @@ class SettingsViewModel @Inject constructor(
             storageType.set(StorageType.HIDDEN_SD)
             sharedPrefHelper.setIsExternalUse(true)
             sharedPrefHelper.setIsAppDirUse(true)
+            refreshStorageInfo()
+        }
+    }
+
+    /** 选择私有目录前先走确认；确认后由 [confirmPrivateStorage] 真正修改。 */
+    fun requestDownloadsFolderHidden() {
+        confirmPrivateStorageEvent.value = StorageType.HIDDEN
+    }
+
+    fun requestDownloadsFolderHiddenSdCard() {
+        confirmPrivateStorageEvent.value = StorageType.HIDDEN_SD
+    }
+
+    fun confirmPrivateStorage(type: StorageType) {
+        when (type) {
+            StorageType.SD -> setDownloadsFolderSdCard()
+            StorageType.HIDDEN -> setDownloadsFolderHidden()
+            StorageType.HIDDEN_SD -> setDownloadsFolderHiddenSdCard()
+        }
+    }
+
+    fun refreshStorageInfo() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val path = runCatching { fileUtil.folderDir.absolutePath }.getOrDefault("")
+            val summary = runCatching {
+                migrationManager.getOverview().privateVideoSummary
+            }.getOrDefault(PrivateVideoSummary())
+            runOnMain {
+                storagePath.set(path)
+                privateVideoSummary.set(summary)
+            }
+        }
+    }
+
+    fun movePrivateVideosToPublic() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { migrationManager.movePrivateVideosToSharedDownloads() }
+                .onSuccess { result ->
+                    runOnMain {
+                        privateVideoMoveEvent.value = result
+                        refreshStorageInfo()
+                    }
+                }
+                .onFailure { error ->
+                    runOnMain {
+                        privateVideoMoveFailedEvent.value = error.message ?: ""
+                    }
+                }
         }
     }
 

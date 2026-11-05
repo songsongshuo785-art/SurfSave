@@ -260,9 +260,9 @@
     <string name="downloads_location">下载位置</string>
     <string name="settings_open_download_folder">打开下载目录</string>
     <string name="settings_open_download_folder_subtitle">直接打开 SurfSave 保存已下载视频的文件夹。</string>
-    <string name="downloads_folder">公共下载目录</string>
-    <string name="hidden_folder">应用私有目录</string>
-    <string name="sd_app_folder">应用专属目录</string>
+    <string name="downloads_folder">公共下载目录（卸载不删除）</string>
+    <string name="hidden_folder">应用私有目录（卸载会删除）</string>
+    <string name="sd_app_folder">应用专属目录（卸载会删除）</string>
     <string name="port_hint">端口</string>
     <string name="host_hint">主机</string>
     <string name="login_hint">用户</string>
@@ -567,4 +567,13 @@
     <string name="progress_history_delete_record_message">来源网页链接将一并消失，且无法恢复。</string>
     <string name="progress_history_delete_needs_auth">删除该文件需要存储授权，请改从视频库删除。</string>
     <string name="progress_history_delete_failed">删除本地文件失败</string>
+    <string name="settings_storage_current_path">当前保存位置：%1$s</string>
+    <string name="settings_storage_private_summary">应用私有目录中还有 %1$d 个视频，卸载应用会删除</string>
+    <string name="settings_storage_move_to_public">迁移到公共下载目录</string>
+    <string name="settings_storage_confirm_title">使用应用私有目录？</string>
+    <string name="settings_storage_confirm_message">卸载 SurfSave 时，系统会删除保存在这里的视频。需要保留请先迁移到公共下载目录。</string>
+    <string name="settings_storage_confirm_positive">仍要使用</string>
+    <string name="settings_storage_move_result">已迁移 %1$d 个视频到公共下载目录</string>
+    <string name="settings_storage_move_result_partial">已迁移 %1$d 个视频，失败 %2$d 个</string>
+    <string name="settings_storage_move_failed">迁移应用私有视频失败</string>
 </resources>

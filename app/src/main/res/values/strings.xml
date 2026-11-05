@@ -407,9 +407,9 @@
   <string name="downloads_location">Downloads Location</string>
   <string name="settings_open_download_folder">Open downloads folder</string>
   <string name="settings_open_download_folder_subtitle">Jump to the folder where SurfSave keeps finished videos.</string>
-  <string name="downloads_folder">Downloads folder</string>
-  <string name="hidden_folder">Hidden folder</string>
-  <string name="sd_app_folder">SD app folder</string>
+  <string name="downloads_folder">Public Downloads (kept after uninstall)</string>
+  <string name="hidden_folder">App-only storage, internal (deleted on uninstall)</string>
+  <string name="sd_app_folder">App-only storage, SD card (deleted on uninstall)</string>
   <string name="host_hint">Host</string>
   <string name="port_hint">Port</string>
   <string name="login_hint">User</string>
@@ -570,4 +570,13 @@
     <string name="progress_history_delete_record_message">The source page link will be lost. This cannot be undone.</string>
     <string name="progress_history_delete_needs_auth">Storage permission is required to delete this file. Delete it from the video library instead.</string>
     <string name="progress_history_delete_failed">Failed to delete local file</string>
+    <string name="settings_storage_current_path">Current folder: %1$s</string>
+    <string name="settings_storage_private_summary">%1$d videos in app-only storage will be deleted when you uninstall SurfSave</string>
+    <string name="settings_storage_move_to_public">Move app-only videos to public Downloads</string>
+    <string name="settings_storage_confirm_title">Use app-only storage?</string>
+    <string name="settings_storage_confirm_message">Videos saved here will be deleted when you uninstall SurfSave. Move them to public Downloads first if you want to keep them.</string>
+    <string name="settings_storage_confirm_positive">Use app-only storage</string>
+    <string name="settings_storage_move_result">Moved %1$d videos to public Downloads</string>
+    <string name="settings_storage_move_result_partial">Moved %1$d videos, %2$d failed</string>
+    <string name="settings_storage_move_failed">Failed to move app-only videos</string>
 </resources>

@@ -324,14 +324,25 @@ class MigrationManager @Inject constructor(
         entries.forEach { entry ->
             val target = uniquePublicDownloadTarget(publicDownloadsDir, entry.fileName)
             val moved = runCatching {
-                fileUtil.moveMedia(context, entry.uri, Uri.fromFile(target))
+                fileUtil.moveMedia(context, entry.uri, target.toUri())
             }.getOrElse { error ->
                 AppLogger.e("Failed to move private video ${entry.fileName}: ${error.message}")
                 false
             }
             if (moved) {
-                movedCount += 1
-                movedBytes += entry.sizeBytes
+                // 迁移后必须写回真实的最终 URI（Android Q+ 通常是 content://media/...），
+                // 否则 CompletedVideoMetadataIndex 对不上，来源/标题/质量会退化为文件名匹配。
+                val finalUri = fileUtil.resolveMediaUri(context, target) ?: target.toUri()
+                val finalSize = runCatching {
+                    fileUtil.getContentLength(context, finalUri)
+                }.getOrDefault(-1L)
+                if (finalSize > 0L) {
+                    progressDao.replaceFinalMediaUri(entry.uri.toString(), finalUri.toString())
+                    movedCount += 1
+                    movedBytes += entry.sizeBytes
+                } else {
+                    failedCount += 1
+                }
             } else {
                 failedCount += 1
             }
