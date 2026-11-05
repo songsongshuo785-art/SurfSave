@@ -12,6 +12,7 @@ import com.myAllVideoBrowser.data.repository.ProgressRepository
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.ui.main.base.BaseViewModel
 import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.ContextUtils
 import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.util.DownloadFilenameTemplate
@@ -42,6 +43,11 @@ class ProgressViewModel @Inject constructor(
     internal val compositeDisposable: CompositeDisposable = CompositeDisposable()
 
     var progressInfos: ObservableField<List<ProgressInfo>> = ObservableField(emptyList())
+    /**
+     * 下载历史：所有 `SUCCESS` 记录，永久保留。
+     * 删除本地文件只清 `finalMediaUri`，记录仍留在这里；只有用户显式删除记录才移除。
+     */
+    var historyInfos: ObservableField<List<ProgressInfo>> = ObservableField(emptyList())
     val browserFileDownloads: ObservableField<List<BrowserFileDownload>> = ObservableField(emptyList())
     val selectedDownloadSection: ObservableField<DownloadSection> =
         ObservableField(DownloadSection.MEDIA)
@@ -53,6 +59,7 @@ class ProgressViewModel @Inject constructor(
     val mediaEnqueueSummaryEvent = SingleLiveEvent<MediaEnqueueSummary>()
     val browserFileLaunchEvent = SingleLiveEvent<BrowserFileLaunchRequest>()
     val browserFileMessageEvent = SingleLiveEvent<Int>()
+    val historyMessageEvent = SingleLiveEvent<Int>()
     private val executor2 = Executors.newFixedThreadPool(1).asCoroutineDispatcher()
     private var browserFileSyncJob: Job? = null
     @Volatile
@@ -280,6 +287,39 @@ class ProgressViewModel @Inject constructor(
         }
     }
 
+    fun deleteHistoryRecord(task: ProgressInfo) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { progressRepository.deleteProgressInfo(task) }
+                .onFailure { AppLogger.e("Downloads: failed to delete history record", it) }
+        }
+    }
+
+    /** 只删本地文件；历史记录与来源网页保留。 */
+    fun deleteHistoryFile(task: ProgressInfo) {
+        val uriString = task.finalMediaUri
+        if (uriString.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = ContextUtils.getApplicationContext()
+            when (val result = fileUtil.deleteMedia(context, Uri.parse(uriString))) {
+                is FileUtil.DeleteMediaResult.Success -> {
+                    progressRepository.clearFinalMediaUri(uriString)
+                }
+
+                is FileUtil.DeleteMediaResult.NeedsAuth -> {
+                    viewModelScope.launch {
+                        historyMessageEvent.value = R.string.progress_history_delete_needs_auth
+                    }
+                }
+
+                is FileUtil.DeleteMediaResult.Failed -> {
+                    viewModelScope.launch {
+                        historyMessageEvent.value = R.string.progress_history_delete_failed
+                    }
+                }
+            }
+        }
+    }
+
     fun openTaskDetails(downloadId: Long) {
         val task = progressInfos.get()?.find { it.downloadId == downloadId } ?: return
         viewModelScope.launch(executor2) {
@@ -344,13 +384,12 @@ class ProgressViewModel @Inject constructor(
         compositeDisposable.clear()
         compositeDisposable.add(
             progressRepository.getProgressInfos()
-                .map { list ->
-                    list.filter { info -> info.downloadStatus != VideoTaskState.SUCCESS }
-                }
+                .map { list -> list.partition { it.downloadStatus == VideoTaskState.SUCCESS } }
                 .subscribeOn(io.reactivex.rxjava3.schedulers.Schedulers.io())
                 .observeOn(io.reactivex.rxjava3.android.schedulers.AndroidSchedulers.mainThread())
-                .subscribe({ progressInfoList ->
-                    progressInfos.set(sortProgressInfos(progressInfoList))
+                .subscribe({ (completed, pending) ->
+                    progressInfos.set(sortProgressInfos(pending))
+                    historyInfos.set(completed.sortedByDescending { it.completedAt })
                 }, { error ->
                     AppLogger.e("Progress: failed to observe progress list", error)
                 })

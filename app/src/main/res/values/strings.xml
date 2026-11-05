@@ -558,4 +558,16 @@
     <string name="surf_player_speed">Playback speed</string>
     <string name="surf_player_aspect">Picture size</string>
     <string name="surf_media_button_move_hint">Touch and hold to move; release to dock at either edge</string>
+    <string name="surf_filter_completed">Completed</string>
+    <string name="progress_menu_open_file">Open file</string>
+    <string name="progress_menu_delete_file">Delete local file</string>
+    <string name="progress_menu_delete_record">Delete record</string>
+    <string name="progress_history_file_missing">File deleted</string>
+    <string name="progress_history_open_failed">Unable to open file</string>
+    <string name="progress_history_delete_file_title">Delete local file?</string>
+    <string name="progress_history_delete_file_message">The download history and source page link will be kept.</string>
+    <string name="progress_history_delete_record_title">Delete download record?</string>
+    <string name="progress_history_delete_record_message">The source page link will be lost. This cannot be undone.</string>
+    <string name="progress_history_delete_needs_auth">Storage permission is required to delete this file. Delete it from the video library instead.</string>
+    <string name="progress_history_delete_failed">Failed to delete local file</string>
 </resources>

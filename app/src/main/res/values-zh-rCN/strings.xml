@@ -555,4 +555,16 @@
     <string name="surf_player_speed">播放速度</string>
     <string name="surf_player_aspect">画面比例</string>
     <string name="surf_media_button_move_hint">长按拖动，松手贴边</string>
+    <string name="surf_filter_completed">已完成</string>
+    <string name="progress_menu_open_file">打开文件</string>
+    <string name="progress_menu_delete_file">删除本地文件</string>
+    <string name="progress_menu_delete_record">删除记录</string>
+    <string name="progress_history_file_missing">文件已删除</string>
+    <string name="progress_history_open_failed">无法打开文件</string>
+    <string name="progress_history_delete_file_title">删除本地文件？</string>
+    <string name="progress_history_delete_file_message">下载记录和来源网页链接会保留。</string>
+    <string name="progress_history_delete_record_title">删除下载记录？</string>
+    <string name="progress_history_delete_record_message">来源网页链接将一并消失，且无法恢复。</string>
+    <string name="progress_history_delete_needs_auth">删除该文件需要存储授权，请改从视频库删除。</string>
+    <string name="progress_history_delete_failed">删除本地文件失败</string>
 </resources>
