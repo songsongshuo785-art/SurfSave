@@ -54,7 +54,15 @@ class WebTabViewModel @Inject constructor(
 
     val loadPageEvent = SingleLiveEvent<WebTab>()
 
-    private val tabUrl = ObservableField("")
+    /**
+     * 地址栏三态：
+     *  - [currentPageUrl] 只由网页导航写入；
+     *  - [addressDraft]   只由用户编辑写入；
+     *  - [tabBrowseText]  非编辑态显示用的「标题 · host」。
+     * [tabDisplayText] 是唯一对外 observable 输出，由 [refreshAddressText] 统一刷新。
+     */
+    private val currentPageUrl = ObservableField("")
+    private val addressDraft = ObservableField("")
     private var tabSuggestionJob: Job? = null
 
     private val showProgressCallBack = object : Observable.OnPropertyChangedCallback() {
@@ -82,7 +90,7 @@ class WebTabViewModel @Inject constructor(
 
     fun finishPage(url: String) {
         runOnMain {
-            setTabTextInput(url, true)
+            currentPageUrl.set(url)
             isShowProgress.set(false)
             refreshBrowseText(url, currentTitle.get())
         }
@@ -90,10 +98,9 @@ class WebTabViewModel @Inject constructor(
 
     fun onStartPage(url: String, title: String?) {
         runOnMain {
-            setTabTextInput(url)
+            currentPageUrl.set(url)
             isShowProgress.set(true)
             currentTitle.set(title)
-            tabUrl.set(url)
             refreshBrowseText(url, title)
         }
     }
@@ -101,9 +108,8 @@ class WebTabViewModel @Inject constructor(
     fun onUpdateVisitedHistory(url: String, title: String?, userAgent: String?) {
         if (url.startsWith("http")) {
             runOnMain {
-                setTabTextInput(url)
+                currentPageUrl.set(url)
                 isShowProgress.set(true)
-                tabUrl.set(url)
                 refreshBrowseText(url, title ?: currentTitle.get())
             }
         }
@@ -135,7 +141,7 @@ class WebTabViewModel @Inject constructor(
             tabPublishSubject.debounce(300, TimeUnit.MILLISECONDS)
                 .toFlowable(BackpressureStrategy.LATEST), historyRepository.getAllHistory().take(1)
         ) { input, suggestions ->
-            tabUrl.set(input)
+            addressDraft.set(input)
 
             val listSuggestions = suggestions.filter { historyItem ->
                 historyItem.url.contains(
@@ -149,8 +155,12 @@ class WebTabViewModel @Inject constructor(
 
     fun changeTabFocus(isFocus: Boolean) {
         runOnMain {
+            if (isFocus && !this.isTabInputFocused.get()) {
+                // 进入编辑态时把当前页面 URL 灌入草稿；后续网页导航不会再覆盖草稿。
+                addressDraft.set(currentPageUrl.get().orEmpty())
+            }
             this.isTabInputFocused.set(isFocus)
-            updateAddressDisplayText()
+            refreshAddressText()
             changeTabFocusEvent.value = isFocus
             updateProgressIcon()
         }
@@ -187,25 +197,29 @@ class WebTabViewModel @Inject constructor(
         }
     }
 
+    /** 用户编辑地址栏时写草稿，不直接改当前页面 URL。 */
     fun setTabTextInput(input: String?, isForce: Boolean = false) {
         if (input.isNullOrEmpty()) {
             return
         }
 
         runOnMain {
-            if (!isForce && tabUrl.get() == input) {
-                updateAddressDisplayText()
+            if (!isForce && addressDraft.get() == input) {
+                refreshAddressText()
                 return@runOnMain
             }
 
-            tabUrl.set(input)
-            updateAddressDisplayText()
+            addressDraft.set(input)
+            refreshAddressText()
         }
     }
 
-    fun getTabTextInput(): ObservableField<String> {
-        return tabUrl
-    }
+    /** 只读兼容入口；返回当前页面 URL，不能作为可写状态使用。 */
+    fun getTabTextInput(): ObservableField<String> = currentPageUrl
+
+    fun getCurrentPageUrl(): ObservableField<String> = currentPageUrl
+
+    fun getAddressDraft(): ObservableField<String> = addressDraft
 
     fun getTabBrowseText(): ObservableField<String> {
         return tabBrowseText
@@ -262,7 +276,7 @@ class WebTabViewModel @Inject constructor(
         }
     }
 
-    fun refreshBrowseText(url: String? = tabUrl.get(), title: String? = currentTitle.get()) {
+    fun refreshBrowseText(url: String? = currentPageUrl.get(), title: String? = currentTitle.get()) {
         val safeUrl = url.orEmpty()
         if (safeUrl.isBlank()) {
             return
@@ -273,7 +287,7 @@ class WebTabViewModel @Inject constructor(
             if (tabBrowseText.get() != browseText) {
                 tabBrowseText.set(browseText)
             }
-            updateAddressDisplayText()
+            refreshAddressText()
         }
     }
 
@@ -314,16 +328,20 @@ class WebTabViewModel @Inject constructor(
         return normalized.take((maxLength - 3).coerceAtLeast(0)).trimEnd() + "..."
     }
 
-    private fun updateAddressDisplayText() {
+    /**
+     * 唯一地址栏输出：编辑态用草稿，非编辑态用「标题 · host」。
+     * 任何三态字段变化后都只能通过这里刷新 [tabDisplayText]。
+     */
+    private fun refreshAddressText() {
         val displayText = if (isTabInputFocused.get()) {
-            tabUrl.get().orEmpty()
+            addressDraft.get().orEmpty()
         } else {
             tabBrowseText.get().orEmpty().ifBlank {
-                buildBrowseText(tabUrl.get().orEmpty(), currentTitle.get())
+                buildBrowseText(currentPageUrl.get().orEmpty(), currentTitle.get())
             }
         }
 
-        if (displayText.isNotBlank() && tabDisplayText.get() != displayText) {
+        if (tabDisplayText.get() != displayText) {
             tabDisplayText.set(displayText)
         }
     }
