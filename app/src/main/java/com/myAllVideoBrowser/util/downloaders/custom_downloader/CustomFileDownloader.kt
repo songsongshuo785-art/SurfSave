@@ -198,6 +198,19 @@ class CustomFileDownloader(
                 !supportsRange || (threadCount == 1 && isForceStreamDownloadMode)
 
             if (useRegularStream) {
+                val storedLayout = readStoredRangeLayout()
+                if (!supportsRange &&
+                    storedLayout != null &&
+                    storedLayout.matches(url.toString(), resourceIdentity)
+                ) {
+                    AppLogger.d(
+                        "Range temporarily unavailable while a valid resume state exists; preserving resume data."
+                    )
+                    throw DownloadHttpException(
+                        503,
+                        "Range temporarily unavailable while a valid resume state exists"
+                    )
+                }
                 AppLogger.d("Range download unavailable, using a single stream.")
                 clearRangeResumeState()
                 totalBytesChunks = AtomicLongArray(1)
@@ -611,13 +624,7 @@ class CustomFileDownloader(
         val directory = file.parentFile
             ?: throw IOException("Download output has no parent directory")
         val layoutFile = File(directory, RANGE_LAYOUT_FILE_NAME)
-        val stored = if (layoutFile.isFile) {
-            runCatching {
-                Gson().fromJson(layoutFile.readText(Charsets.UTF_8), RangeLayout::class.java)
-            }.getOrNull()
-        } else {
-            null
-        }
+        val stored = readStoredRangeLayout()
         if (stored != null && stored.matches(url.toString(), resourceIdentity)) {
             return stored.chunks.sortedBy { it.index }.map { it.start..it.end }
         }
@@ -637,6 +644,15 @@ class CustomFileDownloader(
         )
         writeRangeLayout(layoutFile, layout)
         return ranges
+    }
+
+    private fun readStoredRangeLayout(): RangeLayout? {
+        val directory = file.parentFile ?: return null
+        val layoutFile = File(directory, RANGE_LAYOUT_FILE_NAME)
+        if (!layoutFile.isFile) return null
+        return runCatching {
+            Gson().fromJson(layoutFile.readText(Charsets.UTF_8), RangeLayout::class.java)
+        }.getOrNull()
     }
 
     private fun createRanges(contentSize: Long): List<LongRange> {
