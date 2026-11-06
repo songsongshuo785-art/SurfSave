@@ -27,6 +27,7 @@ class HistoryBackfillManager(
     private val context: Context,
     private val progressRepository: ProgressRepository,
     private val fileUtil: FileUtil,
+    private val sizeResolver: (Uri) -> Long = { uri -> fileUtil.getContentLength(context, uri) },
 ) {
     data class BackfillResult(
         val inserted: Int,
@@ -57,12 +58,24 @@ class HistoryBackfillManager(
         val entries = runCatching { fileUtil.listFiles }.getOrElse { error ->
             AppLogger.e("History backfill: failed to scan media", error)
             return BackfillResult(0, 0, 1)
+        }.filter { entry ->
+            // 只补录 SurfSave 管理的三处位置；LEGACY_PUBLIC 是 Downloads 根目录，
+            // 不在锁定范围内。
+            entry.storageClass != FileUtil.MediaStorageClass.LEGACY_PUBLIC
         }
+        val nameCounts = entries.groupingBy { it.displayName.lowercase() }.eachCount()
 
         entries.forEach { entry ->
-            if (index.find(entry.uri.toString(), entry.displayName) != null) {
-                skipped += 1
-                return@forEach
+            val matched = index.find(entry.uri.toString(), entry.displayName)
+            if (matched != null) {
+                // finalMediaUri 精确命中肯定跳过；文件名 fallback 只有当前扫描结果里
+                // 该文件名也唯一时才可信，否则同名文件会被错误地当成已绑定。
+                val exactUri = matched.finalMediaUri == entry.uri.toString()
+                val uniqueName = nameCounts[entry.displayName.lowercase()] == 1
+                if (exactUri || uniqueName) {
+                    skipped += 1
+                    return@forEach
+                }
             }
             val fingerprint = legacyFingerprint(entry.uri, entry.displayName)
             val duplicate = runCatching {
@@ -72,9 +85,7 @@ class HistoryBackfillManager(
                 skipped += 1
                 return@forEach
             }
-            val size = runCatching {
-                fileUtil.getContentLength(context, entry.uri)
-            }.getOrDefault(-1L)
+            val size = runCatching { sizeResolver(entry.uri) }.getOrDefault(-1L)
             if (size <= 0L) {
                 skipped += 1
                 return@forEach

@@ -101,9 +101,11 @@ class MediaMigrationManager(
             progressRepository.replaceFinalMediaUri(source.toString(), targetUri.toString())
         }.getOrElse { error ->
             AppLogger.e("Migration: failed to update metadata", error)
-            0
+            -1
         }
-        if (replacedRows <= 0) {
+        // 0 行代表该文件没有 ProgressInfo（手工放入 SurfSave 目录、尚未回填）；
+        // 文件管理不能依赖用户是否打开过下载历史，所以 0 行仍然继续迁移。
+        if (replacedRows < 0) {
             cleanupTarget(target, targetUri)
             return MigrationResult.Failed("Persistent metadata could not be updated")
         }

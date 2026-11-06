@@ -70,7 +70,10 @@ class VideoViewModel @Inject constructor(
     val migrationAuthEvent = SingleLiveEvent<IntentSender>()
     val migrationSourceNotDeletedEvent = SingleLiveEvent<Unit>()
     val batchMigrationEvent = SingleLiveEvent<BatchMigrationResult>()
+    val batchMigrationAuthEvent = SingleLiveEvent<IntentSender>()
     private var pendingMigration: PendingMigration? = null
+    private val pendingBatchAuth = mutableListOf<PendingMigration>()
+    private val pendingBatchDelete = mutableListOf<Uri>()
     private var pendingDelete: PendingDelete? = null
     private var pendingRename: PendingRename? = null
     private val thumbnailFrameMicrosCache = mutableMapOf<String, Long>()
@@ -351,6 +354,61 @@ class VideoViewModel @Inject constructor(
         }
     }
 
+    fun deleteVideos(context: Context, videos: List<LocalVideo>) {
+        viewModelScope.launch {
+            val publicUris = mutableListOf<Uri>()
+            val privateVideos = mutableListOf<LocalVideo>()
+            withContext(Dispatchers.IO) {
+                videos.forEach { video ->
+                    if (fileUtil.isManagedPublicMedia(context, video.uri)) {
+                        publicUris += video.uri
+                    } else {
+                        privateVideos += video
+                    }
+                }
+            }
+
+            privateVideos.forEach { video ->
+                val deleted = withContext(Dispatchers.IO) {
+                    fileUtil.deleteMedia(context, video.uri) is DeleteMediaResult.Success
+                }
+                if (deleted) {
+                    clearFinalMediaBinding(video.uri)
+                    removeDeletedVideo(video)
+                } else {
+                    deleteFailedEvent.value = Unit
+                }
+            }
+            if (publicUris.isEmpty()) return@launch
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val sender = withContext(Dispatchers.IO) {
+                    fileUtil.createBatchDeleteRequest(context, publicUris)
+                }
+                if (sender != null) {
+                    pendingBatchDelete.clear()
+                    pendingBatchDelete += publicUris
+                    deleteAuthEvent.value = sender
+                    return@launch
+                }
+            }
+
+            // 回退：逐个删除
+            publicUris.forEach { uri ->
+                val result = withContext(Dispatchers.IO) {
+                    fileUtil.deleteMedia(context, uri)
+                }
+                if (result is DeleteMediaResult.Success) {
+                    clearFinalMediaBinding(uri)
+                    localVideos.get()?.firstOrNull { sameUri(it.uri, uri) }
+                        ?.let(::removeDeletedVideo)
+                } else {
+                    deleteFailedEvent.value = Unit
+                }
+            }
+        }
+    }
+
     fun moveVideoToDownloads(context: Context, video: LocalVideo) {
         viewModelScope.launch {
             val movedMedia = withContext(Dispatchers.IO) {
@@ -423,6 +481,15 @@ class VideoViewModel @Inject constructor(
     fun availableStorageTargets(video: LocalVideo): List<StorageTarget> =
         migrationManager().availableTargets(currentStorage(video))
 
+    fun availableStorageTargetsFor(videos: List<LocalVideo>): List<StorageTarget> {
+        if (videos.isEmpty()) return emptyList()
+        val manager = migrationManager()
+        val currents = videos.map { manager.currentTarget(it.uri) }.distinct()
+        return StorageTarget.entries.filter { target ->
+            currents.any { it != target } && manager.targetDir(target) != null
+        }
+    }
+
     fun migrateVideo(context: Context, video: LocalVideo, target: StorageTarget) {
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -456,6 +523,8 @@ class VideoViewModel @Inject constructor(
             var success = 0
             var failed = 0
             var skipped = 0
+            var sourceNotDeleted = 0
+            val needsAuth = mutableListOf<PendingMigration>()
             videos.forEach { video ->
                 val result = withContext(Dispatchers.IO) {
                     migrationManager(context).migrate(video, target)
@@ -469,19 +538,60 @@ class VideoViewModel @Inject constructor(
                     is MigrationResult.SuccessSourceNotDeleted -> {
                         updateMigratedVideo(video, result.targetUri)
                         success += 1
+                        sourceNotDeleted += 1
                     }
 
                     is MigrationResult.NeedsAuth -> {
-                        // 批量场景下 DB 已指向新目标，授权留待用户后续处理。
                         updateMigratedVideo(video, result.pending.targetUri)
                         success += 1
+                        needsAuth += result.pending
                     }
 
                     is MigrationResult.Failed -> failed += 1
                     is MigrationResult.Skipped -> skipped += 1
                 }
             }
-            batchMigrationEvent.value = BatchMigrationResult(success, failed, skipped)
+
+            if (needsAuth.isNotEmpty()) {
+                val uris = needsAuth.mapNotNull { it.retryUri }
+                val sender = if (uris.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    withContext(Dispatchers.IO) {
+                        fileUtil.createBatchDeleteRequest(context, uris)
+                    }
+                } else {
+                    null
+                }
+                if (sender != null) {
+                    pendingBatchAuth.clear()
+                    pendingBatchAuth += needsAuth
+                    batchMigrationAuthEvent.value = sender
+                } else {
+                    sourceNotDeleted += needsAuth.size
+                }
+            }
+
+            batchMigrationEvent.value =
+                BatchMigrationResult(success, failed, skipped, sourceNotDeleted)
+        }
+    }
+
+    fun onBatchMigrationAuthResult(context: Context, granted: Boolean) {
+        val pendings = pendingBatchAuth.toList()
+        pendingBatchAuth.clear()
+        if (pendings.isEmpty()) return
+        if (!granted) {
+            migrationSourceNotDeletedEvent.value = Unit
+            return
+        }
+        viewModelScope.launch {
+            var failed = 0
+            pendings.forEach { pending ->
+                val deleted = withContext(Dispatchers.IO) {
+                    migrationManager(context).completeSourceDeletion(pending)
+                }
+                if (!deleted) failed += 1
+            }
+            if (failed > 0) migrationSourceNotDeletedEvent.value = Unit
         }
     }
 
@@ -512,6 +622,7 @@ class VideoViewModel @Inject constructor(
         val success: Int,
         val failed: Int,
         val skipped: Int,
+        val sourceNotDeleted: Int,
     )
 
     private fun updateMigratedVideo(video: LocalVideo, newUri: Uri) {
@@ -525,6 +636,31 @@ class VideoViewModel @Inject constructor(
     }
 
     fun onDeleteAuthResult(context: Context, ok: Boolean) {
+        if (pendingBatchDelete.isNotEmpty()) {
+            val uris = pendingBatchDelete.toList()
+            pendingBatchDelete.clear()
+            if (!ok) {
+                deleteAuthCancelledEvent.value = Unit
+                return
+            }
+            viewModelScope.launch {
+                var failed = false
+                uris.forEach { uri ->
+                    val absent = withContext(Dispatchers.IO) {
+                        fileUtil.isUriDefinitelyAbsent(context, uri)
+                    }
+                    if (absent) {
+                        clearFinalMediaBinding(uri)
+                        localVideos.get()?.firstOrNull { sameUri(it.uri, uri) }
+                            ?.let(::removeDeletedVideo)
+                    } else {
+                        failed = true
+                    }
+                }
+                if (failed) deleteFailedEvent.value = Unit
+            }
+            return
+        }
         val operation = pendingDelete
         pendingDelete = null
         if (!ok) {

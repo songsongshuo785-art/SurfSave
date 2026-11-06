@@ -607,5 +607,7 @@
     <string name="selection_delete">Delete</string>
     <string name="selection_delete_confirm_title">Delete %1$d videos?</string>
     <string name="selection_delete_confirm_message">Local files will be deleted; download history and source pages are kept.</string>
-    <string name="selection_batch_result">Succeeded %1$d, failed %2$d, skipped %3$d</string>
+    <string name="selection_batch_result">Succeeded %1$d, failed %2$d, skipped %3$d, old files kept %4$d</string>
+    <string name="selection_move_summary">%1$d selected
+Public %2$d · Internal %3$d · SD %4$d</string>
 </resources>

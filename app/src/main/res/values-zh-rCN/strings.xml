@@ -604,5 +604,7 @@
     <string name="selection_delete">删除</string>
     <string name="selection_delete_confirm_title">删除 %1$d 个视频？</string>
     <string name="selection_delete_confirm_message">本地文件会被删除，下载记录与来源网页会保留。</string>
-    <string name="selection_batch_result">成功 %1$d 个，失败 %2$d 个，跳过 %3$d 个</string>
+    <string name="selection_batch_result">成功 %1$d 个，失败 %2$d 个，跳过 %3$d 个，旧文件保留 %4$d 个</string>
+    <string name="selection_move_summary">已选择 %1$d 个
+公共 %2$d · 内部 %3$d · SD %4$d</string>
 </resources>

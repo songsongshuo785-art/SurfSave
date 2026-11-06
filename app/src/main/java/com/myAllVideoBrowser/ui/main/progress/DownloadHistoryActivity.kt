@@ -3,6 +3,7 @@ package com.myAllVideoBrowser.ui.main.progress
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.webkit.MimeTypeMap
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.IntentSenderRequest
@@ -205,13 +206,20 @@ class DownloadHistoryActivity : BaseActivity() {
         val uriString = info.finalMediaUri
         if (uriString.isBlank()) return
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(Uri.parse(uriString), "video/*")
+            setDataAndType(Uri.parse(uriString), mimeTypeFor(info))
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         runCatching { startActivity(intent) }
             .onFailure {
                 Toast.makeText(this, R.string.progress_history_open_failed, Toast.LENGTH_LONG).show()
             }
+    }
+
+    private fun mimeTypeFor(info: ProgressInfo): String {
+        val ext = info.videoInfo.ext.ifBlank {
+            info.finalMediaUri.substringAfterLast('.', "")
+        }.lowercase(Locale.US)
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
     }
 
     private fun openSource(info: ProgressInfo) {

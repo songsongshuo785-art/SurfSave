@@ -742,6 +742,18 @@ class FileUtil @Inject constructor() {
         }
     }
 
+    /** Android 11+：一次授权删除多个公共 MediaStore URI。 */
+    @RequiresApi(Build.VERSION_CODES.R)
+    fun createBatchDeleteRequest(context: Context, uris: List<Uri>): IntentSender? {
+        if (uris.isEmpty()) return null
+        return runCatching {
+            MediaStore.createDeleteRequest(context.contentResolver, uris).intentSender
+        }.getOrElse { error ->
+            AppLogger.e("Failed to create batch delete request", error)
+            null
+        }
+    }
+
     /**
      * 解析删除所需的系统授权：
      * - Android 11+ (R)：MediaStore.createDeleteRequest

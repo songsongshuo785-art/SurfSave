@@ -16,10 +16,13 @@ class VideoMigrationSheet(
     private val video: LocalVideo,
     private val current: StorageTarget?,
     private val targets: List<StorageTarget>,
+    private val summary: String? = null,
     private val onMove: (StorageTarget) -> Unit,
 ) {
     fun show() {
         val binding = SheetVideoMigrationBinding.inflate(LayoutInflater.from(context))
+        binding.tvMigrationSummary.visibility = if (summary.isNullOrBlank()) View.GONE else View.VISIBLE
+        binding.tvMigrationSummary.text = summary
         binding.tvMigrationCurrentValue.text = context.getString(
             current?.labelRes() ?: R.string.storage_target_unknown
         )

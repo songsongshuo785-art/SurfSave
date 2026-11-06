@@ -18,6 +18,15 @@
         android:textStyle="bold" />
 
     <com.google.android.material.textview.MaterialTextView
+        android:id="@+id/tv_migration_summary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="@color/sxTextSecondary"
+        android:textSize="@dimen/text_small"
+        android:visibility="gone" />
+
+    <com.google.android.material.textview.MaterialTextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"

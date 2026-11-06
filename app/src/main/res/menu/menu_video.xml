@@ -34,13 +34,6 @@
 
     <item
         android:visible="true"
-        android:id="@+id/item_move_to_downloads"
-        android:icon="@drawable/folder_move_24px"
-        android:title="@string/video_move_downloads"
-        app:showAsAction="ifRoom|collapseActionView" />
-
-    <item
-        android:visible="true"
         android:id="@+id/item_migrate_video"
         android:icon="@drawable/folder_move_24px"
         android:title="@string/video_migration_title"
