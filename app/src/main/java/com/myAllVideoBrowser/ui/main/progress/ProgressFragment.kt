@@ -156,10 +156,13 @@ class ProgressFragment : BaseFragment() {
             }
         }
 
-        selectedFilter = savedInstanceState?.getInt("download_filter") ?: selectedFilter
+        selectedFilter = normalizeFilter(
+            savedInstanceState?.getInt("download_filter") ?: selectedFilter
+        )
         dataBinding.downloadFilters.check(selectedFilter)
-        dataBinding.downloadFilters.setOnCheckedStateChangeListener { _, ids ->
-            selectedFilter = ids.firstOrNull() ?: R.id.downloads_all
+        dataBinding.downloadFilters.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            selectedFilter = normalizeFilter(checkedId)
             updateDownloadSectionUi()
         }
         return dataBinding.root
@@ -264,29 +267,25 @@ class ProgressFragment : BaseFragment() {
         dataBinding.rvProgress.visibility = if (showFiles) View.GONE else View.VISIBLE
         val visibleMedia = mediaDownloads.filter { item ->
             when (selectedFilter) {
-                R.id.downloads_active -> item.isActive || item.downloadStatus in listOf(
-                    VideoTaskState.PENDING, VideoTaskState.PAUSING,
-                    VideoTaskState.CANCELING, VideoTaskState.FINALIZING
-                )
-                R.id.downloads_paused -> item.downloadStatus == VideoTaskState.PAUSE
-                R.id.downloads_failed -> item.downloadStatus == VideoTaskState.ERROR || item.downloadStatus == VideoTaskState.ENOSPC
+                R.id.downloads_active -> item.downloadStatus != VideoTaskState.SUCCESS
                 R.id.downloads_completed -> item.downloadStatus == VideoTaskState.SUCCESS
                 else -> true
             }
         }
         val visibleFiles = fileDownloads.filter { item ->
             when (selectedFilter) {
-                R.id.downloads_active -> item.status == BrowserFileDownloadStatus.PENDING || item.status == BrowserFileDownloadStatus.RUNNING
-                R.id.downloads_paused -> item.status == BrowserFileDownloadStatus.PAUSED
-                R.id.downloads_failed -> item.status == BrowserFileDownloadStatus.FAILED || item.status == BrowserFileDownloadStatus.MISSING
+                R.id.downloads_active -> item.status != BrowserFileDownloadStatus.SUCCESSFUL
+                R.id.downloads_completed -> item.status == BrowserFileDownloadStatus.SUCCESSFUL
                 else -> true
             }
         }
         progressAdapter.setData(visibleMedia)
         fileDownloadAdapter.setData(visibleFiles)
         val count = if (showFiles) fileDownloads.size else mediaDownloads.size
-        val active = if (showFiles) fileDownloads.count { it.isActive } else mediaDownloads.count {
-            it.isActive || it.downloadStatus in listOf(VideoTaskState.PENDING, VideoTaskState.PAUSING, VideoTaskState.CANCELING, VideoTaskState.FINALIZING)
+        val active = if (showFiles) fileDownloads.count {
+            it.status != BrowserFileDownloadStatus.SUCCESSFUL
+        } else mediaDownloads.count {
+            it.downloadStatus != VideoTaskState.SUCCESS
         }
         dataBinding.downloadsSubtitle.text = getString(R.string.surf_download_count, active, count)
         val isEmpty = if (showFiles) visibleFiles.isEmpty() else visibleMedia.isEmpty()
@@ -302,6 +301,15 @@ class ProgressFragment : BaseFragment() {
         dataBinding.tvEmptySubtitle.setText(
             if (selectedFilter != R.id.downloads_all) R.string.surf_no_results_hint else if (showFiles) R.string.empty_file_download_subtitle else R.string.empty_progress_subtitle
         )
+    }
+
+    private fun normalizeFilter(filter: Int): Int = when (filter) {
+        R.id.downloads_active,
+        R.id.downloads_completed -> filter
+        // 旧版本可能保存了“已暂停/失败”筛选；合并后进行中
+        R.id.downloads_paused,
+        R.id.downloads_failed -> R.id.downloads_active
+        else -> R.id.downloads_all
     }
 
     private fun showBrowserFileMenu(anchor: View, download: BrowserFileDownload) {

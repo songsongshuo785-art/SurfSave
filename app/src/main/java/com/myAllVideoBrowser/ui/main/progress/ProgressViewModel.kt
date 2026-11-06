@@ -476,11 +476,25 @@ class ProgressViewModel @Inject constructor(
                     info.downloadStatus != VideoTaskState.CANCELED
             }
             .sortedWith(
-                compareBy<ProgressInfo> { if (it.queuePosition > 0) it.queuePosition else Long.MAX_VALUE }
+                compareBy<ProgressInfo> { activePriority(it.downloadStatus) }
+                    .thenBy { if (it.queuePosition > 0) it.queuePosition else Long.MAX_VALUE }
                     .thenBy { it.queuedAt }
                     .thenBy { it.startedAt }
                     .thenBy { it.id }
             )
+    }
+
+    /** “进行中”内部的优先级：需处理 → 已暂停 → 正在执行 → 排队。 */
+    private fun activePriority(status: Int): Int = when (status) {
+        VideoTaskState.ERROR, VideoTaskState.ENOSPC -> 0
+        VideoTaskState.PAUSE, VideoTaskState.PAUSING -> 1
+        VideoTaskState.DOWNLOADING,
+        VideoTaskState.PROXYREADY,
+        VideoTaskState.PREPARE,
+        VideoTaskState.START,
+        VideoTaskState.FINALIZING -> 2
+        VideoTaskState.PENDING -> 3
+        else -> 4
     }
 }
 
