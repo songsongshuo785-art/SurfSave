@@ -13,9 +13,6 @@ import android.provider.DocumentsContract
 import android.os.Environment
 import android.util.AttributeSet
 import android.view.LayoutInflater
-import android.view.Menu
-import android.view.MenuInflater
-import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.ActivityResultLauncher
@@ -119,7 +116,6 @@ class ProgressFragment : BaseFragment() {
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
-        setHasOptionsMenu(true)
         mainViewModel = mainActivity.mainViewModel
         progressViewModel = mainActivity.progressViewModel
         progressAdapter = ProgressAdapter(emptyList(), progressListener)
@@ -153,6 +149,24 @@ class ProgressFragment : BaseFragment() {
             // Empty-state CTA: jump back to the browser tab
             this.emptyActionButton.setOnClickListener {
                 mainActivity.mainViewModel.currentItem.set(0)
+            }
+            this.toolbar.inflateMenu(R.menu.menu_progress_toolbar)
+            this.toolbar.setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    R.id.item_download_history -> {
+                        startActivity(
+                            Intent(requireContext(), DownloadHistoryActivity::class.java)
+                        )
+                        true
+                    }
+
+                    R.id.item_latest_error_log -> {
+                        showLatestErrorLog()
+                        true
+                    }
+
+                    else -> false
+                }
             }
         }
 
@@ -639,29 +653,6 @@ class ProgressFragment : BaseFragment() {
                 shareTaskLog(details, message)
             }
             .show()
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
-        super.onCreateOptionsMenu(menu, inflater)
-        inflater.inflate(R.menu.menu_progress_toolbar, menu)
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            R.id.item_download_history -> {
-                startActivity(
-                    android.content.Intent(requireContext(), DownloadHistoryActivity::class.java)
-                )
-                true
-            }
-
-            R.id.item_latest_error_log -> {
-                showLatestErrorLog()
-                true
-            }
-
-            else -> super.onOptionsItemSelected(item)
-        }
     }
 
     /** 展示最近一次下载发布/移动失败的系统级诊断日志（覆盖普通任务日志，定位 MediaStore 发布类问题）。 */
