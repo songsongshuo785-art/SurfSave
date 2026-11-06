@@ -648,6 +648,13 @@ class ProgressFragment : BaseFragment() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.item_download_history -> {
+                startActivity(
+                    android.content.Intent(requireContext(), DownloadHistoryActivity::class.java)
+                )
+                true
+            }
+
             R.id.item_latest_error_log -> {
                 showLatestErrorLog()
                 true

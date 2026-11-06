@@ -576,4 +576,11 @@
     <string name="settings_storage_move_result">已迁移 %1$d 个视频到公共下载目录</string>
     <string name="settings_storage_move_result_partial">已迁移 %1$d 个视频，失败 %2$d 个</string>
     <string name="settings_storage_move_failed">迁移应用私有视频失败</string>
+    <string name="download_history">下载历史</string>
+    <string name="download_history_search_hint">搜索标题、文件名或来源</string>
+    <string name="download_history_empty">还没有下载记录</string>
+    <string name="download_history_section_today">今天</string>
+    <string name="download_history_section_yesterday">昨天</string>
+    <string name="download_history_section_earlier">更早</string>
+    <string name="download_history_source_unknown">来源未知</string>
 </resources>

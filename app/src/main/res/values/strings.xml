@@ -579,4 +579,11 @@
     <string name="settings_storage_move_result">Moved %1$d videos to public Downloads</string>
     <string name="settings_storage_move_result_partial">Moved %1$d videos, %2$d failed</string>
     <string name="settings_storage_move_failed">Failed to move app-only videos</string>
+    <string name="download_history">Download history</string>
+    <string name="download_history_search_hint">Search title, file name or source</string>
+    <string name="download_history_empty">No download history yet</string>
+    <string name="download_history_section_today">Today</string>
+    <string name="download_history_section_yesterday">Yesterday</string>
+    <string name="download_history_section_earlier">Earlier</string>
+    <string name="download_history_source_unknown">Unknown source</string>
 </resources>

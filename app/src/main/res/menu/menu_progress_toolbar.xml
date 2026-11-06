@@ -2,6 +2,12 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/item_download_history"
+        android:icon="@drawable/history_menu_icon_24dp"
+        android:title="@string/download_history"
+        app:showAsAction="always" />
+
+    <item
         android:id="@+id/item_latest_error_log"
         android:title="@string/latest_error_log_view"
         app:showAsAction="never" />
