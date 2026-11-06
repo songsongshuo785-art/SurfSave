@@ -150,7 +150,7 @@ class DetectedVideosTabFragment : BaseFragment(), DetectedMediaPanelRegistry.Pan
     }
 
     private fun wireBinding(model: VideoDetectionTabViewModel, listener: DownloadTabListener) {
-        val pageUrl = model.webTabModel?.getTabTextInput()?.get().orEmpty()
+        val pageUrl = model.webTabModel?.getTabTextInput().orEmpty()
         val videoAdapter = VideoInfoAdapter(
             model.sortedDetectedVideosList?.get() ?: emptyList(),
             model,
@@ -296,7 +296,7 @@ class DetectedVideosTabFragment : BaseFragment(), DetectedMediaPanelRegistry.Pan
     }
 
     private fun parsePlaylistFromCurrentPage() {
-        val pageUrl = detectedVideosTabViewModel?.webTabModel?.getTabTextInput()?.get()?.trim().orEmpty()
+        val pageUrl = detectedVideosTabViewModel?.webTabModel?.getTabTextInput()?.trim().orEmpty()
         if (!pageUrl.startsWith("http")) {
             detectedVideosTabViewModel?.showDetectionNotice(R.string.playlist_no_page_url)
             return

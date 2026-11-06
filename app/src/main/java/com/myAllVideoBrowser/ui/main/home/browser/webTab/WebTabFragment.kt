@@ -18,6 +18,7 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
 import android.app.ActivityOptions
 import android.view.Gravity
 import android.view.View
@@ -1509,7 +1510,7 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
 
             etSearch.setAdapter(suggestionAdapter)
             etSearch.addTextChangedListener(onInputTabChangeListener)
-            this.etSearch.imeOptions = EditorInfo.IME_ACTION_DONE
+            this.etSearch.imeOptions = EditorInfo.IME_ACTION_GO
             this.etSearch.setOnClickListener {
                 enterAddressEditMode()
             }
@@ -1522,16 +1523,18 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
                     tabViewModel.changeTabFocus(false)
                 }
             }
-            this.etSearch.setOnEditorActionListener { _, actionId, _ ->
-                if (actionId == EditorInfo.IME_ACTION_DONE) {
+            this.etSearch.setOnEditorActionListener { _, actionId, event ->
+                val shouldSubmit = actionId == EditorInfo.IME_ACTION_GO ||
+                    actionId == EditorInfo.IME_ACTION_SEARCH ||
+                    actionId == EditorInfo.IME_ACTION_DONE ||
+                    (event?.keyCode == KeyEvent.KEYCODE_ENTER &&
+                        event.action == KeyEvent.ACTION_UP)
+                if (shouldSubmit) {
                     val submittedText = (this@apply.etSearch as EditText).text.toString()
                     this.etSearch.clearFocus()
-                    viewModel?.viewModelScope?.launch {
-                        delay(400)
-                        tabViewModel.loadPage(submittedText)
-                    }
-                    false
-                } else false
+                    tabViewModel.loadPage(submittedText)
+                }
+                shouldSubmit
             }
             configureFloatingVideoButton(this)
             applyAddressEditMode(false)
@@ -1663,11 +1666,7 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
         dataBinding.etSearch.isLongClickable = isEditing
         dataBinding.etSearch.isCursorVisible = isEditing
         dataBinding.etSearch.showSoftInputOnFocus = isEditing
-        dataBinding.etSearch.inputType = if (isEditing) {
-            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-        } else {
-            InputType.TYPE_NULL
-        }
+        dataBinding.etSearch.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         dataBinding.etSearch.setCompoundDrawablesRelativeWithIntrinsicBounds(
             if (isEditing) R.drawable.search_24px else R.drawable.public_24px,
             0,
@@ -1755,7 +1754,7 @@ class WebTabFragment : BaseWebTabFragment(), DetectedMediaPanelRegistry.Host {
 
     override fun refreshVideoDetection() {
         val webView = webTab.getWebView()
-        val currentUrl = webView?.url ?: tabViewModel.getTabTextInput().get()
+        val currentUrl = webView?.url ?: tabViewModel.getTabTextInput()
         if (currentUrl.isNullOrBlank() || !currentUrl.startsWith("http")) {
             Toast.makeText(requireContext(), R.string.translate_page_unavailable, Toast.LENGTH_SHORT).show()
             return
@@ -3316,7 +3315,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
         if (mediaType == ContentType.IMAGE && kind == "image-scan") {
             val pageUrl = event.optString("pageUrl", "")
                 .ifBlank { webTab.getWebView()?.url.orEmpty() }
-                .ifBlank { tabViewModel.getTabTextInput().get().orEmpty() }
+                .ifBlank { tabViewModel.getTabTextInput().orEmpty() }
             val userAgent = webTab.getWebView()?.settings?.userAgentString
                 ?: tabViewModel.userAgent.get()
                 ?: BrowserFragment.MOBILE_USER_AGENT
@@ -3357,7 +3356,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
 
         val pageUrl = event.optString("pageUrl", "")
             .ifBlank { webTab.getWebView()?.url.orEmpty() }
-            .ifBlank { tabViewModel.getTabTextInput().get().orEmpty() }
+            .ifBlank { tabViewModel.getTabTextInput().orEmpty() }
         val userAgent = webTab.getWebView()?.settings?.userAgentString
             ?: tabViewModel.userAgent.get()
             ?: BrowserFragment.MOBILE_USER_AGENT
@@ -4005,7 +4004,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
                 return
             }
 
-            if (input == tabViewModel.getTabTextInput().get()) {
+            if (input == tabViewModel.getAddressDraft().get()) {
                 return
             }
 
@@ -4036,8 +4035,9 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
                     dataBinding.etSearch.requestFocus()
                     tabViewModel.showTabSuggestions()
                     appUtil.showSoftKeyboard(dataBinding.etSearch)
+                    // selectAllOnFocus 已经会全选；这里再同步一次，避免用户在 post 前开始输入。
+                    dataBinding.etSearch.selectAll()
                     dataBinding.etSearch.post {
-                        dataBinding.etSearch.selectAll()
                         runCatching { dataBinding.etSearch.showDropDown() }
                     }
                 } else {
@@ -4349,7 +4349,7 @@ mainActivity.mainViewModel.currentItem.removeOnPropertyChangedCallback(changeRou
                 it.startsWith("http://", ignoreCase = true) ||
                     it.startsWith("https://", ignoreCase = true)
             }
-            ?: tabViewModel.getTabTextInput().get()
+            ?: tabViewModel.getTabTextInput()
                 ?.takeIf {
                     it.startsWith("http://", ignoreCase = true) ||
                         it.startsWith("https://", ignoreCase = true)

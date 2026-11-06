@@ -13,7 +13,21 @@ internal data class PlaybackRestoreDecision(
 
 internal object PlaybackPositionPolicy {
     const val MIN_PERSISTED_POSITION_MS = 1_000L
-    const val END_MARGIN_MS = 15_000L
+    const val MIN_END_MARGIN_MS = 1_000L
+    const val MAX_END_MARGIN_MS = 15_000L
+    const val END_MARGIN_RATIO = 0.05
+
+    /**
+     * 片尾区间：`min(15s, max(1s, duration × 5%))`。
+     * 固定 15 秒会把短视频的中间位置也当成片尾，导致“看过却不记位置”。
+     */
+    fun endMarginMs(durationMs: Long): Long {
+        if (durationMs <= 0L) return 0L
+        return minOf(
+            MAX_END_MARGIN_MS,
+            maxOf(MIN_END_MARGIN_MS, (durationMs * END_MARGIN_RATIO).toLong())
+        )
+    }
 
     /**
      * 是否恢复历史进度。
@@ -34,13 +48,14 @@ internal object PlaybackPositionPolicy {
             return PlaybackRestoreDecision(null, false)
         }
         val duration = maxOf(saved.durationMs, currentDurationMs)
-        if (duration > 0L && saved.positionMs >= (duration - END_MARGIN_MS).coerceAtLeast(0L)) {
+        if (shouldClearAtEnd(saved.positionMs, duration)) {
             return PlaybackRestoreDecision(null, true)
         }
         return PlaybackRestoreDecision(saved.positionMs, false)
     }
 
     fun shouldClearAtEnd(positionMs: Long, durationMs: Long): Boolean {
-        return durationMs > 0L && positionMs >= (durationMs - END_MARGIN_MS).coerceAtLeast(0L)
+        if (durationMs <= 0L) return false
+        return positionMs >= (durationMs - endMarginMs(durationMs)).coerceAtLeast(0L)
     }
 }

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="surf_slider_change_listener_tag" type="id" />
+    <!-- 保留旧筛选值，保证升级后 savedInstanceState 里的旧 int 仍可映射到“进行中”。 -->
+    <item name="downloads_paused" type="id" />
+    <item name="downloads_failed" type="id" />
 </resources>

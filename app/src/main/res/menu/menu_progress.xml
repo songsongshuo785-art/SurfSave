@@ -15,6 +15,27 @@
         app:showAsAction="ifRoom|collapseActionView" />
 
     <item
+        android:id="@+id/item_history_open_file"
+        android:icon="@drawable/play_circle_24px"
+        android:title="@string/progress_menu_open_file"
+        android:visible="false"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/item_history_delete_file"
+        android:icon="@drawable/delete_forever_24px"
+        android:title="@string/progress_menu_delete_file"
+        android:visible="false"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/item_history_delete_record"
+        android:icon="@drawable/delete_forever_24px"
+        android:title="@string/progress_menu_delete_record"
+        android:visible="false"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
         android:id="@+id/item_cancel"
         android:icon="@drawable/cancel_24px"
         android:title="@string/progress_menu_cancel"

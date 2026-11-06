@@ -1,8 +1,10 @@
 package com.myAllVideoBrowser.ui.main.home.browser
 
 import android.app.Application
+import com.myAllVideoBrowser.migration.MigrationManager
 import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
 import com.myAllVideoBrowser.util.CookieProfileStore
+import com.myAllVideoBrowser.util.FileUtil
 import com.myAllVideoBrowser.util.SharedPrefHelper
 import com.myAllVideoBrowser.util.YtdlpUpdateManager
 import org.junit.Assert.assertEquals
@@ -28,7 +30,9 @@ class MediaRequestInspectorTest {
         settings = SettingsViewModel(
             Mockito.mock(SharedPrefHelper::class.java),
             Mockito.mock(CookieProfileStore::class.java),
-            Mockito.mock(YtdlpUpdateManager::class.java)
+            Mockito.mock(YtdlpUpdateManager::class.java),
+            Mockito.mock(FileUtil::class.java),
+            Mockito.mock(MigrationManager::class.java)
         )
         inspector = MediaRequestInspector(settings)
     }

@@ -13,6 +13,7 @@ import android.view.ViewGroup
 import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
+import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.databinding.Observable
 import androidx.fragment.app.FragmentContainerView
@@ -682,8 +683,45 @@ class SettingsFragment : BaseFragment() {
             exportCookieProfileLauncher.launch("surfsave-cookie-profiles.txt")
         }
 
+        settingsViewModel.confirmPrivateStorageEvent.observe(viewLifecycleOwner) { type ->
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.settings_storage_confirm_title)
+                .setMessage(R.string.settings_storage_confirm_message)
+                .setPositiveButton(R.string.settings_storage_confirm_positive) { _, _ ->
+                    settingsViewModel.confirmPrivateStorage(type)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+
+        settingsViewModel.privateVideoMoveEvent.observe(viewLifecycleOwner) { result ->
+            val message = if (result.failedCount > 0) {
+                getString(
+                    R.string.settings_storage_move_result_partial,
+                    result.movedCount,
+                    result.failedCount
+                )
+            } else {
+                getString(R.string.settings_storage_move_result, result.movedCount)
+            }
+            Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
+        }
+
+        settingsViewModel.privateVideoMoveFailedEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(
+                requireContext(),
+                R.string.settings_storage_move_failed,
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
         searchEngineCallback.let { settingsViewModel.searchEngine.addOnPropertyChangedCallback(it) }
         searchEngineCallback.onPropertyChanged(null, 0)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        settingsViewModel.refreshStorageInfo()
     }
 
     private fun setupTextUpdateCallbacks() {

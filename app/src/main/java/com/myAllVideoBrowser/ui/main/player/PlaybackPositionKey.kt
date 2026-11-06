@@ -12,7 +12,12 @@ internal object PlaybackPositionKey {
         mediaKind: PlaybackMediaKind
     ): String {
         if (source == VideoPlayerFragment.SOURCE_VIDEO_LIBRARY) {
-            return "local:${mediaUrl.trim()}"
+            val identity = mediaIdentity.trim()
+            return if (identity.isNotBlank()) {
+                "local-download:$identity"
+            } else {
+                "local-uri:${mediaUrl.trim()}"
+            }
         }
 
         val identity = mediaIdentity.trim()
@@ -22,6 +27,9 @@ internal object PlaybackPositionKey {
 
         return "online-media:${normalizeHttpUrl(mediaUrl).ifBlank { mediaUrl.trim() }}"
     }
+
+    /** 旧版本使用的本地 key，只用于升级迁移。 */
+    fun legacyLocalKey(mediaUrl: String): String = "local:${mediaUrl.trim()}"
 
     fun normalizeHttpUrl(raw: String): String {
         val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return raw.trim()

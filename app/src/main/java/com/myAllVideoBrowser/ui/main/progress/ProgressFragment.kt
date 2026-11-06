@@ -1,21 +1,23 @@
 package com.myAllVideoBrowser.ui.main.progress
 
+import android.app.Activity
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.ActivityNotFoundException
+import android.net.Uri
 import android.app.DownloadManager
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.os.Environment
 import android.util.AttributeSet
 import android.view.LayoutInflater
-import android.view.Menu
-import android.view.MenuInflater
-import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.doOnLayout
 import androidx.databinding.Observable
@@ -31,6 +33,7 @@ import com.google.android.material.snackbar.Snackbar
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownload
 import com.myAllVideoBrowser.data.local.room.entity.BrowserFileDownloadStatus
+import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.databinding.FragmentProgressBinding
 import com.myAllVideoBrowser.ui.main.progress.DownloadTaskDetails
 import com.myAllVideoBrowser.ui.component.adapter.ProgressAdapter
@@ -74,6 +77,14 @@ class ProgressFragment : BaseFragment() {
     private var selectedFilter = R.id.downloads_all
     private var progressGridLayoutListener: View.OnLayoutChangeListener? = null
 
+    private val deleteHistoryAuthLauncher: ActivityResultLauncher<IntentSenderRequest> =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            progressViewModel.onDeleteHistoryAuthResult(
+                requireContext(),
+                result.resultCode == Activity.RESULT_OK
+            )
+        }
+
     private fun updateProgressGridSpanCount() {
         if (!::dataBinding.isInitialized) return
         val manager = dataBinding.rvProgress.layoutManager as? GridLayoutManager ?: return
@@ -105,7 +116,6 @@ class ProgressFragment : BaseFragment() {
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
-        setHasOptionsMenu(true)
         mainViewModel = mainActivity.mainViewModel
         progressViewModel = mainActivity.progressViewModel
         progressAdapter = ProgressAdapter(emptyList(), progressListener)
@@ -140,12 +150,33 @@ class ProgressFragment : BaseFragment() {
             this.emptyActionButton.setOnClickListener {
                 mainActivity.mainViewModel.currentItem.set(0)
             }
+            this.toolbar.inflateMenu(R.menu.menu_progress_toolbar)
+            this.toolbar.setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    R.id.item_download_history -> {
+                        startActivity(
+                            Intent(requireContext(), DownloadHistoryActivity::class.java)
+                        )
+                        true
+                    }
+
+                    R.id.item_latest_error_log -> {
+                        showLatestErrorLog()
+                        true
+                    }
+
+                    else -> false
+                }
+            }
         }
 
-        selectedFilter = savedInstanceState?.getInt("download_filter") ?: selectedFilter
+        selectedFilter = normalizeFilter(
+            savedInstanceState?.getInt("download_filter") ?: selectedFilter
+        )
         dataBinding.downloadFilters.check(selectedFilter)
-        dataBinding.downloadFilters.setOnCheckedStateChangeListener { _, ids ->
-            selectedFilter = ids.firstOrNull() ?: R.id.downloads_all
+        dataBinding.downloadFilters.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            selectedFilter = normalizeFilter(checkedId)
             updateDownloadSectionUi()
         }
         return dataBinding.root
@@ -164,14 +195,20 @@ class ProgressFragment : BaseFragment() {
         progressViewModel.selectedDownloadSection.addOnPropertyChangedCallback(selectedSectionCallback)
         progressViewModel.browserFileDownloads.addOnPropertyChangedCallback(fileDownloadsCallback)
         progressViewModel.progressInfos.addOnPropertyChangedCallback(mediaDownloadsCallback)
+        progressViewModel.historyInfos.addOnPropertyChangedCallback(mediaDownloadsCallback)
         updateDownloadSectionUi()
         progressViewModel.refreshBrowserFileDownloads()
+        handleHistoryEvents()
+        progressViewModel.deleteHistoryAuthEvent.observe(viewLifecycleOwner) { sender ->
+            deleteHistoryAuthLauncher.launch(IntentSenderRequest.Builder(sender).build())
+        }
     }
 
     override fun onDestroyView() {
         progressViewModel.selectedDownloadSection.removeOnPropertyChangedCallback(selectedSectionCallback)
         progressViewModel.browserFileDownloads.removeOnPropertyChangedCallback(fileDownloadsCallback)
         progressViewModel.progressInfos.removeOnPropertyChangedCallback(mediaDownloadsCallback)
+        progressViewModel.historyInfos.removeOnPropertyChangedCallback(mediaDownloadsCallback)
         progressGridLayoutListener?.let(dataBinding.rvProgress::removeOnLayoutChangeListener)
         progressGridLayoutListener = null
         dataBinding.rvProgress.adapter = null
@@ -199,6 +236,12 @@ class ProgressFragment : BaseFragment() {
 
     private val progressListener = object : ProgressListener {
         override fun onPrimaryAction(downloadId: Long) {
+            val historyItem = progressViewModel.historyInfos.get().orEmpty()
+                .find { it.downloadId == downloadId }
+            if (historyItem != null) {
+                openHistoryFile(historyItem)
+                return
+            }
             val item = progressViewModel.progressInfos.get().orEmpty().find { it.downloadId == downloadId } ?: return
             when {
                 item.isActive -> progressViewModel.pauseDownload(downloadId)
@@ -226,7 +269,11 @@ class ProgressFragment : BaseFragment() {
     private fun updateDownloadSectionUi() {
         val showFiles = progressViewModel.selectedDownloadSection.get() == DownloadSection.FILES
         val fileDownloads = progressViewModel.browserFileDownloads.get().orEmpty()
-        val mediaDownloads = progressViewModel.progressInfos.get().orEmpty()
+        val mediaDownloads = DownloadFilter.mediaFor(
+            selectedFilter,
+            progressViewModel.progressInfos.get().orEmpty(),
+            progressViewModel.historyInfos.get().orEmpty(),
+        )
         dataBinding.downloadSectionToggle.check(
             if (showFiles) R.id.button_file_downloads else R.id.button_media_downloads
         )
@@ -234,28 +281,25 @@ class ProgressFragment : BaseFragment() {
         dataBinding.rvProgress.visibility = if (showFiles) View.GONE else View.VISIBLE
         val visibleMedia = mediaDownloads.filter { item ->
             when (selectedFilter) {
-                R.id.downloads_active -> item.isActive || item.downloadStatus in listOf(
-                    VideoTaskState.PENDING, VideoTaskState.PAUSING,
-                    VideoTaskState.CANCELING, VideoTaskState.FINALIZING
-                )
-                R.id.downloads_paused -> item.downloadStatus == VideoTaskState.PAUSE
-                R.id.downloads_failed -> item.downloadStatus == VideoTaskState.ERROR || item.downloadStatus == VideoTaskState.ENOSPC
+                R.id.downloads_active -> item.downloadStatus != VideoTaskState.SUCCESS
+                R.id.downloads_completed -> item.downloadStatus == VideoTaskState.SUCCESS
                 else -> true
             }
         }
         val visibleFiles = fileDownloads.filter { item ->
             when (selectedFilter) {
-                R.id.downloads_active -> item.status == BrowserFileDownloadStatus.PENDING || item.status == BrowserFileDownloadStatus.RUNNING
-                R.id.downloads_paused -> item.status == BrowserFileDownloadStatus.PAUSED
-                R.id.downloads_failed -> item.status == BrowserFileDownloadStatus.FAILED || item.status == BrowserFileDownloadStatus.MISSING
+                R.id.downloads_active -> item.status != BrowserFileDownloadStatus.SUCCESSFUL
+                R.id.downloads_completed -> item.status == BrowserFileDownloadStatus.SUCCESSFUL
                 else -> true
             }
         }
         progressAdapter.setData(visibleMedia)
         fileDownloadAdapter.setData(visibleFiles)
         val count = if (showFiles) fileDownloads.size else mediaDownloads.size
-        val active = if (showFiles) fileDownloads.count { it.isActive } else mediaDownloads.count {
-            it.isActive || it.downloadStatus in listOf(VideoTaskState.PENDING, VideoTaskState.PAUSING, VideoTaskState.CANCELING, VideoTaskState.FINALIZING)
+        val active = if (showFiles) fileDownloads.count {
+            it.status != BrowserFileDownloadStatus.SUCCESSFUL
+        } else mediaDownloads.count {
+            it.downloadStatus != VideoTaskState.SUCCESS
         }
         dataBinding.downloadsSubtitle.text = getString(R.string.surf_download_count, active, count)
         val isEmpty = if (showFiles) visibleFiles.isEmpty() else visibleMedia.isEmpty()
@@ -271,6 +315,15 @@ class ProgressFragment : BaseFragment() {
         dataBinding.tvEmptySubtitle.setText(
             if (selectedFilter != R.id.downloads_all) R.string.surf_no_results_hint else if (showFiles) R.string.empty_file_download_subtitle else R.string.empty_progress_subtitle
         )
+    }
+
+    private fun normalizeFilter(filter: Int): Int = when (filter) {
+        R.id.downloads_active,
+        R.id.downloads_completed -> filter
+        // 旧版本可能保存了“已暂停/失败”筛选；合并后进行中
+        R.id.downloads_paused,
+        R.id.downloads_failed -> R.id.downloads_active
+        else -> R.id.downloads_all
     }
 
     private fun showBrowserFileMenu(anchor: View, download: BrowserFileDownload) {
@@ -389,15 +442,19 @@ class ProgressFragment : BaseFragment() {
 
         val menuCandidate =
             progressViewModel.progressInfos.get()?.find { it.downloadId == downloadId }
+                ?: progressViewModel.historyInfos.get()?.find { it.downloadId == downloadId }
 
         val popupMenu = PopupMenu(myView.context, myView)
         popupMenu.menuInflater.inflate(R.menu.menu_progress, popupMenu.menu)
 
         val isActive = menuCandidate?.isActive == true
+        val isCompleted = menuCandidate?.downloadStatus == VideoTaskState.SUCCESS
+        val hasLocalFile = !menuCandidate?.finalMediaUri.isNullOrBlank()
         val isPaused = menuCandidate?.downloadStatus == VideoTaskState.PAUSE
         val canRetry = menuCandidate?.downloadStatus == VideoTaskState.ERROR ||
             menuCandidate?.downloadStatus == VideoTaskState.ENOSPC
         val canMove = menuCandidate?.canMoveInQueue == true
+        popupMenu.menu.findItem(R.id.item_cancel).isVisible = !isCompleted
         popupMenu.menu.findItem(R.id.item_pause).isVisible = isActive
         popupMenu.menu.findItem(R.id.item_resume).isVisible = isPaused || canRetry
         popupMenu.menu.findItem(R.id.item_resume).setTitle(
@@ -411,6 +468,11 @@ class ProgressFragment : BaseFragment() {
             menuCandidate?.downloadStatus == VideoTaskState.PENDING || isActive
         popupMenu.menu.findItem(R.id.item_source).isVisible =
             !menuCandidate?.videoInfo?.originalUrl.isNullOrBlank()
+        popupMenu.menu.findItem(R.id.item_history_open_file).isVisible =
+            isCompleted && hasLocalFile
+        popupMenu.menu.findItem(R.id.item_history_delete_file).isVisible =
+            isCompleted && hasLocalFile
+        popupMenu.menu.findItem(R.id.item_history_delete_record).isVisible = isCompleted
 
         popupMenu.setForceShowIcon(true)
         popupMenu.show()
@@ -462,6 +524,21 @@ class ProgressFragment : BaseFragment() {
                     true
                 }
 
+                R.id.item_history_open_file -> {
+                    menuCandidate?.let(::openHistoryFile)
+                    true
+                }
+
+                R.id.item_history_delete_file -> {
+                    menuCandidate?.let(::confirmDeleteHistoryFile)
+                    true
+                }
+
+                R.id.item_history_delete_record -> {
+                    menuCandidate?.let(::confirmDeleteHistoryRecord)
+                    true
+                }
+
                 R.id.item_source -> {
                     val sourceUrl = menuCandidate?.videoInfo?.originalUrl?.trim().orEmpty()
                     if (!UrlInputNormalizer.isPersistedSourceUrl(sourceUrl)) {
@@ -488,6 +565,58 @@ class ProgressFragment : BaseFragment() {
                 else -> false
             }
         }
+    }
+
+    private fun handleHistoryEvents() {
+        progressViewModel.historyMessageEvent.observe(viewLifecycleOwner) { message ->
+            Snackbar.make(dataBinding.root, message, Snackbar.LENGTH_LONG).show()
+        }
+    }
+
+    private fun openHistoryFile(task: ProgressInfo) {
+        val uriString = task.finalMediaUri
+        if (uriString.isBlank()) {
+            Snackbar.make(
+                dataBinding.root,
+                R.string.progress_history_file_missing,
+                Snackbar.LENGTH_LONG
+            ).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(uriString), "video/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(intent) }
+            .onFailure {
+                Snackbar.make(
+                    dataBinding.root,
+                    R.string.progress_history_open_failed,
+                    Snackbar.LENGTH_LONG
+                ).show()
+            }
+    }
+
+    private fun confirmDeleteHistoryFile(task: ProgressInfo) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.progress_history_delete_file_title)
+            .setMessage(R.string.progress_history_delete_file_message)
+            .setPositiveButton(R.string.progress_menu_delete_file) { _, _ ->
+                progressViewModel.deleteHistoryFile(task)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmDeleteHistoryRecord(task: ProgressInfo) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.progress_history_delete_record_title)
+            .setMessage(R.string.progress_history_delete_record_message)
+            .setPositiveButton(R.string.progress_menu_delete_record) { _, _ ->
+                progressViewModel.deleteHistoryRecord(task)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun handleTaskDetailsEvent() {
@@ -524,22 +653,6 @@ class ProgressFragment : BaseFragment() {
                 shareTaskLog(details, message)
             }
             .show()
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
-        super.onCreateOptionsMenu(menu, inflater)
-        inflater.inflate(R.menu.menu_progress_toolbar, menu)
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            R.id.item_latest_error_log -> {
-                showLatestErrorLog()
-                true
-            }
-
-            else -> super.onOptionsItemSelected(item)
-        }
     }
 
     /** 展示最近一次下载发布/移动失败的系统级诊断日志（覆盖普通任务日志，定位 MediaStore 发布类问题）。 */

@@ -13,6 +13,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.addCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,9 +31,12 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import android.webkit.MimeTypeMap
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.model.LocalVideo
+import com.myAllVideoBrowser.util.MediaMimeTypes
+import com.myAllVideoBrowser.migration.StorageTarget
 import com.myAllVideoBrowser.databinding.FragmentVideoBinding
 import com.myAllVideoBrowser.ui.component.adapter.VideoAdapter
 import com.myAllVideoBrowser.ui.component.adapter.VideoListener
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.ui.component.dialog.showRenameVideoDialog
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.ui.main.home.MainActivity
@@ -83,6 +88,8 @@ class VideoFragment : BaseFragment() {
     private var libraryFilter = R.id.library_all
     private var librarySortOrder = VideoLibraryOrdering.SortOrder.NEWEST
     private var videoGridLayoutListener: View.OnLayoutChangeListener? = null
+    private var selectionMode = false
+    private var selectionBackCallback: OnBackPressedCallback? = null
 
     private fun updateVideoGridSpanCount() {
         if (!::dataBinding.isInitialized) return
@@ -146,6 +153,22 @@ class VideoFragment : BaseFragment() {
             videoViewModel.onRenameAuthResult(requireContext(), result.resultCode == Activity.RESULT_OK)
         }
 
+    private val migrationAuthLauncher: ActivityResultLauncher<IntentSenderRequest> =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            videoViewModel.onMigrationAuthResult(
+                requireContext(),
+                result.resultCode == Activity.RESULT_OK
+            )
+        }
+
+    private val batchMigrationAuthLauncher: ActivityResultLauncher<IntentSenderRequest> =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            videoViewModel.onBatchMigrationAuthResult(
+                requireContext(),
+                result.resultCode == Activity.RESULT_OK
+            )
+        }
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
@@ -169,6 +192,15 @@ class VideoFragment : BaseFragment() {
                 mainActivity.mainViewModel.currentItem.set(0)
             }
             this.sortLibraryButton.setOnClickListener { showSortMenu(it) }
+
+            this.tvSelectionAll.setOnClickListener {
+                videoAdapter.selectAll()
+                updateSelectionUi()
+            }
+            this.tvSelectionCancel.setOnClickListener { exitSelectionMode() }
+            this.btnSelectionShare.setOnClickListener { shareSelectedVideos() }
+            this.btnSelectionMove.setOnClickListener { moveSelectedVideos() }
+            this.btnSelectionDelete.setOnClickListener { confirmDeleteSelectedVideos() }
         }
 
         videoViewModel.shareEvent.observe(viewLifecycleOwner) { uri ->
@@ -179,6 +211,19 @@ class VideoFragment : BaseFragment() {
         }
         videoViewModel.renameAuthEvent.observe(viewLifecycleOwner) { intentSender ->
             renameAuthLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+        }
+        videoViewModel.migrationAuthEvent.observe(viewLifecycleOwner) { intentSender ->
+            migrationAuthLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+        }
+        videoViewModel.batchMigrationAuthEvent.observe(viewLifecycleOwner) { intentSender ->
+            batchMigrationAuthLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+        }
+        videoViewModel.migrationSourceNotDeletedEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(
+                requireContext(),
+                R.string.video_migration_source_not_deleted,
+                Toast.LENGTH_LONG
+            ).show()
         }
         videoViewModel.deleteSuccessEvent.observe(viewLifecycleOwner) {
             Toast.makeText(requireContext(), R.string.video_delete_success, Toast.LENGTH_SHORT).show()
@@ -231,6 +276,33 @@ class VideoFragment : BaseFragment() {
         videoViewModel.start()
         handleUIEvents()
         handleIfStartedFromNotification()
+        selectionBackCallback = object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                exitSelectionMode()
+            }
+        }.also {
+            requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, it)
+        }
+        videoViewModel.batchMigrationEvent.observe(viewLifecycleOwner) { result ->
+            Toast.makeText(
+                requireContext(),
+                getString(
+                    R.string.selection_batch_result,
+                    result.success,
+                    result.failed,
+                    result.skipped,
+                    result.sourceNotDeleted
+                ),
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        videoViewModel.batchDeleteEvent.observe(viewLifecycleOwner) { result ->
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.selection_delete_result, result.success, result.failed),
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     override fun onDestroyView() {
@@ -272,7 +344,16 @@ class VideoFragment : BaseFragment() {
 
     private val videoListener = object : VideoListener {
         override fun onItemClicked(localVideo: LocalVideo, sharedView: View) {
-            startVideo(localVideo, sharedView)
+            if (selectionMode) {
+                videoAdapter.toggleSelection(localVideo.uri)
+                updateSelectionUi()
+            } else {
+                startVideo(localVideo, sharedView)
+            }
+        }
+
+        override fun onItemLongClicked(localVideo: LocalVideo) {
+            if (!selectionMode) enterSelectionMode(localVideo)
         }
 
         override fun onMenuClicked(view: View, localVideo: LocalVideo) {
@@ -303,13 +384,114 @@ class VideoFragment : BaseFragment() {
         }
     }
 
+    private fun enterSelectionMode(video: LocalVideo) {
+        selectionMode = true
+        selectionBackCallback?.isEnabled = true
+        videoAdapter.setSelectionMode(true)
+        videoAdapter.toggleSelection(video.uri)
+        updateSelectionUi()
+    }
+
+    private fun exitSelectionMode() {
+        selectionMode = false
+        selectionBackCallback?.isEnabled = false
+        videoAdapter.setSelectionMode(false)
+        updateSelectionUi()
+    }
+
+    private fun updateSelectionUi() {
+        if (!::dataBinding.isInitialized) return
+        val count = videoAdapter.selectedCount()
+        dataBinding.selectionBar.visibility = if (selectionMode) View.VISIBLE else View.GONE
+        dataBinding.selectionActions.visibility = if (selectionMode) View.VISIBLE else View.GONE
+        dataBinding.searchContainer.visibility = if (selectionMode) View.GONE else View.VISIBLE
+        dataBinding.libraryFiltersContainer.visibility =
+            if (selectionMode) View.GONE else View.VISIBLE
+        dataBinding.sortLibraryButton.visibility = if (selectionMode) View.GONE else View.VISIBLE
+        dataBinding.tvSelectionTitle.text = getString(R.string.selection_count, count)
+    }
+
+    private fun shareSelectedVideos() {
+        val videos = videoAdapter.selectedVideos()
+        if (videos.isEmpty()) return
+        val uris = videos.mapNotNull { video ->
+            runCatching {
+                if (video.uri.scheme == "content") {
+                    video.uri
+                } else {
+                    FileProvider.getUriForFile(
+                        requireContext(),
+                        "${requireContext().packageName}.provider",
+                        File(video.uri.path.orEmpty())
+                    )
+                }
+            }.getOrNull()
+        }
+        if (uris.isEmpty()) return
+        val mimeTypes = videos.map { MediaMimeTypes.resolve(it.mimeType, it.name) }.distinct()
+        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = if (mimeTypes.size == 1) mimeTypes.first() else "*/*"
+            putParcelableArrayListExtra(
+                Intent.EXTRA_STREAM,
+                ArrayList(uris)
+            )
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, getString(R.string.selection_share)))
+        exitSelectionMode()
+    }
+
+    private fun moveSelectedVideos() {
+        val videos = videoAdapter.selectedVideos()
+        if (videos.isEmpty()) return
+        val current = videos.map { videoViewModel.currentStorage(it) }.distinct().singleOrNull()
+        val targets = videoViewModel.availableStorageTargetsFor(videos)
+        val counts = videos.groupingBy { videoViewModel.currentStorage(it) }.eachCount()
+        val summary = getString(
+            R.string.selection_move_summary,
+            videos.size,
+            counts[StorageTarget.PUBLIC] ?: 0,
+            counts[StorageTarget.PRIVATE_INTERNAL] ?: 0,
+            counts[StorageTarget.PRIVATE_EXTERNAL] ?: 0
+        )
+        if (targets.isEmpty()) {
+            Toast.makeText(requireContext(), R.string.video_migration_failed, Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
+        VideoMigrationSheet(
+            context = requireContext(),
+            video = videos.first(),
+            current = current,
+            targets = targets,
+            summary = summary,
+            onMove = { target ->
+                videoViewModel.migrateBatch(requireContext(), videos, target)
+                exitSelectionMode()
+            },
+        ).show()
+    }
+
+    private fun confirmDeleteSelectedVideos() {
+        val videos = videoAdapter.selectedVideos()
+        if (videos.isEmpty()) return
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.selection_delete_confirm_title, videos.size))
+            .setMessage(R.string.selection_delete_confirm_message)
+            .setPositiveButton(R.string.selection_delete) { _, _ ->
+                videoViewModel.deleteVideos(requireContext(), videos)
+                exitSelectionMode()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     private fun showPopupMenu(view: View, video: LocalVideo) {
         val myView = fixPopup(dataBinding.anchor, view)
 
         val popupMenu = PopupMenu(myView.context, myView)
         popupMenu.menuInflater.inflate(R.menu.menu_video, popupMenu.menu)
         popupMenu.setForceShowIcon(true)
-        popupMenu.menu[5].isVisible = isVideoInHiddenFolderFolder(video)
         popupMenu.show()
 
         popupMenu.setOnMenuItemClickListener { arg0 ->
@@ -346,8 +528,26 @@ class VideoFragment : BaseFragment() {
                     true
                 }
 
-                R.id.item_move_to_downloads -> {
-                    videoViewModel.moveVideoToDownloads(requireContext(), video)
+                R.id.item_migrate_video -> {
+                    val current = videoViewModel.currentStorage(video)
+                    val targets = videoViewModel.availableStorageTargets(video)
+                    if (targets.isEmpty()) {
+                        Toast.makeText(
+                            requireContext(),
+                            R.string.video_migration_failed,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        VideoMigrationSheet(
+                            context = requireContext(),
+                            video = video,
+                            current = current,
+                            targets = targets,
+                            onMove = { target ->
+                                videoViewModel.migrateVideo(requireContext(), video, target)
+                            },
+                        ).show()
+                    }
                     true
                 }
 
@@ -405,6 +605,7 @@ class VideoFragment : BaseFragment() {
             putExtra(VideoPlayerFragment.VIDEO_NAME, localVideo.name)
             putExtra(VideoPlayerFragment.VIDEO_URL, localVideo.uri.toString())
             putExtra(VideoPlayerFragment.VIDEO_SOURCE, VideoPlayerFragment.SOURCE_VIDEO_LIBRARY)
+            putExtra(VideoPlayerFragment.VIDEO_MEDIA_IDENTITY, localVideo.playbackIdentity)
         }
         // 共享元素过渡：缩略图 → 播放器变形。源 View 点击瞬间设 transitionName
         //（adapter bind 时清除，保证屏幕上仅被点击项有此名，避免重名冲突）。
@@ -416,10 +617,6 @@ class VideoFragment : BaseFragment() {
             ).toBundle()
         }
         startActivity(intent, options)
-    }
-
-    private fun isVideoInHiddenFolderFolder(video: LocalVideo): Boolean {
-        return !fileUtil.isSharedPublicMedia(requireContext(), video.uri)
     }
 
 

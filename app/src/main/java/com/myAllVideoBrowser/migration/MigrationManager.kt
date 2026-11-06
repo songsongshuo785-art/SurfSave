@@ -323,17 +323,64 @@ class MigrationManager @Inject constructor(
         var movedBytes = 0L
         entries.forEach { entry ->
             val target = uniquePublicDownloadTarget(publicDownloadsDir, entry.fileName)
-            val moved = runCatching {
-                fileUtil.moveMedia(context, entry.uri, Uri.fromFile(target))
+            when (val published = runCatching {
+                fileUtil.publishMediaCopy(context, entry.uri, target.name)
             }.getOrElse { error ->
-                AppLogger.e("Failed to move private video ${entry.fileName}: ${error.message}")
-                false
-            }
-            if (moved) {
-                movedCount += 1
-                movedBytes += entry.sizeBytes
-            } else {
-                failedCount += 1
+                AppLogger.e("Failed to publish private video ${entry.fileName}: ${error.message}", error)
+                FileUtil.PublishResult.Failed(
+                    error.message ?: "Media publication failed",
+                    error.stackTraceToString()
+                )
+            }) {
+                is FileUtil.PublishResult.Failed -> {
+                    AppLogger.e(
+                        "Failed to publish private video ${entry.fileName}: ${published.reason}\n${published.detail}"
+                    )
+                    failedCount += 1
+                }
+
+                is FileUtil.PublishResult.Success -> {
+                    val finalSize = runCatching {
+                        fileUtil.getContentLength(context, published.uri)
+                    }.getOrDefault(-1L)
+                    if (finalSize <= 0L) {
+                        fileUtil.cleanupPublishedMedia(context, published.uri)
+                        failedCount += 1
+                        return@forEach
+                    }
+
+                    val replacedRows = runCatching {
+                        progressDao.replaceFinalMediaUri(
+                            entry.uri.toString(),
+                            published.uri.toString()
+                        )
+                    }.getOrElse { error ->
+                        AppLogger.e(
+                            "Failed to bind migrated video metadata for ${entry.fileName}",
+                            error
+                        )
+                        0
+                    }
+                    if (replacedRows <= 0) {
+                        fileUtil.cleanupPublishedMedia(context, published.uri)
+                        failedCount += 1
+                        return@forEach
+                    }
+                    if (replacedRows != 1) {
+                        AppLogger.w(
+                            "Migrated video ${entry.fileName} updated $replacedRows ProgressInfo rows."
+                        )
+                    }
+
+                    if (!fileUtil.deletePublishedSource(context, entry.uri)) {
+                        AppLogger.w(
+                            "Migrated video ${entry.fileName}: DB points to ${published.uri}, " +
+                                "but the old private source could not be removed."
+                        )
+                    }
+                    movedCount += 1
+                    movedBytes += entry.sizeBytes
+                }
             }
         }
         return PrivateVideoMoveResult(

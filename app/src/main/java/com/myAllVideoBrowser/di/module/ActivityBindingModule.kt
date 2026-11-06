@@ -5,6 +5,7 @@ import com.myAllVideoBrowser.ui.main.home.MainActivity
 import com.myAllVideoBrowser.di.module.activity.MainModule
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerActivity
 import com.myAllVideoBrowser.di.module.activity.VideoPlayerModule
+import com.myAllVideoBrowser.ui.main.progress.DownloadHistoryActivity
 import com.myAllVideoBrowser.ui.main.splash.SplashActivity
 import dagger.Module
 import dagger.android.ContributesAndroidInjector
@@ -23,4 +24,8 @@ internal abstract class ActivityBindingModule {
     @ActivityScoped
     @ContributesAndroidInjector(modules = [VideoPlayerModule::class])
     internal abstract fun bindVideoPlayerActivity(): VideoPlayerActivity
+
+    @ActivityScoped
+    @ContributesAndroidInjector
+    internal abstract fun bindDownloadHistoryActivity(): DownloadHistoryActivity
 }

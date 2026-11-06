@@ -73,46 +73,42 @@
                     android:minHeight="48dp"
                     android:textAllCaps="false" />
             </com.google.android.material.button.MaterialButtonToggleGroup>
-            <HorizontalScrollView
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/download_filters"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:scrollbars="none"
-                android:fillViewport="false">
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/download_filters"
-                    android:layout_width="wrap_content"
+                android:layout_marginTop="8dp"
+                app:checkedButton="@id/downloads_all"
+                app:selectionRequired="true"
+                app:singleSelection="true">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/downloads_all"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    app:singleSelection="true"
-                    app:selectionRequired="true"
-                    app:singleLine="true"
-                    app:checkedChip="@id/downloads_all"
-                    app:chipSpacingHorizontal="6dp">
-                    <com.google.android.material.chip.Chip
-                        style="@style/Widget.Surf.FilterChip"
-                        android:id="@+id/downloads_all"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/surf_filter_all" />
-                    <com.google.android.material.chip.Chip
-                        style="@style/Widget.Surf.FilterChip"
-                        android:id="@+id/downloads_active"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/surf_filter_active" />
-                    <com.google.android.material.chip.Chip
-                        style="@style/Widget.Surf.FilterChip"
-                        android:id="@+id/downloads_paused"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/surf_filter_paused" />
-                    <com.google.android.material.chip.Chip
-                        style="@style/Widget.Surf.FilterChip"
-                        android:id="@+id/downloads_failed"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/surf_filter_failed" />
-                </com.google.android.material.chip.ChipGroup>
-            </HorizontalScrollView>
+                    android:layout_weight="1"
+                    android:minHeight="44dp"
+                    android:text="@string/surf_filter_all"
+                    android:textAllCaps="false" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/downloads_active"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:minHeight="44dp"
+                    android:text="@string/surf_filter_active"
+                    android:textAllCaps="false" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/downloads_completed"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:minHeight="44dp"
+                    android:text="@string/surf_filter_completed"
+                    android:textAllCaps="false" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
         </LinearLayout>
         <FrameLayout
             android:id="@+id/progress_native_ad_container"
