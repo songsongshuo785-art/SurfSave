@@ -3,7 +3,6 @@ package com.myAllVideoBrowser.ui.main.progress
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.webkit.MimeTypeMap
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.IntentSenderRequest
@@ -15,6 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
+import com.myAllVideoBrowser.util.MediaMimeTypes
 import com.myAllVideoBrowser.data.repository.ProgressRepository
 import com.myAllVideoBrowser.databinding.ActivityDownloadHistoryBinding
 import com.myAllVideoBrowser.ui.main.base.BaseActivity
@@ -216,10 +216,10 @@ class DownloadHistoryActivity : BaseActivity() {
     }
 
     private fun mimeTypeFor(info: ProgressInfo): String {
-        val ext = info.videoInfo.ext.ifBlank {
-            info.finalMediaUri.substringAfterLast('.', "")
-        }.lowercase(Locale.US)
-        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+        val fileName = info.finalMediaUri.substringAfterLast('/').ifBlank {
+            "video.${info.videoInfo.ext}"
+        }
+        return MediaMimeTypes.resolve("", fileName)
     }
 
     private fun openSource(info: ProgressInfo) {

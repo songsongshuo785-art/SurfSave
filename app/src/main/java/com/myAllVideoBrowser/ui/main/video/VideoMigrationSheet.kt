@@ -24,7 +24,9 @@ class VideoMigrationSheet(
         binding.tvMigrationSummary.visibility = if (summary.isNullOrBlank()) View.GONE else View.VISIBLE
         binding.tvMigrationSummary.text = summary
         binding.tvMigrationCurrentValue.text = context.getString(
-            current?.labelRes() ?: R.string.storage_target_unknown
+            current?.labelRes()
+                ?: if (summary != null) R.string.storage_target_multiple
+                else R.string.storage_target_unknown
         )
         binding.tvMigrationCurrentHint.text = context.getString(
             current?.hintRes() ?: R.string.storage_target_private_hint

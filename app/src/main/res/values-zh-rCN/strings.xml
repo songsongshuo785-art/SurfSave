@@ -594,6 +594,7 @@
     <string name="storage_target_public_hint">卸载 SurfSave 后仍会保留</string>
     <string name="storage_target_private_hint">卸载 SurfSave 时会删除</string>
     <string name="storage_target_unknown">未知位置</string>
+    <string name="storage_target_multiple">多个位置</string>
     <string name="video_migration_success">视频已移动</string>
     <string name="video_migration_source_not_deleted">视频已移动，但原文件未删除</string>
     <string name="video_migration_failed">视频移动失败</string>
@@ -602,6 +603,7 @@
     <string name="selection_share">发送</string>
     <string name="selection_move">移动</string>
     <string name="selection_delete">删除</string>
+    <string name="selection_delete_result">成功 %1$d 个，失败 %2$d 个</string>
     <string name="selection_delete_confirm_title">删除 %1$d 个视频？</string>
     <string name="selection_delete_confirm_message">本地文件会被删除，下载记录与来源网页会保留。</string>
     <string name="selection_batch_result">成功 %1$d 个，失败 %2$d 个，跳过 %3$d 个，旧文件保留 %4$d 个</string>

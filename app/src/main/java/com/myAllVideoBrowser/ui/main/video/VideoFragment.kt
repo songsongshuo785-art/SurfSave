@@ -31,6 +31,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import android.webkit.MimeTypeMap
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.model.LocalVideo
+import com.myAllVideoBrowser.util.MediaMimeTypes
 import com.myAllVideoBrowser.migration.StorageTarget
 import com.myAllVideoBrowser.databinding.FragmentVideoBinding
 import com.myAllVideoBrowser.ui.component.adapter.VideoAdapter
@@ -295,6 +296,13 @@ class VideoFragment : BaseFragment() {
                 Toast.LENGTH_LONG
             ).show()
         }
+        videoViewModel.batchDeleteEvent.observe(viewLifecycleOwner) { result ->
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.selection_delete_result, result.success, result.failed),
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     override fun onDestroyView() {
@@ -420,7 +428,7 @@ class VideoFragment : BaseFragment() {
             }.getOrNull()
         }
         if (uris.isEmpty()) return
-        val mimeTypes = videos.map { it.mimeType.ifBlank { "video/*" } }.distinct()
+        val mimeTypes = videos.map { MediaMimeTypes.resolve(it.mimeType, it.name) }.distinct()
         val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
             type = if (mimeTypes.size == 1) mimeTypes.first() else "*/*"
             putParcelableArrayListExtra(
@@ -609,10 +617,6 @@ class VideoFragment : BaseFragment() {
             ).toBundle()
         }
         startActivity(intent, options)
-    }
-
-    private fun isVideoInHiddenFolderFolder(video: LocalVideo): Boolean {
-        return !fileUtil.isSharedPublicMedia(requireContext(), video.uri)
     }
 
 

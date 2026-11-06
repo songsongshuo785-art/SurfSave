@@ -17,6 +17,7 @@ import androidx.lifecycle.viewModelScope
 import com.myAllVideoBrowser.data.local.model.LocalVideo
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.repository.ProgressRepository
+import com.myAllVideoBrowser.migration.MediaMigrationAuth
 import com.myAllVideoBrowser.migration.MediaMigrationManager
 import com.myAllVideoBrowser.migration.MigrationResult
 import com.myAllVideoBrowser.migration.PendingMigration
@@ -73,7 +74,12 @@ class VideoViewModel @Inject constructor(
     val batchMigrationAuthEvent = SingleLiveEvent<IntentSender>()
     private var pendingMigration: PendingMigration? = null
     private val pendingBatchAuth = mutableListOf<PendingMigration>()
+    private val batchMigrationAuthQueue = BatchAuthQueue<PendingMigrationQueueItem>()
+    private var batchMigrationAccumulator: BatchMigrationAccumulator? = null
     private val pendingBatchDelete = mutableListOf<Uri>()
+    private val pendingDeleteQueue = ArrayDeque<PendingDeleteQueueItem>()
+    private var batchDeleteAccumulator: BatchDeleteAccumulator? = null
+    val batchDeleteEvent = SingleLiveEvent<BatchDeleteResult>()
     private var pendingDelete: PendingDelete? = null
     private var pendingRename: PendingRename? = null
     private val thumbnailFrameMicrosCache = mutableMapOf<String, Long>()
@@ -356,122 +362,147 @@ class VideoViewModel @Inject constructor(
 
     fun deleteVideos(context: Context, videos: List<LocalVideo>) {
         viewModelScope.launch {
-            val publicUris = mutableListOf<Uri>()
-            val privateVideos = mutableListOf<LocalVideo>()
-            withContext(Dispatchers.IO) {
-                videos.forEach { video ->
-                    if (fileUtil.isManagedPublicMedia(context, video.uri)) {
-                        publicUris += video.uri
-                    } else {
-                        privateVideos += video
-                    }
+            val split = withContext(Dispatchers.IO) {
+                MediaDeletionClassifier.classify(videos) { uri ->
+                    fileUtil.isSharedPublicMedia(context, uri)
                 }
             }
+            val accumulator = BatchDeleteAccumulator()
+            batchDeleteAccumulator = accumulator
 
-            privateVideos.forEach { video ->
+            split.privateVideos.forEach { video ->
                 val deleted = withContext(Dispatchers.IO) {
                     fileUtil.deleteMedia(context, video.uri) is DeleteMediaResult.Success
                 }
                 if (deleted) {
+                    accumulator.onSuccess()
                     clearFinalMediaBinding(video.uri)
                     removeDeletedVideo(video)
                 } else {
-                    deleteFailedEvent.value = Unit
+                    accumulator.onFailure()
                 }
             }
-            if (publicUris.isEmpty()) return@launch
+
+            if (split.publicUris.isEmpty()) {
+                finishBatchDelete()
+                return@launch
+            }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val sender = withContext(Dispatchers.IO) {
-                    fileUtil.createBatchDeleteRequest(context, publicUris)
+                    fileUtil.createBatchDeleteRequest(context, split.publicUris)
                 }
                 if (sender != null) {
                     pendingBatchDelete.clear()
-                    pendingBatchDelete += publicUris
+                    pendingBatchDelete += split.publicUris
                     deleteAuthEvent.value = sender
                     return@launch
                 }
             }
 
-            // 回退：逐个删除
-            publicUris.forEach { uri ->
-                val result = withContext(Dispatchers.IO) {
-                    fileUtil.deleteMedia(context, uri)
+            enqueuePublicDeletes(context, split.publicUris)
+        }
+    }
+
+    private suspend fun enqueuePublicDeletes(context: Context, uris: List<Uri>) {
+        uris.forEach { uri ->
+            when (val result = withContext(Dispatchers.IO) {
+                fileUtil.deleteMedia(context, uri)
+            }) {
+                is DeleteMediaResult.Success -> {
+                    batchDeleteAccumulator?.onSuccess()
+                    clearFinalMediaBinding(uri)
+                    localVideos.get()?.firstOrNull { sameUri(it.uri, uri) }
+                        ?.let(::removeDeletedVideo)
                 }
-                if (result is DeleteMediaResult.Success) {
+
+                is DeleteMediaResult.NeedsAuth -> {
+                    val video = localVideos.get()?.firstOrNull { sameUri(it.uri, uri) }
+                        ?: LocalVideo(0, uri, uri.lastPathSegment.orEmpty())
+                    pendingDeleteQueue.addLast(
+                        PendingDeleteQueueItem(
+                            pending = PendingDelete(
+                                video = video,
+                                retryUri = result.retryUri,
+                                verificationUri = result.verificationUri,
+                            ),
+                            intentSender = result.intentSender,
+                        )
+                    )
+                }
+
+                is DeleteMediaResult.Failed -> batchDeleteAccumulator?.onFailure()
+            }
+        }
+        advanceDeleteQueue()
+    }
+
+    private fun advanceDeleteQueue() {
+        val next = pendingDeleteQueue.firstOrNull()
+        if (next != null) {
+            deleteAuthEvent.value = next.intentSender
+        } else {
+            finishBatchDelete()
+        }
+    }
+
+    private fun finishBatchDelete() {
+        val accumulator = batchDeleteAccumulator ?: return
+        batchDeleteAccumulator = null
+        batchDeleteEvent.value = accumulator.toResult()
+    }
+
+    private fun handleBatchDeleteAuth(context: Context, ok: Boolean) {
+        val uris = pendingBatchDelete.toList()
+        pendingBatchDelete.clear()
+        val accumulator = batchDeleteAccumulator
+        if (!ok) {
+            accumulator?.onFailure(uris.size)
+            finishBatchDelete()
+            return
+        }
+        viewModelScope.launch {
+            uris.forEach { uri ->
+                val absent = withContext(Dispatchers.IO) {
+                    fileUtil.isUriDefinitelyAbsent(context, uri)
+                }
+                if (absent) {
+                    accumulator?.onSuccess()
                     clearFinalMediaBinding(uri)
                     localVideos.get()?.firstOrNull { sameUri(it.uri, uri) }
                         ?.let(::removeDeletedVideo)
                 } else {
-                    deleteFailedEvent.value = Unit
+                    accumulator?.onFailure()
                 }
             }
+            finishBatchDelete()
         }
     }
 
-    fun moveVideoToDownloads(context: Context, video: LocalVideo) {
+    private fun handleQueuedDeleteAuth(context: Context, ok: Boolean) {
+        val item = pendingDeleteQueue.removeFirst()
+        val accumulator = batchDeleteAccumulator
+        if (!ok) {
+            accumulator?.onFailure()
+            advanceDeleteQueue()
+            return
+        }
         viewModelScope.launch {
-            val movedMedia = withContext(Dispatchers.IO) {
-                val target = fileUtil.uniqueMediaTarget(
-                    context,
-                    File(fileUtil.publicDownloadsDir, video.name)
-                )
-                when (val published = runCatching {
-                    fileUtil.publishMediaCopy(context, video.uri, target.name)
-                }.getOrElse { error ->
-                    AppLogger.e("Failed to publish moved video", error)
-                    FileUtil.PublishResult.Failed(
-                        error.message ?: "Media publication failed",
-                        error.stackTraceToString()
-                    )
-                }) {
-                    is FileUtil.PublishResult.Failed -> null
-                    is FileUtil.PublishResult.Success -> {
-                        val replacedRows = runCatching {
-                            progressRepository.replaceFinalMediaUri(
-                                video.uri.toString(),
-                                published.uri.toString()
-                            )
-                        }.getOrElse { error ->
-                            AppLogger.e("Failed to update moved video metadata binding", error)
-                            0
-                        }
-                        if (replacedRows <= 0) {
-                            fileUtil.cleanupPublishedMedia(context, published.uri)
-                            null
-                        } else {
-                            if (replacedRows != 1) {
-                                AppLogger.w(
-                                    "Moved video updated $replacedRows ProgressInfo rows for ${video.uri}."
-                                )
-                            }
-                            if (!fileUtil.deletePublishedSource(context, video.uri)) {
-                                AppLogger.w(
-                                    "Moved video metadata committed to ${published.uri}, " +
-                                        "but the old source could not be removed."
-                                )
-                            }
-                            MovedMedia(
-                                uri = published.uri,
-                                name = published.fileName
-                            )
-                        }
-                    }
+            val deleted = withContext(Dispatchers.IO) {
+                if (item.pending.retryUri == null) {
+                    fileUtil.isUriDefinitelyAbsent(context, item.pending.verificationUri)
+                } else {
+                    fileUtil.deleteMedia(context, item.pending.retryUri) is DeleteMediaResult.Success
                 }
             }
-            if (movedMedia == null) {
-                moveFailedEvent.value = Unit
-                return@launch
+            if (deleted) {
+                accumulator?.onSuccess()
+                clearFinalMediaBinding(item.pending.video.uri)
+                removeDeletedVideo(item.pending.video)
+            } else {
+                accumulator?.onFailure()
             }
-            val list = localVideos.get()?.toMutableList() ?: mutableListOf()
-            list.firstOrNull { sameUri(it.uri, video.uri) }?.let { moved ->
-                removeCachedVideoMetadata(moved.uri)
-                moved.uri = movedMedia.uri
-                moved.name = movedMedia.name
-                mediaSortTimeMillisCache.remove(movedMedia.uri.toString())
-            }
-            localVideos.set(list)
-            moveSuccessEvent.value = Unit
+            advanceDeleteQueue()
         }
     }
 
@@ -520,11 +551,9 @@ class VideoViewModel @Inject constructor(
 
     fun migrateBatch(context: Context, videos: List<LocalVideo>, target: StorageTarget) {
         viewModelScope.launch {
-            var success = 0
-            var failed = 0
-            var skipped = 0
-            var sourceNotDeleted = 0
+            val accumulator = BatchMigrationAccumulator()
             val needsAuth = mutableListOf<PendingMigration>()
+            val authItems = mutableListOf<PendingMigrationQueueItem>()
             videos.forEach { video ->
                 val result = withContext(Dispatchers.IO) {
                     migrationManager(context).migrate(video, target)
@@ -532,70 +561,96 @@ class VideoViewModel @Inject constructor(
                 when (result) {
                     is MigrationResult.Success -> {
                         updateMigratedVideo(video, result.targetUri)
-                        success += 1
+                        accumulator.success += 1
                     }
 
                     is MigrationResult.SuccessSourceNotDeleted -> {
                         updateMigratedVideo(video, result.targetUri)
-                        success += 1
-                        sourceNotDeleted += 1
+                        accumulator.success += 1
+                        accumulator.sourceNotDeleted += 1
                     }
 
                     is MigrationResult.NeedsAuth -> {
                         updateMigratedVideo(video, result.pending.targetUri)
-                        success += 1
+                        accumulator.success += 1
                         needsAuth += result.pending
+                        authItems += PendingMigrationQueueItem(result.pending, result.intentSender)
                     }
 
-                    is MigrationResult.Failed -> failed += 1
-                    is MigrationResult.Skipped -> skipped += 1
+                    is MigrationResult.Failed -> accumulator.failed += 1
+                    is MigrationResult.Skipped -> accumulator.skipped += 1
                 }
             }
 
-            if (needsAuth.isNotEmpty()) {
-                val uris = needsAuth.mapNotNull { it.retryUri }
-                val sender = if (uris.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    withContext(Dispatchers.IO) {
-                        fileUtil.createBatchDeleteRequest(context, uris)
-                    }
-                } else {
-                    null
+            if (needsAuth.isEmpty()) {
+                batchMigrationEvent.value = accumulator.toResult()
+                return@launch
+            }
+
+            val uris = MediaMigrationAuth.batchDeleteUris(needsAuth)
+            if (uris.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val sender = withContext(Dispatchers.IO) {
+                    fileUtil.createBatchDeleteRequest(context, uris)
                 }
                 if (sender != null) {
+                    batchMigrationAccumulator = accumulator
                     pendingBatchAuth.clear()
                     pendingBatchAuth += needsAuth
                     batchMigrationAuthEvent.value = sender
-                } else {
-                    sourceNotDeleted += needsAuth.size
+                    return@launch
                 }
             }
 
-            batchMigrationEvent.value =
-                BatchMigrationResult(success, failed, skipped, sourceNotDeleted)
+            // Android 10 或批量授权不可用：逐个授权，队列完成后统一汇总。
+            batchMigrationAccumulator = accumulator
+            batchMigrationAuthQueue.reset(authItems)
+            drainBatchMigrationAuthQueue()
         }
+    }
+
+    private fun drainBatchMigrationAuthQueue() {
+        val next = batchMigrationAuthQueue.peek()
+        if (next != null) {
+            migrationAuthEvent.value = next.intentSender
+        } else {
+            finishBatchMigration()
+        }
+    }
+
+    private fun finishBatchMigration() {
+        val accumulator = batchMigrationAccumulator ?: return
+        batchMigrationAccumulator = null
+        batchMigrationEvent.value = accumulator.toResult()
     }
 
     fun onBatchMigrationAuthResult(context: Context, granted: Boolean) {
         val pendings = pendingBatchAuth.toList()
         pendingBatchAuth.clear()
         if (pendings.isEmpty()) return
+        val accumulator = batchMigrationAccumulator
         if (!granted) {
-            migrationSourceNotDeletedEvent.value = Unit
+            accumulator?.sourceNotDeleted = (accumulator?.sourceNotDeleted ?: 0) + pendings.size
+            finishBatchMigration()
             return
         }
         viewModelScope.launch {
-            var failed = 0
             pendings.forEach { pending ->
                 val deleted = withContext(Dispatchers.IO) {
                     migrationManager(context).completeSourceDeletion(pending)
                 }
-                if (!deleted) failed += 1
+                if (!deleted) {
+                    accumulator?.sourceNotDeleted = (accumulator?.sourceNotDeleted ?: 0) + 1
+                }
             }
-            if (failed > 0) migrationSourceNotDeletedEvent.value = Unit
+            finishBatchMigration()
         }
     }
 
     fun onMigrationAuthResult(context: Context, granted: Boolean) {
+        if (!batchMigrationAuthQueue.isEmpty()) {
+            handleQueuedMigrationAuth(context, granted)
+            return
+        }
         val pending = pendingMigration ?: return
         pendingMigration = null
         if (!granted) {
@@ -614,16 +669,28 @@ class VideoViewModel @Inject constructor(
         }
     }
 
+    private fun handleQueuedMigrationAuth(context: Context, granted: Boolean) {
+        val item = batchMigrationAuthQueue.poll() ?: return
+        val accumulator = batchMigrationAccumulator
+        if (!granted) {
+            accumulator?.sourceNotDeleted = (accumulator?.sourceNotDeleted ?: 0) + 1
+            drainBatchMigrationAuthQueue()
+            return
+        }
+        viewModelScope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                migrationManager(context).completeSourceDeletion(item.pending)
+            }
+            if (!deleted) {
+                accumulator?.sourceNotDeleted = (accumulator?.sourceNotDeleted ?: 0) + 1
+            }
+            drainBatchMigrationAuthQueue()
+        }
+    }
+
     private fun migrationManager(
         context: Context = ContextUtils.getApplicationContext(),
     ): MediaMigrationManager = MediaMigrationManager(context, fileUtil, progressRepository)
-
-    data class BatchMigrationResult(
-        val success: Int,
-        val failed: Int,
-        val skipped: Int,
-        val sourceNotDeleted: Int,
-    )
 
     private fun updateMigratedVideo(video: LocalVideo, newUri: Uri) {
         val list = localVideos.get()?.toMutableList() ?: mutableListOf()
@@ -637,28 +704,11 @@ class VideoViewModel @Inject constructor(
 
     fun onDeleteAuthResult(context: Context, ok: Boolean) {
         if (pendingBatchDelete.isNotEmpty()) {
-            val uris = pendingBatchDelete.toList()
-            pendingBatchDelete.clear()
-            if (!ok) {
-                deleteAuthCancelledEvent.value = Unit
-                return
-            }
-            viewModelScope.launch {
-                var failed = false
-                uris.forEach { uri ->
-                    val absent = withContext(Dispatchers.IO) {
-                        fileUtil.isUriDefinitelyAbsent(context, uri)
-                    }
-                    if (absent) {
-                        clearFinalMediaBinding(uri)
-                        localVideos.get()?.firstOrNull { sameUri(it.uri, uri) }
-                            ?.let(::removeDeletedVideo)
-                    } else {
-                        failed = true
-                    }
-                }
-                if (failed) deleteFailedEvent.value = Unit
-            }
+            handleBatchDeleteAuth(context, ok)
+            return
+        }
+        if (pendingDeleteQueue.isNotEmpty()) {
+            handleQueuedDeleteAuth(context, ok)
             return
         }
         val operation = pendingDelete
@@ -836,9 +886,14 @@ class VideoViewModel @Inject constructor(
         val verificationUri: Uri
     )
 
-    private data class MovedMedia(
-        val uri: Uri,
-        val name: String
+    private data class PendingDeleteQueueItem(
+        val pending: PendingDelete,
+        val intentSender: IntentSender,
+    )
+
+    private data class PendingMigrationQueueItem(
+        val pending: PendingMigration,
+        val intentSender: IntentSender,
     )
 
     private data class PendingRename(

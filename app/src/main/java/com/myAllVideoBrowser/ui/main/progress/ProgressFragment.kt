@@ -255,11 +255,11 @@ class ProgressFragment : BaseFragment() {
     private fun updateDownloadSectionUi() {
         val showFiles = progressViewModel.selectedDownloadSection.get() == DownloadSection.FILES
         val fileDownloads = progressViewModel.browserFileDownloads.get().orEmpty()
-        val mediaDownloads = if (selectedFilter == R.id.downloads_completed) {
-            progressViewModel.historyInfos.get().orEmpty()
-        } else {
-            progressViewModel.progressInfos.get().orEmpty()
-        }
+        val mediaDownloads = DownloadFilter.mediaFor(
+            selectedFilter,
+            progressViewModel.progressInfos.get().orEmpty(),
+            progressViewModel.historyInfos.get().orEmpty(),
+        )
         dataBinding.downloadSectionToggle.check(
             if (showFiles) R.id.button_file_downloads else R.id.button_media_downloads
         )
