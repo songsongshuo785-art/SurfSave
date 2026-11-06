@@ -425,6 +425,55 @@ class FileUtil @Inject constructor() {
         return deleteSourceAndVerify(context, sourceUri) == UriExistence.NotFound
     }
 
+    data class CopyResult(
+        val ok: Boolean,
+        val uri: Uri? = null,
+        val reason: String? = null,
+    )
+
+    /**
+     * Copy a media item into an app-private SurfSave directory without deleting the source.
+     * The caller must update persistent metadata first and only then remove the old file.
+     */
+    @Synchronized
+    fun copyMediaToPrivateDir(
+        context: Context,
+        sourceUri: Uri,
+        targetDir: File,
+        fileName: String,
+    ): CopyResult {
+        if (uriExistence(context, sourceUri) != UriExistence.Exists) {
+            return CopyResult(false, reason = "Source does not exist")
+        }
+        if (!targetDir.exists() && !targetDir.mkdirs()) {
+            return CopyResult(false, reason = "Unable to create target directory")
+        }
+        val sourceLength = getContentLength(context, sourceUri)
+        val target = uniqueMediaTarget(context, File(targetDir, fileName))
+        val temporary = File(targetDir, "${target.name}.tmp")
+        return try {
+            val copied = openSourceInputStream(context, sourceUri).use { input ->
+                temporary.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (copied <= 0L ||
+                (sourceLength > 0L && copied != sourceLength) ||
+                temporary.length() != copied
+            ) {
+                temporary.delete()
+                return CopyResult(false, reason = "Copied byte count does not match the source")
+            }
+            if (!temporary.renameTo(target)) {
+                temporary.delete()
+                return CopyResult(false, reason = "Unable to publish the copied file")
+            }
+            CopyResult(true, Uri.fromFile(target))
+        } catch (error: Throwable) {
+            temporary.delete()
+            AppLogger.e("Failed to copy media into $targetDir", error)
+            CopyResult(false, reason = error.message ?: "Copy failed")
+        }
+    }
+
     @Synchronized
     @SuppressLint("NewApi")
     fun moveMediaWithReason(context: Context, from: Uri, to: Uri): MoveResult {

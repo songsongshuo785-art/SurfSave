@@ -586,4 +586,18 @@
     <string name="download_history_section_yesterday">Yesterday</string>
     <string name="download_history_section_earlier">Earlier</string>
     <string name="download_history_source_unknown">Unknown source</string>
+    <string name="cancel">Cancel</string>
+    <string name="video_migration_title">Move video</string>
+    <string name="video_migration_current_location">Current location</string>
+    <string name="video_migration_target">Move to</string>
+    <string name="video_migration_move">Move</string>
+    <string name="storage_target_public">Public Downloads</string>
+    <string name="storage_target_private_internal">App-only storage · Internal</string>
+    <string name="storage_target_private_external">App-only storage · SD card</string>
+    <string name="storage_target_public_hint">Kept after uninstalling SurfSave</string>
+    <string name="storage_target_private_hint">Deleted when SurfSave is uninstalled</string>
+    <string name="storage_target_unknown">Unknown location</string>
+    <string name="video_migration_success">Video moved</string>
+    <string name="video_migration_source_not_deleted">Video moved, but the old file was not deleted</string>
+    <string name="video_migration_failed">Failed to move video</string>
 </resources>

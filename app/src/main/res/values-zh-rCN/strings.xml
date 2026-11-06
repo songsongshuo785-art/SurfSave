@@ -583,4 +583,18 @@
     <string name="download_history_section_yesterday">昨天</string>
     <string name="download_history_section_earlier">更早</string>
     <string name="download_history_source_unknown">来源未知</string>
+    <string name="cancel">取消</string>
+    <string name="video_migration_title">移动视频</string>
+    <string name="video_migration_current_location">当前保存位置</string>
+    <string name="video_migration_target">可移动到</string>
+    <string name="video_migration_move">移动</string>
+    <string name="storage_target_public">公共下载目录</string>
+    <string name="storage_target_private_internal">应用专用存储 · 内部</string>
+    <string name="storage_target_private_external">应用专用存储 · SD 卡</string>
+    <string name="storage_target_public_hint">卸载 SurfSave 后仍会保留</string>
+    <string name="storage_target_private_hint">卸载 SurfSave 时会删除</string>
+    <string name="storage_target_unknown">未知位置</string>
+    <string name="video_migration_success">视频已移动</string>
+    <string name="video_migration_source_not_deleted">视频已移动，但原文件未删除</string>
+    <string name="video_migration_failed">视频移动失败</string>
 </resources>

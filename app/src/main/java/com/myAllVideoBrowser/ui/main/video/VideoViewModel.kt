@@ -17,6 +17,10 @@ import androidx.lifecycle.viewModelScope
 import com.myAllVideoBrowser.data.local.model.LocalVideo
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.repository.ProgressRepository
+import com.myAllVideoBrowser.migration.MediaMigrationManager
+import com.myAllVideoBrowser.migration.MigrationResult
+import com.myAllVideoBrowser.migration.PendingMigration
+import com.myAllVideoBrowser.migration.StorageTarget
 import com.myAllVideoBrowser.ui.main.base.BaseViewModel
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ContextUtils
@@ -63,6 +67,9 @@ class VideoViewModel @Inject constructor(
     val deleteAuthCancelledEvent = SingleLiveEvent<Unit>()
     val moveSuccessEvent = SingleLiveEvent<Unit>()
     val moveFailedEvent = SingleLiveEvent<Unit>()
+    val migrationAuthEvent = SingleLiveEvent<IntentSender>()
+    val migrationSourceNotDeletedEvent = SingleLiveEvent<Unit>()
+    private var pendingMigration: PendingMigration? = null
     private var pendingDelete: PendingDelete? = null
     private var pendingRename: PendingRename? = null
     private val thumbnailFrameMicrosCache = mutableMapOf<String, Long>()
@@ -407,6 +414,73 @@ class VideoViewModel @Inject constructor(
             localVideos.set(list)
             moveSuccessEvent.value = Unit
         }
+    }
+
+    fun currentStorage(video: LocalVideo): StorageTarget? =
+        migrationManager().currentTarget(video.uri)
+
+    fun availableStorageTargets(video: LocalVideo): List<StorageTarget> =
+        migrationManager().availableTargets(currentStorage(video))
+
+    fun migrateVideo(context: Context, video: LocalVideo, target: StorageTarget) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                migrationManager(context).migrate(video, target)
+            }
+            when (result) {
+                is MigrationResult.Success -> {
+                    updateMigratedVideo(video, result.targetUri)
+                    moveSuccessEvent.value = Unit
+                }
+
+                is MigrationResult.SuccessSourceNotDeleted -> {
+                    updateMigratedVideo(video, result.targetUri)
+                    migrationSourceNotDeletedEvent.value = Unit
+                }
+
+                is MigrationResult.NeedsAuth -> {
+                    updateMigratedVideo(video, result.pending.targetUri)
+                    pendingMigration = result.pending
+                    migrationAuthEvent.value = result.intentSender
+                }
+
+                is MigrationResult.Failed -> moveFailedEvent.value = Unit
+                is MigrationResult.Skipped -> Unit
+            }
+        }
+    }
+
+    fun onMigrationAuthResult(context: Context, granted: Boolean) {
+        val pending = pendingMigration ?: return
+        pendingMigration = null
+        if (!granted) {
+            migrationSourceNotDeletedEvent.value = Unit
+            return
+        }
+        viewModelScope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                migrationManager(context).completeSourceDeletion(pending)
+            }
+            if (deleted) {
+                moveSuccessEvent.value = Unit
+            } else {
+                migrationSourceNotDeletedEvent.value = Unit
+            }
+        }
+    }
+
+    private fun migrationManager(
+        context: Context = ContextUtils.getApplicationContext(),
+    ): MediaMigrationManager = MediaMigrationManager(context, fileUtil, progressRepository)
+
+    private fun updateMigratedVideo(video: LocalVideo, newUri: Uri) {
+        val list = localVideos.get()?.toMutableList() ?: mutableListOf()
+        list.firstOrNull { sameUri(it.uri, video.uri) }?.let { moved ->
+            removeCachedVideoMetadata(moved.uri)
+            moved.uri = newUri
+            mediaSortTimeMillisCache.remove(newUri.toString())
+        }
+        localVideos.set(list)
     }
 
     fun onDeleteAuthResult(context: Context, ok: Boolean) {

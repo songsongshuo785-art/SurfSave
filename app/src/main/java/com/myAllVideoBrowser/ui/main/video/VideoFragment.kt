@@ -146,6 +146,14 @@ class VideoFragment : BaseFragment() {
             videoViewModel.onRenameAuthResult(requireContext(), result.resultCode == Activity.RESULT_OK)
         }
 
+    private val migrationAuthLauncher: ActivityResultLauncher<IntentSenderRequest> =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            videoViewModel.onMigrationAuthResult(
+                requireContext(),
+                result.resultCode == Activity.RESULT_OK
+            )
+        }
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
@@ -179,6 +187,16 @@ class VideoFragment : BaseFragment() {
         }
         videoViewModel.renameAuthEvent.observe(viewLifecycleOwner) { intentSender ->
             renameAuthLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+        }
+        videoViewModel.migrationAuthEvent.observe(viewLifecycleOwner) { intentSender ->
+            migrationAuthLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+        }
+        videoViewModel.migrationSourceNotDeletedEvent.observe(viewLifecycleOwner) {
+            Toast.makeText(
+                requireContext(),
+                R.string.video_migration_source_not_deleted,
+                Toast.LENGTH_LONG
+            ).show()
         }
         videoViewModel.deleteSuccessEvent.observe(viewLifecycleOwner) {
             Toast.makeText(requireContext(), R.string.video_delete_success, Toast.LENGTH_SHORT).show()
@@ -309,7 +327,8 @@ class VideoFragment : BaseFragment() {
         val popupMenu = PopupMenu(myView.context, myView)
         popupMenu.menuInflater.inflate(R.menu.menu_video, popupMenu.menu)
         popupMenu.setForceShowIcon(true)
-        popupMenu.menu[5].isVisible = isVideoInHiddenFolderFolder(video)
+        popupMenu.menu.findItem(R.id.item_move_to_downloads).isVisible =
+            isVideoInHiddenFolderFolder(video)
         popupMenu.show()
 
         popupMenu.setOnMenuItemClickListener { arg0 ->
@@ -348,6 +367,29 @@ class VideoFragment : BaseFragment() {
 
                 R.id.item_move_to_downloads -> {
                     videoViewModel.moveVideoToDownloads(requireContext(), video)
+                    true
+                }
+
+                R.id.item_migrate_video -> {
+                    val current = videoViewModel.currentStorage(video)
+                    val targets = videoViewModel.availableStorageTargets(video)
+                    if (targets.isEmpty()) {
+                        Toast.makeText(
+                            requireContext(),
+                            R.string.video_migration_failed,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        VideoMigrationSheet(
+                            context = requireContext(),
+                            video = video,
+                            current = current,
+                            targets = targets,
+                            onMove = { target ->
+                                videoViewModel.migrateVideo(requireContext(), video, target)
+                            },
+                        ).show()
+                    }
                     true
                 }
 
