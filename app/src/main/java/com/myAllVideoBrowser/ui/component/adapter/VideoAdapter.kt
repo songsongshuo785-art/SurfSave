@@ -1,10 +1,12 @@
 package com.myAllVideoBrowser.ui.component.adapter
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.content.ContextCompat
 import androidx.databinding.DataBindingUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
@@ -37,14 +39,60 @@ class VideoAdapter(
 
     override fun getItemCount() = localVideos.size
 
-    override fun onBindViewHolder(holder: VideoViewHolder, position: Int) =
-        holder.bind(localVideos[position], videoListener)
+    var selectionMode: Boolean = false
+        private set
+    private val selectedUris = mutableSetOf<String>()
+
+    override fun onBindViewHolder(holder: VideoViewHolder, position: Int) {
+        val video = localVideos[position]
+        holder.bind(video, videoListener, selectionMode && isSelected(video.uri))
+    }
+
+    fun setSelectionMode(enabled: Boolean) {
+        selectionMode = enabled
+        if (!enabled) selectedUris.clear()
+        notifyDataSetChanged()
+    }
+
+    fun toggleSelection(uri: Uri) {
+        val key = uri.toString()
+        if (!selectedUris.add(key)) selectedUris.remove(key)
+        notifyDataSetChanged()
+    }
+
+    fun selectAll() {
+        localVideos.forEach { selectedUris += it.uri.toString() }
+        notifyDataSetChanged()
+    }
+
+    fun clearSelection() {
+        selectedUris.clear()
+        notifyDataSetChanged()
+    }
+
+    fun selectedCount(): Int = selectedUris.size
+
+    fun selectedVideos(): List<LocalVideo> =
+        localVideos.filter { it.uri.toString() in selectedUris }
+
+    fun isSelected(uri: Uri): Boolean = uri.toString() in selectedUris
 
     class VideoViewHolder(var binding: ItemVideoBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(localVideo: LocalVideo, videoListener: VideoListener) {
+        fun bind(localVideo: LocalVideo, videoListener: VideoListener, selected: Boolean = false) {
             with(binding) {
+                val context = itemView.context
+                val strokeWidthPx = (3 * context.resources.displayMetrics.density).toInt()
+                cardVideo.strokeWidth = if (selected) strokeWidthPx else 0
+                cardVideo.strokeColor = ContextCompat.getColor(
+                    context,
+                    if (selected) R.color.colorPrimary else R.color.sxOutline
+                )
+                cardVideo.setOnLongClickListener {
+                    videoListener.onItemLongClicked(localVideo)
+                    true
+                }
                 this.localVideo = localVideo
                 this.videoListener = videoListener
                 // 清除残留 transitionName：保证列表中仅被点击项在 startVideo 时持有共享元素名，避免重名冲突
@@ -115,6 +163,7 @@ interface VideoListener {
     fun onItemClicked(localVideo: LocalVideo, sharedView: View)
     fun onMenuClicked(view: View, localVideo: LocalVideo)
     fun onSourceClicked(localVideo: LocalVideo)
+    fun onItemLongClicked(localVideo: LocalVideo)
 }
 
 @GlideModule

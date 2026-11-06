@@ -69,6 +69,7 @@ class VideoViewModel @Inject constructor(
     val moveFailedEvent = SingleLiveEvent<Unit>()
     val migrationAuthEvent = SingleLiveEvent<IntentSender>()
     val migrationSourceNotDeletedEvent = SingleLiveEvent<Unit>()
+    val batchMigrationEvent = SingleLiveEvent<BatchMigrationResult>()
     private var pendingMigration: PendingMigration? = null
     private var pendingDelete: PendingDelete? = null
     private var pendingRename: PendingRename? = null
@@ -450,6 +451,40 @@ class VideoViewModel @Inject constructor(
         }
     }
 
+    fun migrateBatch(context: Context, videos: List<LocalVideo>, target: StorageTarget) {
+        viewModelScope.launch {
+            var success = 0
+            var failed = 0
+            var skipped = 0
+            videos.forEach { video ->
+                val result = withContext(Dispatchers.IO) {
+                    migrationManager(context).migrate(video, target)
+                }
+                when (result) {
+                    is MigrationResult.Success -> {
+                        updateMigratedVideo(video, result.targetUri)
+                        success += 1
+                    }
+
+                    is MigrationResult.SuccessSourceNotDeleted -> {
+                        updateMigratedVideo(video, result.targetUri)
+                        success += 1
+                    }
+
+                    is MigrationResult.NeedsAuth -> {
+                        // 批量场景下 DB 已指向新目标，授权留待用户后续处理。
+                        updateMigratedVideo(video, result.pending.targetUri)
+                        success += 1
+                    }
+
+                    is MigrationResult.Failed -> failed += 1
+                    is MigrationResult.Skipped -> skipped += 1
+                }
+            }
+            batchMigrationEvent.value = BatchMigrationResult(success, failed, skipped)
+        }
+    }
+
     fun onMigrationAuthResult(context: Context, granted: Boolean) {
         val pending = pendingMigration ?: return
         pendingMigration = null
@@ -472,6 +507,12 @@ class VideoViewModel @Inject constructor(
     private fun migrationManager(
         context: Context = ContextUtils.getApplicationContext(),
     ): MediaMigrationManager = MediaMigrationManager(context, fileUtil, progressRepository)
+
+    data class BatchMigrationResult(
+        val success: Int,
+        val failed: Int,
+        val skipped: Int,
+    )
 
     private fun updateMigratedVideo(video: LocalVideo, newUri: Uri) {
         val list = localVideos.get()?.toMutableList() ?: mutableListOf()

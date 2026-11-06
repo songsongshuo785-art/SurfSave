@@ -13,6 +13,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.Toast
+import androidx.activity.addCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,6 +33,7 @@ import com.myAllVideoBrowser.data.local.model.LocalVideo
 import com.myAllVideoBrowser.databinding.FragmentVideoBinding
 import com.myAllVideoBrowser.ui.component.adapter.VideoAdapter
 import com.myAllVideoBrowser.ui.component.adapter.VideoListener
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.ui.component.dialog.showRenameVideoDialog
 import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.ui.main.home.MainActivity
@@ -83,6 +85,7 @@ class VideoFragment : BaseFragment() {
     private var libraryFilter = R.id.library_all
     private var librarySortOrder = VideoLibraryOrdering.SortOrder.NEWEST
     private var videoGridLayoutListener: View.OnLayoutChangeListener? = null
+    private var selectionMode = false
 
     private fun updateVideoGridSpanCount() {
         if (!::dataBinding.isInitialized) return
@@ -177,6 +180,15 @@ class VideoFragment : BaseFragment() {
                 mainActivity.mainViewModel.currentItem.set(0)
             }
             this.sortLibraryButton.setOnClickListener { showSortMenu(it) }
+
+            this.tvSelectionAll.setOnClickListener {
+                videoAdapter.selectAll()
+                updateSelectionUi()
+            }
+            this.tvSelectionCancel.setOnClickListener { exitSelectionMode() }
+            this.btnSelectionShare.setOnClickListener { shareSelectedVideos() }
+            this.btnSelectionMove.setOnClickListener { moveSelectedVideos() }
+            this.btnSelectionDelete.setOnClickListener { confirmDeleteSelectedVideos() }
         }
 
         videoViewModel.shareEvent.observe(viewLifecycleOwner) { uri ->
@@ -249,6 +261,21 @@ class VideoFragment : BaseFragment() {
         videoViewModel.start()
         handleUIEvents()
         handleIfStartedFromNotification()
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner) {
+            if (selectionMode) exitSelectionMode()
+        }
+        videoViewModel.batchMigrationEvent.observe(viewLifecycleOwner) { result ->
+            Toast.makeText(
+                requireContext(),
+                getString(
+                    R.string.selection_batch_result,
+                    result.success,
+                    result.failed,
+                    result.skipped
+                ),
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     override fun onDestroyView() {
@@ -290,7 +317,16 @@ class VideoFragment : BaseFragment() {
 
     private val videoListener = object : VideoListener {
         override fun onItemClicked(localVideo: LocalVideo, sharedView: View) {
-            startVideo(localVideo, sharedView)
+            if (selectionMode) {
+                videoAdapter.toggleSelection(localVideo.uri)
+                updateSelectionUi()
+            } else {
+                startVideo(localVideo, sharedView)
+            }
+        }
+
+        override fun onItemLongClicked(localVideo: LocalVideo) {
+            if (!selectionMode) enterSelectionMode(localVideo)
         }
 
         override fun onMenuClicked(view: View, localVideo: LocalVideo) {
@@ -319,6 +355,98 @@ class VideoFragment : BaseFragment() {
                 mainActivity.mainViewModel.openedUrl.set(sourceUrl)
             }
         }
+    }
+
+    private fun enterSelectionMode(video: LocalVideo) {
+        selectionMode = true
+        videoAdapter.setSelectionMode(true)
+        videoAdapter.toggleSelection(video.uri)
+        updateSelectionUi()
+    }
+
+    private fun exitSelectionMode() {
+        selectionMode = false
+        videoAdapter.setSelectionMode(false)
+        updateSelectionUi()
+    }
+
+    private fun updateSelectionUi() {
+        if (!::dataBinding.isInitialized) return
+        val count = videoAdapter.selectedCount()
+        dataBinding.selectionBar.visibility = if (selectionMode) View.VISIBLE else View.GONE
+        dataBinding.selectionActions.visibility = if (selectionMode) View.VISIBLE else View.GONE
+        dataBinding.searchContainer.visibility = if (selectionMode) View.GONE else View.VISIBLE
+        dataBinding.libraryFiltersContainer.visibility =
+            if (selectionMode) View.GONE else View.VISIBLE
+        dataBinding.sortLibraryButton.visibility = if (selectionMode) View.GONE else View.VISIBLE
+        dataBinding.tvSelectionTitle.text = getString(R.string.selection_count, count)
+    }
+
+    private fun shareSelectedVideos() {
+        val videos = videoAdapter.selectedVideos()
+        if (videos.isEmpty()) return
+        val uris = videos.mapNotNull { video ->
+            runCatching {
+                if (video.uri.scheme == "content") {
+                    video.uri
+                } else {
+                    FileProvider.getUriForFile(
+                        requireContext(),
+                        "${requireContext().packageName}.provider",
+                        File(video.uri.path.orEmpty())
+                    )
+                }
+            }.getOrNull()
+        }
+        if (uris.isEmpty()) return
+        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "video/*"
+            putParcelableArrayListExtra(
+                Intent.EXTRA_STREAM,
+                ArrayList(uris)
+            )
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, getString(R.string.selection_share)))
+        exitSelectionMode()
+    }
+
+    private fun moveSelectedVideos() {
+        val videos = videoAdapter.selectedVideos()
+        if (videos.isEmpty()) return
+        val current = videos.map { videoViewModel.currentStorage(it) }.distinct().singleOrNull()
+        val targets = videoViewModel.availableStorageTargets(videos.first())
+        if (targets.isEmpty()) {
+            Toast.makeText(requireContext(), R.string.video_migration_failed, Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
+        VideoMigrationSheet(
+            context = requireContext(),
+            video = videos.first(),
+            current = current,
+            targets = targets,
+            onMove = { target ->
+                videoViewModel.migrateBatch(requireContext(), videos, target)
+                exitSelectionMode()
+            },
+        ).show()
+    }
+
+    private fun confirmDeleteSelectedVideos() {
+        val videos = videoAdapter.selectedVideos()
+        if (videos.isEmpty()) return
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.selection_delete_confirm_title, videos.size))
+            .setMessage(R.string.selection_delete_confirm_message)
+            .setPositiveButton(R.string.selection_delete) { _, _ ->
+                videos.forEach { video ->
+                    videoViewModel.deleteVideo(requireContext(), video)
+                }
+                exitSelectionMode()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun showPopupMenu(view: View, video: LocalVideo) {
