@@ -82,7 +82,7 @@ SurfSave is also one of my Vibe Coding experiments, and it still has rough edges
 ## Download & install
 
 - **Download APK**: [GitHub Releases](https://github.com/songsongshuo785-art/SurfSave/releases)
-- **Current source version**: `v0.8.34`
+- **Current source version**: `v0.8.35`
 - **Requirements**: Android 7.0+ (API 24)
 
 ### Which APK should I choose?
@@ -141,10 +141,10 @@ Official releases are built once as a signed candidate and then promoted without
 
 ```powershell
 # Builds on GitHub and downloads the signed candidate into app/build/outputs/apk/release/
-.\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.34
+.\scripts\Build-ReleaseCandidate.ps1 -Tag v0.8.35
 
 # After installing and accepting that exact APK, publish the same bytes
-.\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.34
+.\scripts\Publish-ReleaseCandidate.ps1 -ConfirmTag v0.8.35
 ```
 
 The only standard phone-test package is

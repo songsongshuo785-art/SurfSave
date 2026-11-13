@@ -1,0 +1,13 @@
+### Added
+- Rule-driven content blocking with per-site pause and popup exceptions
+- Browser file downloads with open, share, retry and delete actions
+- Download history with search and date grouping
+- Storage-location choice and batch video migration
+- Library multi-select for share, move and delete
+- Tablet navigation rail and new player gestures
+
+### Fixed
+- Downloads failing with misleading login/cookie errors
+- Stale download resume state and silent mid-download failures
+- Migration deleting the source before metadata was committed
+- Rule34 pull-to-refresh while the filter panel is open

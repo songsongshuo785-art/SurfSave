@@ -68,11 +68,11 @@ val skipGoBuild = (project.findProperty("SKIP_GO_BUILD")?.toString()
 val abiFilterList = (project.findProperty("ABI_FILTERS") as? String ?: "").split(';')
 // Release version codes share the epoch-second range used by diagnostic builds. Before
 // publishing a tag, this value must be greater than every APK distributed so far; ABI
-// split offsets 0..4 are added below. v0.8.34 stays above every diagnostic build
+// split offsets 0..4 are added below. v0.8.35 stays above every diagnostic build
 // distributed so far (peak 1_792_000_009) and above the release commit timestamp
 // that release-candidate.yml compares against.
-val baseVersionCode = 1_794_000_000
-val baseVersionName = "0.8.34"
+val baseVersionCode = 1_795_000_000
+val baseVersionName = "0.8.35"
 val exportStamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
 val abiCodes = mapOf(
     "armeabi-v7a" to 1,

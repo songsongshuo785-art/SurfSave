@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.8.35] - 2026-11-13
+
+First public release since `v0.8.32`, so it also carries the previously unpublished `v0.8.33` and `v0.8.34` work.
+
+### Added
+- Added rule-driven content blocking built on EasyList, EasyPrivacy, and SurfSave compatibility rules, with cosmetic filtering, trusted scriptlets, popup protection, per-site pause, and per-site popup exceptions.
+- Added a content-blocking section in Settings that reports engine state, rules version and update time, session blocked count, and the last rule error, and can refresh rules in place.
+- Added browser file downloads for ordinary web files, tracked through waiting, downloading, paused, completed, failed, missing, and canceled states, with open, share, open location, retry, and delete actions.
+- Added a download history screen with search across title, file name, and source, Today/Yesterday/Earlier grouping, permanent retention of successful downloads, and a one-time backfill of older records.
+- Added a storage-location setting that warns about app-only storage, reports how many videos live there, and can move them to public Downloads.
+- Added per-video and batch moves between public Downloads and app-only internal or SD-card storage, using system authorization for public writes and reporting per-item results.
+- Added long-press multi-select in the media library with batch share, move, and delete, reporting succeeded, failed, skipped, and retained-source counts.
+- Added All / In progress / Completed download filters, a batch authorization queue for pending items, and library search, sorting, and counts.
+- Added a page-image scan alongside video detection, with image preview, multi-select download, and a queued/duplicate/rejected summary.
+- Added a tablet layout that replaces the bottom bar with a navigation rail on large screens.
+- Added player gestures for double-tap seek, vertical-drag brightness and volume, and long-press speed, plus playback-speed and picture-size menus.
+- Added MIME-type fallback so saved media without a reliable extension still resolves to the correct type.
+
+### Changed
+- Prepared the release identity as `0.8.35` with a version code above every distributed build and above the release commit timestamp checked by CI.
+- Download engines now derive the target URL and `-f` format from the user's selection, share one strategy and format identity with the persisted task record, and list every quality a KVS page exposes.
+- SuperX downloads foreground their worker before requesting a manifest, so background restrictions no longer stall the first request.
+- Rebuilt the address bar as an observable three-state model and moved OmniBox parsing and URL normalization into dedicated units.
+- Hardened WebView session restore with per-tab navigation history, stable tab-id binding, evicted-WebView rehydration, and a bounded saved-state schema.
+- Playback progress is no longer frozen for on-demand media that media3 declares live, the end margin scales with duration, and local playback identity stays stable across sources.
+- Excluded the database, cookie profiles, WebView data, and downloader settings from Android backup and device transfer.
+
+### Fixed
+- Fixed downloads failing with a misleading "login or cookie required" message, including Cloudflare challenges and TLS errors.
+- Fixed downloads that died permanently when the app was upgraded mid-download, and reconciled orphaned active tasks at startup.
+- Added a two-level download retry policy with stop-reason logging, kept valid range-resume state across transient probe failures, and cleared stale resume state when the resource identity changed.
+- Fixed migration deleting the app-private source before metadata was committed; publication and source deletion are now separate steps with rollback primitives and cleanup diagnostics.
+- Routed history-file deletion through the system delete-request authorization flow and pointed to the library when local authorization is unavailable.
+- Fixed the downloads history menu binding to the wrong toolbar.
+- Fixed stale media lingering after navigating back to a tab's initial page, and image probes blocking the same image after navigation.
+- Fixed blank tab cards, tabs opening as another tab, and evicted WebViews that never reloaded.
+- Fixed pull-to-refresh firing while the rule34video filter panel is open.
+- Routed generic and HTML5 single-file media through direct HTTP instead of re-resolving the page, and made codec evidence explicit instead of inferred from a missing codec field.
+
 ## [0.8.34] - 2026-11-02
 
 ### Added
