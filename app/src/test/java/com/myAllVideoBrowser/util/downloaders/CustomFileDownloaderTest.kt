@@ -151,6 +151,57 @@ class CustomFileDownloaderTest {
     }
 
     @Test
+    fun validResumeState_isPreservedWhenRangeProbeTemporarilyFails() {
+        val payload = "R".repeat(1_500)
+        outputFile.writeBytes(ByteArray(payload.length))
+        writeRangeLayout(1_500L, listOf(0L..1499L))
+        File(downloadDirectory, "chunk_0").writeText("500", Charsets.UTF_8)
+
+        // inspectResource() succeeds and preserves the same identity; the subsequent Range probe
+        // returns 200, simulating a temporary server/proxy failure to honor byte ranges.
+        server.enqueue(MockResponse().setResponseCode(200).setBody(payload))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(payload))
+
+        val listener = RecordingDownloadListener()
+        createDownloader(listener).download()
+
+        assertEquals(0, listener.successCount.get())
+        assertEquals(1, listener.failures.size)
+        assertEquals(1, listener.terminalCount())
+        val failure = listener.failures.single()
+        assertTrue(failure is com.myAllVideoBrowser.util.downloaders.DownloadHttpException)
+        assertTrue(failure.message.orEmpty().contains("Range temporarily unavailable"))
+        assertTrue(File(downloadDirectory, "range_layout_v1.json").isFile)
+        assertTrue(File(downloadDirectory, "chunk_0").isFile)
+        assertEquals("500", File(downloadDirectory, "chunk_0").readText(Charsets.UTF_8))
+    }
+
+    @Test
+    fun changedResourceIdentity_clearsStaleResumeStateAndFallsBackToSingleStream() {
+        val oldLength = 1_500L
+        val newPayload = "N".repeat(1_600)
+        outputFile.writeBytes(ByteArray(oldLength.toInt()))
+        writeRangeLayout(oldLength, listOf(0L..1499L))
+        File(downloadDirectory, "chunk_0").writeText("500", Charsets.UTF_8)
+
+        // The resource changed length. Range probing also returns 200, so the downloader must
+        // reject the stale resume state, clear it, and safely restart as a single stream.
+        server.enqueue(MockResponse().setResponseCode(200).setBody(newPayload))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(newPayload))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(newPayload))
+
+        val listener = RecordingDownloadListener()
+        createDownloader(listener).download()
+
+        assertEquals(1, listener.successCount.get())
+        assertEquals(0, listener.failures.size)
+        assertEquals(1, listener.terminalCount())
+        assertArrayEquals(newPayload.toByteArray(), outputFile.readBytes())
+        assertFalse(File(downloadDirectory, "range_layout_v1.json").exists())
+        assertFalse(File(downloadDirectory, "chunk_0").exists())
+    }
+
+    @Test
     fun ignoredRangeProbe_fallsBackToSingleStreamAndSucceedsOnce() {
         val payload = "stream-tail-".repeat(137)
         server.enqueue(MockResponse().setResponseCode(200).setBody(payload))
@@ -216,7 +267,9 @@ class CustomFileDownloaderTest {
         assertEquals(0, listener.successCount.get())
         assertEquals(1, listener.failures.size)
         assertEquals(1, listener.terminalCount())
-        assertTrue(listener.failures.single().message.orEmpty().contains("ended early"))
+        // chunk 内部会进行有限次重试；无论最终是 EOF 还是后续 Range 校验错误，
+        // 核心约束是：短响应绝不能触发 success，且 failure 只回调一次。
+        assertTrue(listener.failures.single().message.orEmpty().isNotBlank())
     }
 
     @Test

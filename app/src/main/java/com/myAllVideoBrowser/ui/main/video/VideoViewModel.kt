@@ -17,6 +17,11 @@ import androidx.lifecycle.viewModelScope
 import com.myAllVideoBrowser.data.local.model.LocalVideo
 import com.myAllVideoBrowser.data.local.room.entity.ProgressInfo
 import com.myAllVideoBrowser.data.repository.ProgressRepository
+import com.myAllVideoBrowser.migration.MediaMigrationAuth
+import com.myAllVideoBrowser.migration.MediaMigrationManager
+import com.myAllVideoBrowser.migration.MigrationResult
+import com.myAllVideoBrowser.migration.PendingMigration
+import com.myAllVideoBrowser.migration.StorageTarget
 import com.myAllVideoBrowser.ui.main.base.BaseViewModel
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ContextUtils
@@ -63,6 +68,18 @@ class VideoViewModel @Inject constructor(
     val deleteAuthCancelledEvent = SingleLiveEvent<Unit>()
     val moveSuccessEvent = SingleLiveEvent<Unit>()
     val moveFailedEvent = SingleLiveEvent<Unit>()
+    val migrationAuthEvent = SingleLiveEvent<IntentSender>()
+    val migrationSourceNotDeletedEvent = SingleLiveEvent<Unit>()
+    val batchMigrationEvent = SingleLiveEvent<BatchMigrationResult>()
+    val batchMigrationAuthEvent = SingleLiveEvent<IntentSender>()
+    private var pendingMigration: PendingMigration? = null
+    private val pendingBatchAuth = mutableListOf<PendingMigration>()
+    private val batchMigrationAuthQueue = BatchAuthQueue<PendingMigrationQueueItem>()
+    private var batchMigrationAccumulator: BatchMigrationAccumulator? = null
+    private val pendingBatchDelete = mutableListOf<Uri>()
+    private val pendingDeleteQueue = ArrayDeque<PendingDeleteQueueItem>()
+    private var batchDeleteAccumulator: BatchDeleteAccumulator? = null
+    val batchDeleteEvent = SingleLiveEvent<BatchDeleteResult>()
     private var pendingDelete: PendingDelete? = null
     private var pendingRename: PendingRename? = null
     private val thumbnailFrameMicrosCache = mutableMapOf<String, Long>()
@@ -162,6 +179,7 @@ class VideoViewModel @Inject constructor(
             }
             video.quality = progressInfo?.let { resolveQuality(it) }.orEmpty()
             video.sourceUrl = progressInfo?.let { resolveSourceUrl(it) }.orEmpty()
+            video.playbackIdentity = progressInfo?.id.orEmpty()
             video.originalThumbnailUrl = progressInfo?.videoInfo?.thumbnail.orEmpty()
             video.durationMillis = if (video.isImage) {
                 0L
@@ -342,47 +360,357 @@ class VideoViewModel @Inject constructor(
         }
     }
 
-    fun moveVideoToDownloads(context: Context, video: LocalVideo) {
+    fun deleteVideos(context: Context, videos: List<LocalVideo>) {
         viewModelScope.launch {
-            val movedMedia = withContext(Dispatchers.IO) {
-                runCatching {
-                    val target = fileUtil.uniqueMediaTarget(
-                        context,
-                        File(fileUtil.publicDownloadsDir, video.name)
-                    )
-                    if (!fileUtil.moveMedia(context, video.uri, target.toUri())) {
-                        return@runCatching null
-                    }
-                    MovedMedia(
-                        uri = fileUtil.resolveMediaUri(context, target) ?: target.toUri(),
-                        name = target.name
-                    )
-                }.getOrNull()
-            }
-            if (movedMedia == null) {
-                moveFailedEvent.value = Unit
-                return@launch
-            }
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    progressRepository.replaceFinalMediaUri(video.uri.toString(), movedMedia.uri.toString())
-                }.onFailure { error ->
-                    AppLogger.e("Failed to update moved video metadata binding", error)
+            val split = withContext(Dispatchers.IO) {
+                MediaDeletionClassifier.classify(videos) { uri ->
+                    fileUtil.isSharedPublicMedia(context, uri)
                 }
             }
-            val list = localVideos.get()?.toMutableList() ?: mutableListOf()
-            list.firstOrNull { sameUri(it.uri, video.uri) }?.let { moved ->
-                removeCachedVideoMetadata(moved.uri)
-                moved.uri = movedMedia.uri
-                moved.name = movedMedia.name
-                mediaSortTimeMillisCache.remove(movedMedia.uri.toString())
+            val accumulator = BatchDeleteAccumulator()
+            batchDeleteAccumulator = accumulator
+
+            split.privateVideos.forEach { video ->
+                val deleted = withContext(Dispatchers.IO) {
+                    fileUtil.deleteMedia(context, video.uri) is DeleteMediaResult.Success
+                }
+                if (deleted) {
+                    accumulator.onSuccess()
+                    clearFinalMediaBinding(video.uri)
+                    removeDeletedVideo(video)
+                } else {
+                    accumulator.onFailure()
+                }
             }
-            localVideos.set(list)
-            moveSuccessEvent.value = Unit
+
+            if (split.publicUris.isEmpty()) {
+                finishBatchDelete()
+                return@launch
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val sender = withContext(Dispatchers.IO) {
+                    fileUtil.createBatchDeleteRequest(context, split.publicUris)
+                }
+                if (sender != null) {
+                    pendingBatchDelete.clear()
+                    pendingBatchDelete += split.publicUris
+                    deleteAuthEvent.value = sender
+                    return@launch
+                }
+            }
+
+            enqueuePublicDeletes(context, split.publicUris)
         }
     }
 
+    private suspend fun enqueuePublicDeletes(context: Context, uris: List<Uri>) {
+        uris.forEach { uri ->
+            when (val result = withContext(Dispatchers.IO) {
+                fileUtil.deleteMedia(context, uri)
+            }) {
+                is DeleteMediaResult.Success -> {
+                    batchDeleteAccumulator?.onSuccess()
+                    clearFinalMediaBinding(uri)
+                    localVideos.get()?.firstOrNull { sameUri(it.uri, uri) }
+                        ?.let(::removeDeletedVideo)
+                }
+
+                is DeleteMediaResult.NeedsAuth -> {
+                    val video = localVideos.get()?.firstOrNull { sameUri(it.uri, uri) }
+                        ?: LocalVideo(0, uri, uri.lastPathSegment.orEmpty())
+                    pendingDeleteQueue.addLast(
+                        PendingDeleteQueueItem(
+                            pending = PendingDelete(
+                                video = video,
+                                retryUri = result.retryUri,
+                                verificationUri = result.verificationUri,
+                            ),
+                            intentSender = result.intentSender,
+                        )
+                    )
+                }
+
+                is DeleteMediaResult.Failed -> batchDeleteAccumulator?.onFailure()
+            }
+        }
+        advanceDeleteQueue()
+    }
+
+    private fun advanceDeleteQueue() {
+        val next = pendingDeleteQueue.firstOrNull()
+        if (next != null) {
+            deleteAuthEvent.value = next.intentSender
+        } else {
+            finishBatchDelete()
+        }
+    }
+
+    private fun finishBatchDelete() {
+        val accumulator = batchDeleteAccumulator ?: return
+        batchDeleteAccumulator = null
+        batchDeleteEvent.value = accumulator.toResult()
+    }
+
+    private fun handleBatchDeleteAuth(context: Context, ok: Boolean) {
+        val uris = pendingBatchDelete.toList()
+        pendingBatchDelete.clear()
+        val accumulator = batchDeleteAccumulator
+        if (!ok) {
+            accumulator?.onFailure(uris.size)
+            finishBatchDelete()
+            return
+        }
+        viewModelScope.launch {
+            uris.forEach { uri ->
+                val absent = withContext(Dispatchers.IO) {
+                    fileUtil.isUriDefinitelyAbsent(context, uri)
+                }
+                if (absent) {
+                    accumulator?.onSuccess()
+                    clearFinalMediaBinding(uri)
+                    localVideos.get()?.firstOrNull { sameUri(it.uri, uri) }
+                        ?.let(::removeDeletedVideo)
+                } else {
+                    accumulator?.onFailure()
+                }
+            }
+            finishBatchDelete()
+        }
+    }
+
+    private fun handleQueuedDeleteAuth(context: Context, ok: Boolean) {
+        val item = pendingDeleteQueue.removeFirst()
+        val accumulator = batchDeleteAccumulator
+        if (!ok) {
+            accumulator?.onFailure()
+            advanceDeleteQueue()
+            return
+        }
+        viewModelScope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                if (item.pending.retryUri == null) {
+                    fileUtil.isUriDefinitelyAbsent(context, item.pending.verificationUri)
+                } else {
+                    fileUtil.deleteMedia(context, item.pending.retryUri) is DeleteMediaResult.Success
+                }
+            }
+            if (deleted) {
+                accumulator?.onSuccess()
+                clearFinalMediaBinding(item.pending.video.uri)
+                removeDeletedVideo(item.pending.video)
+            } else {
+                accumulator?.onFailure()
+            }
+            advanceDeleteQueue()
+        }
+    }
+
+    fun currentStorage(video: LocalVideo): StorageTarget? =
+        migrationManager().currentTarget(video.uri)
+
+    fun availableStorageTargets(video: LocalVideo): List<StorageTarget> =
+        migrationManager().availableTargets(currentStorage(video))
+
+    fun availableStorageTargetsFor(videos: List<LocalVideo>): List<StorageTarget> {
+        if (videos.isEmpty()) return emptyList()
+        val manager = migrationManager()
+        val currents = videos.map { manager.currentTarget(it.uri) }.distinct()
+        return StorageTarget.entries.filter { target ->
+            currents.any { it != target } && manager.targetDir(target) != null
+        }
+    }
+
+    fun migrateVideo(context: Context, video: LocalVideo, target: StorageTarget) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                migrationManager(context).migrate(video, target)
+            }
+            when (result) {
+                is MigrationResult.Success -> {
+                    updateMigratedVideo(video, result.targetUri)
+                    moveSuccessEvent.value = Unit
+                }
+
+                is MigrationResult.SuccessSourceNotDeleted -> {
+                    updateMigratedVideo(video, result.targetUri)
+                    migrationSourceNotDeletedEvent.value = Unit
+                }
+
+                is MigrationResult.NeedsAuth -> {
+                    updateMigratedVideo(video, result.pending.targetUri)
+                    pendingMigration = result.pending
+                    migrationAuthEvent.value = result.intentSender
+                }
+
+                is MigrationResult.Failed -> moveFailedEvent.value = Unit
+                is MigrationResult.Skipped -> Unit
+            }
+        }
+    }
+
+    fun migrateBatch(context: Context, videos: List<LocalVideo>, target: StorageTarget) {
+        viewModelScope.launch {
+            val accumulator = BatchMigrationAccumulator()
+            val needsAuth = mutableListOf<PendingMigration>()
+            val authItems = mutableListOf<PendingMigrationQueueItem>()
+            videos.forEach { video ->
+                val result = withContext(Dispatchers.IO) {
+                    migrationManager(context).migrate(video, target)
+                }
+                when (result) {
+                    is MigrationResult.Success -> {
+                        updateMigratedVideo(video, result.targetUri)
+                        accumulator.success += 1
+                    }
+
+                    is MigrationResult.SuccessSourceNotDeleted -> {
+                        updateMigratedVideo(video, result.targetUri)
+                        accumulator.success += 1
+                        accumulator.sourceNotDeleted += 1
+                    }
+
+                    is MigrationResult.NeedsAuth -> {
+                        updateMigratedVideo(video, result.pending.targetUri)
+                        accumulator.success += 1
+                        needsAuth += result.pending
+                        authItems += PendingMigrationQueueItem(result.pending, result.intentSender)
+                    }
+
+                    is MigrationResult.Failed -> accumulator.failed += 1
+                    is MigrationResult.Skipped -> accumulator.skipped += 1
+                }
+            }
+
+            if (needsAuth.isEmpty()) {
+                batchMigrationEvent.value = accumulator.toResult()
+                return@launch
+            }
+
+            val uris = MediaMigrationAuth.batchDeleteUris(needsAuth)
+            if (uris.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val sender = withContext(Dispatchers.IO) {
+                    fileUtil.createBatchDeleteRequest(context, uris)
+                }
+                if (sender != null) {
+                    batchMigrationAccumulator = accumulator
+                    pendingBatchAuth.clear()
+                    pendingBatchAuth += needsAuth
+                    batchMigrationAuthEvent.value = sender
+                    return@launch
+                }
+            }
+
+            // Android 10 或批量授权不可用：逐个授权，队列完成后统一汇总。
+            batchMigrationAccumulator = accumulator
+            batchMigrationAuthQueue.reset(authItems)
+            drainBatchMigrationAuthQueue()
+        }
+    }
+
+    private fun drainBatchMigrationAuthQueue() {
+        val next = batchMigrationAuthQueue.peek()
+        if (next != null) {
+            migrationAuthEvent.value = next.intentSender
+        } else {
+            finishBatchMigration()
+        }
+    }
+
+    private fun finishBatchMigration() {
+        val accumulator = batchMigrationAccumulator ?: return
+        batchMigrationAccumulator = null
+        batchMigrationEvent.value = accumulator.toResult()
+    }
+
+    fun onBatchMigrationAuthResult(context: Context, granted: Boolean) {
+        val pendings = pendingBatchAuth.toList()
+        pendingBatchAuth.clear()
+        if (pendings.isEmpty()) return
+        val accumulator = batchMigrationAccumulator
+        if (!granted) {
+            accumulator?.sourceNotDeleted = (accumulator?.sourceNotDeleted ?: 0) + pendings.size
+            finishBatchMigration()
+            return
+        }
+        viewModelScope.launch {
+            pendings.forEach { pending ->
+                val deleted = withContext(Dispatchers.IO) {
+                    migrationManager(context).completeSourceDeletion(pending)
+                }
+                if (!deleted) {
+                    accumulator?.sourceNotDeleted = (accumulator?.sourceNotDeleted ?: 0) + 1
+                }
+            }
+            finishBatchMigration()
+        }
+    }
+
+    fun onMigrationAuthResult(context: Context, granted: Boolean) {
+        if (!batchMigrationAuthQueue.isEmpty()) {
+            handleQueuedMigrationAuth(context, granted)
+            return
+        }
+        val pending = pendingMigration ?: return
+        pendingMigration = null
+        if (!granted) {
+            migrationSourceNotDeletedEvent.value = Unit
+            return
+        }
+        viewModelScope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                migrationManager(context).completeSourceDeletion(pending)
+            }
+            if (deleted) {
+                moveSuccessEvent.value = Unit
+            } else {
+                migrationSourceNotDeletedEvent.value = Unit
+            }
+        }
+    }
+
+    private fun handleQueuedMigrationAuth(context: Context, granted: Boolean) {
+        val item = batchMigrationAuthQueue.poll() ?: return
+        val accumulator = batchMigrationAccumulator
+        if (!granted) {
+            accumulator?.sourceNotDeleted = (accumulator?.sourceNotDeleted ?: 0) + 1
+            drainBatchMigrationAuthQueue()
+            return
+        }
+        viewModelScope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                migrationManager(context).completeSourceDeletion(item.pending)
+            }
+            if (!deleted) {
+                accumulator?.sourceNotDeleted = (accumulator?.sourceNotDeleted ?: 0) + 1
+            }
+            drainBatchMigrationAuthQueue()
+        }
+    }
+
+    private fun migrationManager(
+        context: Context = ContextUtils.getApplicationContext(),
+    ): MediaMigrationManager = MediaMigrationManager(context, fileUtil, progressRepository)
+
+    private fun updateMigratedVideo(video: LocalVideo, newUri: Uri) {
+        val list = localVideos.get()?.toMutableList() ?: mutableListOf()
+        list.firstOrNull { sameUri(it.uri, video.uri) }?.let { moved ->
+            removeCachedVideoMetadata(moved.uri)
+            moved.uri = newUri
+            mediaSortTimeMillisCache.remove(newUri.toString())
+        }
+        localVideos.set(list)
+    }
+
     fun onDeleteAuthResult(context: Context, ok: Boolean) {
+        if (pendingBatchDelete.isNotEmpty()) {
+            handleBatchDeleteAuth(context, ok)
+            return
+        }
+        if (pendingDeleteQueue.isNotEmpty()) {
+            handleQueuedDeleteAuth(context, ok)
+            return
+        }
         val operation = pendingDelete
         pendingDelete = null
         if (!ok) {
@@ -558,9 +886,14 @@ class VideoViewModel @Inject constructor(
         val verificationUri: Uri
     )
 
-    private data class MovedMedia(
-        val uri: Uri,
-        val name: String
+    private data class PendingDeleteQueueItem(
+        val pending: PendingDelete,
+        val intentSender: IntentSender,
+    )
+
+    private data class PendingMigrationQueueItem(
+        val pending: PendingMigration,
+        val intentSender: IntentSender,
     )
 
     private data class PendingRename(

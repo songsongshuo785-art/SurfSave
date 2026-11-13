@@ -32,6 +32,39 @@
                 app:title="@string/title_video"
                 app:titleTextColor="@color/sxTextPrimary"
                 app:titleTextAppearance="@style/TextAppearance.Surf.ScreenTitle" />
+            <LinearLayout
+                android:id="@+id/selection_bar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tv_selection_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/sxTextPrimary"
+                    android:textSize="@dimen/text_medium" />
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tv_selection_all"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:padding="10dp"
+                    android:text="@string/selection_select_all"
+                    android:textColor="@color/colorPrimary"
+                    android:textSize="@dimen/text_small" />
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tv_selection_cancel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:padding="10dp"
+                    android:text="@string/cancel"
+                    android:textColor="@color/sxTextSecondary"
+                    android:textSize="@dimen/text_small" />
+            </LinearLayout>
             <com.google.android.material.textview.MaterialTextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -42,6 +75,7 @@
                 android:textAppearance="@style/TextAppearance.Surf.Body"
                 android:layout_marginBottom="8dp" />
             <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/search_container"
                 style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -64,6 +98,7 @@
                     android:textSize="14sp" />
             </com.google.android.material.textfield.TextInputLayout>
             <HorizontalScrollView
+                android:id="@+id/library_filters_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:scrollbars="none"
@@ -128,10 +163,48 @@
             android:layout_height="0dp"
             android:clipToPadding="false"
             android:padding="14dp"
-            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintBottom_toTopOf="@id/selection_actions"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/finished_native_ad_container" />
+
+        <LinearLayout
+            android:id="@+id/selection_actions"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:background="@color/sxSurfaceRaised"
+            android:orientation="horizontal"
+            android:padding="8dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_selection_share"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/selection_share"
+                android:textAllCaps="false" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_selection_move"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/selection_move"
+                android:textAllCaps="false" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_selection_delete"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/selection_delete"
+                android:textAllCaps="false"
+                android:textColor="@color/colorError" />
+        </LinearLayout>
         <androidx.core.widget.NestedScrollView
             android:id="@+id/layout_empty"
             android:layout_width="0dp"

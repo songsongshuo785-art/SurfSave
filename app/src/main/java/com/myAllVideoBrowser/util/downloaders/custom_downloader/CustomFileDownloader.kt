@@ -2,6 +2,8 @@ package com.myAllVideoBrowser.util.downloaders.custom_downloader
 
 import com.google.gson.Gson
 import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.downloaders.DownloadHttpException
+import com.myAllVideoBrowser.util.downloaders.DownloadRetryPolicy
 import com.myAllVideoBrowser.util.downloaders.super_x_downloader.ScopedHttpRequestExecutor
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.Call
@@ -22,6 +24,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.random.Random
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicLongArray
 
@@ -76,6 +79,7 @@ class CustomFileDownloader(
             Regex("bytes\\s+(\\d+)-(\\d+)/(\\d+)", RegexOption.IGNORE_CASE)
         private const val RANGE_LAYOUT_FILE_NAME = "range_layout_v1.json"
         private const val RANGE_LAYOUT_SCHEMA_VERSION = 1
+        private const val MAX_CHUNK_RETRIES = 3
 
         fun pause(fileToPause: File) {
             if (fileToPause.isDirectory) {
@@ -194,6 +198,19 @@ class CustomFileDownloader(
                 !supportsRange || (threadCount == 1 && isForceStreamDownloadMode)
 
             if (useRegularStream) {
+                val storedLayout = readStoredRangeLayout()
+                if (!supportsRange &&
+                    storedLayout != null &&
+                    storedLayout.matches(url.toString(), resourceIdentity)
+                ) {
+                    AppLogger.d(
+                        "Range temporarily unavailable while a valid resume state exists; preserving resume data."
+                    )
+                    throw DownloadHttpException(
+                        503,
+                        "Range temporarily unavailable while a valid resume state exists"
+                    )
+                }
                 AppLogger.d("Range download unavailable, using a single stream.")
                 clearRangeResumeState()
                 totalBytesChunks = AtomicLongArray(1)
@@ -267,7 +284,7 @@ class CustomFileDownloader(
         val req = getOkRequest()
         execute(req) { res ->
             if (!res.isSuccessful) {
-                throw IOException("Failed to download file: ${res.code}")
+                throw DownloadHttpException(res.code, "Failed to download file: ${res.code}")
             }
             if (res.code == 206) {
                 throw IOException("Unexpected partial response for single-stream download")
@@ -358,6 +375,28 @@ class CustomFileDownloader(
     }
 
     private fun downloadChunk(range: LongRange, fileChannel: FileChannel, chunkIndex: Int) {
+        var attempt = 0
+        while (true) {
+            try {
+                downloadChunkOnce(range, fileChannel, chunkIndex)
+                return
+            } catch (e: Throwable) {
+                if (e is DownloadControlException) throw e
+                if (attempt >= MAX_CHUNK_RETRIES || !DownloadRetryPolicy.isTransient(e)) throw e
+                attempt += 1
+                val baseDelay = 1_000L shl (attempt - 1)
+                val jitter = (baseDelay * 0.2).toLong()
+                val sleepMs = (baseDelay + Random.nextLong(-jitter, jitter + 1)).coerceAtLeast(0L)
+                AppLogger.d(
+                    "CHUNK $chunkIndex retry $attempt/$MAX_CHUNK_RETRIES after ${sleepMs}ms: ${e.message}"
+                )
+                Thread.sleep(sleepMs)
+                throwIfControlRequested()
+            }
+        }
+    }
+
+    private fun downloadChunkOnce(range: LongRange, fileChannel: FileChannel, chunkIndex: Int) {
         val chunkFile = File(file.parentFile, "chunk_$chunkIndex")
         val isResume = !chunkFile.createNewFile()
         var bytesCopied = 0L
@@ -451,7 +490,8 @@ class CustomFileDownloader(
         expectedTotalBytes: Long
     ) {
         if (response.code != 206) {
-            throw IOException(
+            throw DownloadHttpException(
+                response.code,
                 "Server ignored byte range $requestedStart-$requestedEnd: HTTP ${response.code}"
             )
         }
@@ -584,13 +624,7 @@ class CustomFileDownloader(
         val directory = file.parentFile
             ?: throw IOException("Download output has no parent directory")
         val layoutFile = File(directory, RANGE_LAYOUT_FILE_NAME)
-        val stored = if (layoutFile.isFile) {
-            runCatching {
-                Gson().fromJson(layoutFile.readText(Charsets.UTF_8), RangeLayout::class.java)
-            }.getOrNull()
-        } else {
-            null
-        }
+        val stored = readStoredRangeLayout()
         if (stored != null && stored.matches(url.toString(), resourceIdentity)) {
             return stored.chunks.sortedBy { it.index }.map { it.start..it.end }
         }
@@ -610,6 +644,15 @@ class CustomFileDownloader(
         )
         writeRangeLayout(layoutFile, layout)
         return ranges
+    }
+
+    private fun readStoredRangeLayout(): RangeLayout? {
+        val directory = file.parentFile ?: return null
+        val layoutFile = File(directory, RANGE_LAYOUT_FILE_NAME)
+        if (!layoutFile.isFile) return null
+        return runCatching {
+            Gson().fromJson(layoutFile.readText(Charsets.UTF_8), RangeLayout::class.java)
+        }.getOrNull()
     }
 
     private fun createRanges(contentSize: Long): List<LongRange> {

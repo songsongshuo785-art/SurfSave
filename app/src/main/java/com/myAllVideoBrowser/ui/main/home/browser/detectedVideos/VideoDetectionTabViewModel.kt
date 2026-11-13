@@ -482,7 +482,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
         val state = downloadButtonState.get()
 
         if (state is DownloadButtonStateCanNotDownload) {
-            webTabModel?.getTabTextInput()?.get()?.let { url ->
+            webTabModel?.getTabTextInput()?.let { url ->
                 if (url.startsWith("http")) {
                     lastManualDetectionRequestAt = System.currentTimeMillis()
                     showDetectionNotice(R.string.detection_status_checking)
@@ -1434,7 +1434,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
         headersMap: Map<String, String>,
         isCheckOnAudio: Boolean,
         isCheckOnVideo: Boolean,
-        pageUrl: String? = webTabModel?.getTabTextInput()?.get(),
+        pageUrl: String? = webTabModel?.getTabTextInput(),
         shouldPublish: () -> Boolean = { true },
         onVideoDetected: (VideoInfo) -> Unit = { pushNewVideoInfoToAll(it) }
     ) {

@@ -65,6 +65,11 @@
             android:supportsPictureInPicture="true"
             android:theme="@style/AppTheme" />
 
+        <activity
+            android:name="com.myAllVideoBrowser.ui.main.progress.DownloadHistoryActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
+
         <service
             android:name="com.myAllVideoBrowser.util.proxy_utils.ProxyService"
             android:exported="false"

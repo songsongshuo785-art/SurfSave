@@ -377,6 +377,103 @@ class FileUtil @Inject constructor() {
         val detail: String? = null
     )
 
+    sealed class PublishResult {
+        data class Success(val uri: Uri, val fileName: String) : PublishResult()
+        data class Failed(val reason: String, val detail: String) : PublishResult()
+    }
+
+    private fun failPublish(
+        reason: String,
+        contextDetail: String,
+        throwable: Throwable? = null
+    ): PublishResult.Failed {
+        val failed = failMove(reason, contextDetail, throwable)
+        return PublishResult.Failed(
+            reason = failed.reason ?: reason,
+            detail = failed.detail.orEmpty()
+        )
+    }
+
+    /**
+     * Copy/publish media into SurfSave's public Downloads location and fully verify the
+     * destination. The source is deliberately kept intact; callers may bind persistent
+     * metadata first and only then call [deletePublishedSource].
+     */
+    @Synchronized
+    fun publishMediaCopy(context: Context, sourceUri: Uri, fileName: String): PublishResult {
+        if (uriExistence(context, sourceUri) != UriExistence.Exists) {
+            return failPublish(
+                "媒体发布：源不存在",
+                "sourceUri=${sourceUri} fileName=${fileName} 设备API=${Build.VERSION.SDK_INT}"
+            )
+        }
+        val displayName = sanitizeDisplayName(fileName)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            publishMediaStoreCopy(context, sourceUri, displayName)
+        } else {
+            publishLegacyPublicCopy(context, sourceUri, displayName)
+        }
+    }
+
+    /** Delete a newly published destination when persistent metadata binding failed. */
+    fun cleanupPublishedMedia(context: Context, uri: Uri): Boolean {
+        return deleteSourceAndVerify(context, uri) == UriExistence.NotFound
+    }
+
+    /** Delete the old source only after persistent metadata points at the published target. */
+    fun deletePublishedSource(context: Context, sourceUri: Uri): Boolean {
+        return deleteSourceAndVerify(context, sourceUri) == UriExistence.NotFound
+    }
+
+    data class CopyResult(
+        val ok: Boolean,
+        val uri: Uri? = null,
+        val reason: String? = null,
+    )
+
+    /**
+     * Copy a media item into an app-private SurfSave directory without deleting the source.
+     * The caller must update persistent metadata first and only then remove the old file.
+     */
+    @Synchronized
+    fun copyMediaToPrivateDir(
+        context: Context,
+        sourceUri: Uri,
+        targetDir: File,
+        fileName: String,
+    ): CopyResult {
+        if (uriExistence(context, sourceUri) != UriExistence.Exists) {
+            return CopyResult(false, reason = "Source does not exist")
+        }
+        if (!targetDir.exists() && !targetDir.mkdirs()) {
+            return CopyResult(false, reason = "Unable to create target directory")
+        }
+        val sourceLength = getContentLength(context, sourceUri)
+        val target = uniqueMediaTarget(context, File(targetDir, fileName))
+        val temporary = File(targetDir, "${target.name}.tmp")
+        return try {
+            val copied = openSourceInputStream(context, sourceUri).use { input ->
+                temporary.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (copied <= 0L ||
+                (sourceLength > 0L && copied != sourceLength) ||
+                temporary.length() != copied
+            ) {
+                temporary.delete()
+                return CopyResult(false, reason = "Copied byte count does not match the source")
+            }
+            if (!temporary.renameTo(target)) {
+                temporary.delete()
+                return CopyResult(false, reason = "Unable to publish the copied file")
+            }
+            CopyResult(true, Uri.fromFile(target))
+        } catch (error: Throwable) {
+            temporary.delete()
+            AppLogger.e("Failed to copy media into $targetDir", error)
+            CopyResult(false, reason = error.message ?: "Copy failed")
+        }
+    }
+
     @Synchronized
     @SuppressLint("NewApi")
     fun moveMediaWithReason(context: Context, from: Uri, to: Uri): MoveResult {
@@ -642,6 +739,18 @@ class FileUtil @Inject constructor() {
         } catch (error: Throwable) {
             AppLogger.e("deleteMedia error for $uri", error)
             DeleteMediaResult.Failed
+        }
+    }
+
+    /** Android 11+：一次授权删除多个公共 MediaStore URI。 */
+    @RequiresApi(Build.VERSION_CODES.R)
+    fun createBatchDeleteRequest(context: Context, uris: List<Uri>): IntentSender? {
+        if (uris.isEmpty()) return null
+        return runCatching {
+            MediaStore.createDeleteRequest(context.contentResolver, uris).intentSender
+        }.getOrElse { error ->
+            AppLogger.e("Failed to create batch delete request", error)
+            null
         }
     }
 
@@ -1280,24 +1389,93 @@ class FileUtil @Inject constructor() {
         sourceUri: Uri,
         fileName: String
     ): MoveResult {
-        if (uriExistence(context, sourceUri) != UriExistence.Exists) {
-            return failMove(
-                "MediaStore 发布：源不存在",
-                "sourceUri=$sourceUri fileName=$fileName 设备API=${Build.VERSION.SDK_INT}"
+        return when (val published = publishMediaCopy(context, sourceUri, fileName)) {
+            is PublishResult.Failed -> MoveResult(false, published.reason, published.detail)
+            is PublishResult.Success -> {
+                when (val sourceState = deleteSourceAndVerify(context, sourceUri)) {
+                    UriExistence.NotFound -> MoveResult(true)
+                    UriExistence.Exists -> {
+                        val rolledBack = cleanupPublishedMedia(context, published.uri)
+                        failMove(
+                            "MediaStore 发布：源删除失败",
+                            "sourceUri=${sourceUri} targetUri=${published.uri} " +
+                                "targetRollback=${rolledBack} 设备API=${Build.VERSION.SDK_INT}"
+                        )
+                    }
+                    is UriExistence.Unknown -> {
+                        failMove(
+                            "MediaStore 发布：无法验证源删除",
+                            "sourceUri=${sourceUri} targetUri=${published.uri} " +
+                                "reason=${sourceState.reason} 设备API=${Build.VERSION.SDK_INT}"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun publishLegacyPublicCopy(
+        context: Context,
+        sourceUri: Uri,
+        displayName: String
+    ): PublishResult {
+        val target = File(publicDownloadsDir, displayName)
+        if (target.exists()) {
+            return failPublish(
+                "媒体发布：目标重名",
+                "target=${target} sourceUri=${sourceUri} 设备API=${Build.VERSION.SDK_INT}"
             )
         }
+        val parent = target.parentFile
+            ?: return failPublish("媒体发布：目标无父目录", "target=${target}")
+        if (!parent.exists() && !parent.mkdirs()) {
+            return failPublish("媒体发布：无法创建公共目录", "parent=${parent}")
+        }
+
+        val sourceLength = getContentLength(context, sourceUri)
+        return try {
+            val copied = openSourceInputStream(context, sourceUri).use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (copied <= 0L ||
+                (sourceLength >= 0L && copied != sourceLength) ||
+                target.length() != copied
+            ) {
+                target.delete()
+                return failPublish(
+                    "媒体发布：复制字节数不匹配",
+                    "expected=${sourceLength} copied=${copied} targetSize=${target.length()} target=${target}"
+                )
+            }
+            scanFile(context, target)
+            PublishResult.Success(Uri.fromFile(target), target.name)
+        } catch (error: Throwable) {
+            target.delete()
+            failPublish(
+                "媒体发布失败：${error.message}",
+                "sourceUri=${sourceUri} target=${target} sourceLength=${sourceLength}",
+                error
+            )
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun publishMediaStoreCopy(
+        context: Context,
+        sourceUri: Uri,
+        displayName: String
+    ): PublishResult {
         val sourceLength = getContentLength(context, sourceUri)
         if (sourceLength == 0L) {
-            return failMove(
+            return failPublish(
                 "MediaStore 发布：源长度为 0",
-                "sourceUri=$sourceUri fileName=$fileName 设备API=${Build.VERSION.SDK_INT}"
+                "sourceUri=${sourceUri} fileName=${displayName} 设备API=${Build.VERSION.SDK_INT}"
             )
         }
-        val displayName = sanitizeDisplayName(fileName)
         if (hasManagedMediaStoreName(context.contentResolver, displayName)) {
-            return failMove(
+            return failPublish(
                 "MediaStore 发布：目标重名",
-                "displayName=$displayName relativePath=$PUBLIC_RELATIVE_PATH"
+                "displayName=${displayName} relativePath=${PUBLIC_RELATIVE_PATH}"
             )
         }
 
@@ -1313,18 +1491,15 @@ class FileUtil @Inject constructor() {
         val insertedUri = context.contentResolver.insert(
             MediaStore.Downloads.EXTERNAL_CONTENT_URI,
             values
-        ) ?: return failMove(
+        ) ?: return failPublish(
             "MediaStore 发布：insert 返回 null",
-            "displayName=$displayName relativePath=$PUBLIC_RELATIVE_PATH " +
-                "sourceUri=$sourceUri sourceLength=$sourceLength 设备API=${Build.VERSION.SDK_INT}"
+            "displayName=${displayName} relativePath=${PUBLIC_RELATIVE_PATH} " +
+                "sourceUri=${sourceUri} sourceLength=${sourceLength} 设备API=${Build.VERSION.SDK_INT}"
         )
 
-        var completed = false
-        var retainTargetOnFailure = false
-        var failure: MoveResult? = null
         var copiedBytes: Long? = null
         var targetLengthProbe: ContentLengthProbe? = null
-        try {
+        return try {
             val copied = openSourceInputStream(context, sourceUri).use { input ->
                 val output = context.contentResolver.openOutputStream(insertedUri, "w")
                     ?: throw IOException("MediaStore returned no output stream")
@@ -1347,7 +1522,7 @@ class FileUtil @Inject constructor() {
             ) {
                 throw IOException(
                     "Pending MediaStore record failed verification " +
-                        "(expect name=$displayName path=$PUBLIC_RELATIVE_PATH pending=1; " +
+                        "(expect name=${displayName} path=${PUBLIC_RELATIVE_PATH} pending=1; " +
                         "actual name=${pending.displayName} path=${pending.relativePath} " +
                         "pending=${pending.isPending} size=${pending.size})"
                 )
@@ -1360,7 +1535,7 @@ class FileUtil @Inject constructor() {
                 null
             )
             if (publishedRows != 1) {
-                throw IOException("Expected one published MediaStore row, got $publishedRows")
+                throw IOException("Expected one published MediaStore row, got ${publishedRows}")
             }
             val published = queryMediaStoreRecord(context.contentResolver, insertedUri)
                 ?: throw IOException("Published MediaStore record disappeared")
@@ -1370,9 +1545,9 @@ class FileUtil @Inject constructor() {
             ) {
                 throw IOException(
                     "Published MediaStore record failed verification " +
-                        "(expect name=$displayName path=$PUBLIC_RELATIVE_PATH pending=0; " +
+                        "(expect name=${displayName} path=${PUBLIC_RELATIVE_PATH} pending=0; " +
                         "actual name=${published.displayName} path=${published.relativePath} " +
-                        "pending=${published.isPending} size=${published.size}; publishedRows=$publishedRows)"
+                        "pending=${published.isPending} size=${published.size}; publishedRows=${publishedRows})"
                 )
             }
 
@@ -1380,7 +1555,7 @@ class FileUtil @Inject constructor() {
             if (targetLengthProbe?.length != copied) {
                 throw IOException(
                     "Published media length failed verification " +
-                        "(expected=$copied actual=${targetLengthProbe?.length} " +
+                        "(expected=${copied} actual=${targetLengthProbe?.length} " +
                         "mediaStoreReportedSize=${targetLengthProbe?.mediaStoreReportedSize} " +
                         "descriptorSize=${targetLengthProbe?.descriptorSize} " +
                         "assetDescriptorSize=${targetLengthProbe?.assetDescriptorSize} " +
@@ -1388,57 +1563,30 @@ class FileUtil @Inject constructor() {
                 )
             }
             DownloadedMediaValidator.validate(context, insertedUri)?.let { validationError ->
-                throw IOException("Published media validation failed: $validationError")
-            }
-
-            when (deleteSourceAndVerify(context, sourceUri)) {
-                UriExistence.NotFound -> retainTargetOnFailure = true
-                UriExistence.Exists -> throw IOException("Source still exists after publication")
-                is UriExistence.Unknown -> {
-                    retainTargetOnFailure = true
-                    throw IOException("Unable to verify source deletion")
-                }
+                throw IOException("Published media validation failed: ${validationError}")
             }
             if (uriExistence(context, insertedUri) != UriExistence.Exists) {
                 throw IOException("Published media URI is not definitely present")
             }
-            completed = true
+
+            PublishResult.Success(insertedUri, displayName)
         } catch (error: Throwable) {
-            AppLogger.e("MediaStore publication failed for $displayName", error)
-            failure = failMove(
+            AppLogger.e("MediaStore publication failed for ${displayName}", error)
+            val cleanupFailure = cleanupInsertedMediaStoreRow(context, insertedUri)
+            failPublish(
                 "MediaStore 发布失败：${error.message}",
-                "displayName=$displayName relativePath=$PUBLIC_RELATIVE_PATH " +
-                    "insertedUri=$insertedUri sourceUri=$sourceUri sourceLength=$sourceLength " +
-                    "copiedBytes=$copiedBytes " +
+                "displayName=${displayName} relativePath=${PUBLIC_RELATIVE_PATH} " +
+                    "insertedUri=${insertedUri} sourceUri=${sourceUri} sourceLength=${sourceLength} " +
+                    "copiedBytes=${copiedBytes} " +
                     "mediaStoreReportedSize=${targetLengthProbe?.mediaStoreReportedSize ?: runCatching { queryMediaStoreRecord(context.contentResolver, insertedUri)?.size }.getOrNull()} " +
                     "descriptorSize=${targetLengthProbe?.descriptorSize} " +
                     "assetDescriptorSize=${targetLengthProbe?.assetDescriptorSize} " +
                     "countedSize=${targetLengthProbe?.countedSize} " +
-                    "设备API=${Build.VERSION.SDK_INT}",
+                    "设备API=${Build.VERSION.SDK_INT}" +
+                    if (cleanupFailure != null) "\n[清理] $cleanupFailure" else "",
                 error
             )
         }
-
-        if (!completed && !retainTargetOnFailure) {
-            val cleanupFailure = cleanupInsertedMediaStoreRow(context, insertedUri)
-            if (cleanupFailure != null) {
-                val base = failure ?: failMove(
-                    "MediaStore 发布失败",
-                    "displayName=$displayName insertedUri=$insertedUri"
-                )
-                failure = base.copy(
-                    detail = buildString {
-                        append(base.detail.orEmpty())
-                        append("\n[清理] ")
-                        append(cleanupFailure)
-                    }
-                )
-            }
-        }
-        return if (completed) MoveResult(true) else failure ?: failMove(
-            "MediaStore 发布未完成",
-            "displayName=$displayName insertedUri=$insertedUri sourceUri=$sourceUri"
-        )
     }
 
     private fun openSourceInputStream(context: Context, uri: Uri) = when (uri.scheme) {

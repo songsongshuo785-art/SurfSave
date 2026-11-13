@@ -300,7 +300,7 @@ class GlobalVideoDetectionModel @Inject constructor(
                     headers,
                     isCheckOnAudio,
                     isCheckOnVideo,
-                    pageUrl = context?.pageUrl ?: webTabModel?.getTabTextInput()?.get(),
+                    pageUrl = context?.pageUrl ?: webTabModel?.getTabTextInput(),
                     shouldPublish = shouldPublish,
                     onVideoDetected = { info -> pushNewVideoInfoForContext(context, info) }
                 )

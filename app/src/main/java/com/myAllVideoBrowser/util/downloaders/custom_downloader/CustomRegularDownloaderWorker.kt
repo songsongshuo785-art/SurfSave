@@ -11,6 +11,7 @@ import com.myAllVideoBrowser.util.DownloadedMediaValidator
 import com.myAllVideoBrowser.util.ErrorLogRecorder
 import com.myAllVideoBrowser.util.FfmpegProcessor
 import com.myAllVideoBrowser.util.FileUtil
+import com.myAllVideoBrowser.util.downloaders.DownloadRetryPolicy
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.GenericDownloader
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskItem
 import com.myAllVideoBrowser.util.downloaders.generic_downloader.models.VideoTaskState
@@ -32,9 +33,13 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
     @Volatile
     private var lastSavedTime = 0L
 
+    @Volatile
+    private var lastFailure: Throwable? = null
+
 
     companion object {
         private const val PROGRESS_UPDATE_INTERVAL = 1000
+        private const val MAX_RETRY_ATTEMPTS = 2
     }
 
     override fun handleAction(
@@ -91,6 +96,25 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
             } else {
                 item.errorMessage ?: "Error"
             }
+
+            // 网络抖动导致的可重试失败：保持 DOWNLOADING（非终态），写清晰的重试提示，
+            // 然后交给 WorkManager 的 backoff 再跑一次；不新增 RETRY_WAIT 状态。
+            if (!wasSuccessWithoutMove &&
+                item.taskState == VideoTaskState.ERROR &&
+                runAttemptCount < MAX_RETRY_ATTEMPTS &&
+                DownloadRetryPolicy.isTransient(lastFailure)
+            ) {
+                val attempt = runAttemptCount + 1
+                val retryMessage = "网络暂时中断，稍后自动重试（$attempt/$MAX_RETRY_ATTEMPTS）"
+                AppLogger.d(
+                    "DOWNLOAD_RETRY: taskId=$taskId attempt=$attempt error=${lastFailure?.javaClass?.simpleName}"
+                )
+                downloadTaskLogger.info(taskId, "DOWNLOAD_RETRY attempt=$attempt reason=${lastFailure?.message}")
+                saveProgress(item.mId, progressCached, VideoTaskState.DOWNLOADING, retryMessage)
+                completeWork(Result.retry())
+                return
+            }
+
             val result =
                 if (item.taskState == VideoTaskState.ERROR) Result.failure() else Result.success()
 
@@ -328,7 +352,7 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
     ) {
         saveProgress(taskId, Progress(0, 0), VideoTaskState.PREPARE)
         val threadCount = sharedPrefHelper.getRegularDownloaderThreadCount()
-        val okHttpClient = proxyOkHttpClient.getProxyOkHttpClient()
+        val okHttpClient = proxyOkHttpClient.getProxyDownloadOkHttpClient()
         val isForceStreamDownload = sharedPrefHelper.getIsForceStreamDownload()
         val downloader = CustomFileDownloader(
             URL(url),
@@ -360,6 +384,7 @@ class CustomRegularDownloaderWorker(appContext: Context, workerParams: WorkerPar
             }
 
             override fun onFailure(e: Throwable) {
+                lastFailure = e
                 if (e.message == CustomFileDownloader.SYSTEM_INTERRUPTED_ACTION) {
                     AppLogger.d("Regular download execution stopped by WorkManager; preserving resume data.")
                     return

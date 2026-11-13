@@ -132,6 +132,9 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
 
         val isLive = inputData.getBoolean(GenericDownloader.Constants.IS_LIVE, false)
 
+        // 先前台化，再联网解析 manifest：后台配额/进程回收不会在 manifest 请求阶段把任务掐掉。
+        showProgress(task.also { it.mId = taskId }, Progress(0, 0))
+
         // Check if the URL is a playlist
         if (isHlsPlaylist()) {
             AppLogger.d("HLS Playlist detected. Starting advanced parsing flow.")

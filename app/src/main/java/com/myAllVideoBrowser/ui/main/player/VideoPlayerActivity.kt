@@ -41,7 +41,7 @@ class VideoPlayerActivity : BaseActivity() {
             intent.extras?.let { addFragment(R.id.player_content_frame, it, ::VideoPlayerFragment) }
         }
         onBackPressedDispatcher.addCallback(this) {
-            finishPlayer()
+            playerFragment()?.closePlayer() ?: finishPlayer()
         }
     }
 

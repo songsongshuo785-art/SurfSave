@@ -156,6 +156,7 @@ class VideoPlayerFragment : BaseFragment() {
     private var playbackDetectedBySuperX = false
     private var playbackExtractedAt = 0L
     private var playbackPositionKey = ""
+    private var closing = false
     /**
      * 本次会话交给 `setMediaSource(source, startMs)` 的恢复位置。
      * 同时是一次性"初始恢复复核"的输入：Timeline 真实建立后再判断它还算不算数。
@@ -557,6 +558,7 @@ class VideoPlayerFragment : BaseFragment() {
             mediaIdentity = playbackMediaIdentity,
             mediaKind = playbackMediaKind
         )
+        migrateLegacyPlaybackPosition(url)
         val savedPosition = playbackPositionStore.get(playbackPositionKey)
         val restoreDecision = PlaybackPositionPolicy.restore(
             saved = savedPosition,
@@ -950,6 +952,7 @@ class VideoPlayerFragment : BaseFragment() {
     private enum class PlaybackSaveReason {
         PERIODIC,
         PLAYER_BACK,
+        HOST_PAUSED,
         HOST_STOPPED,
         PLAYBACK_ENDED,
         DESTROY_VIEW
@@ -967,10 +970,41 @@ class VideoPlayerFragment : BaseFragment() {
         val durationMs: Long
     )
 
+    /**
+     * 旧版本本地 key 是 `local:<uri>`；新版本优先 `local-download:<ProgressInfo.id>`。
+     * 新 key 无记录时尝试搬运旧记录，旧 key 删除；新 key 已有记录则不覆盖。
+     */
+    private fun migrateLegacyPlaybackPosition(url: Uri) {
+        if (playbackSource != SOURCE_VIDEO_LIBRARY) return
+        if (!playbackPositionKey.startsWith("local-download:")) return
+        if (playbackPositionStore.get(playbackPositionKey) != null) return
+        val legacyKey = PlaybackPositionKey.legacyLocalKey(url.toString())
+        if (playbackPositionStore.get(legacyKey) == null) return
+        val moved = playbackPositionStore.move(legacyKey, playbackPositionKey)
+        AppLogger.d(
+            "PLAYER_POSITION: action=${if (moved) "LEGACY_MIGRATION_HIT" else "LEGACY_MIGRATION_MISS"} " +
+                "key=${playbackPositionStore.shortId(playbackPositionKey)}"
+        )
+    }
+
     private fun handleClose() {
+        closePlayer()
+    }
+
+    /** UI 返回、系统返回和返回手势统一走这里，避免只有部分路径会落进度。 */
+    fun closePlayer() {
+        if (closing) return
+        closing = true
         persistPlaybackPosition(force = true, reason = PlaybackSaveReason.PLAYER_BACK)
         videoPlayerViewModel.stop()
         (activity as? VideoPlayerActivity)?.finishPlayer()
+    }
+
+    override fun onPause() {
+        if (::player.isInitialized) {
+            persistPlaybackPosition(force = false, reason = PlaybackSaveReason.HOST_PAUSED)
+        }
+        super.onPause()
     }
 
     private fun startPlaybackPositionPersistence() {

@@ -56,13 +56,19 @@ class ProgressAdapter(
                     DisplayNameFormatter.clean(rawName).ifBlank { rawName }
 
                 // Humanized progress line: localized size + status
-                this.tvProgress.text =
+                this.tvProgress.text = if (progressInfo.downloadStatus == VideoTaskState.SUCCESS &&
+                    progressInfo.finalMediaUri.isBlank()
+                ) {
+                    context.getString(R.string.progress_history_file_missing)
+                } else {
                     ProgressTextHumanizer.progressLine(context, progressInfo)
+                }
 
                 val actionLabel = when {
                     progressInfo.isActive || progressInfo.downloadStatus == VideoTaskState.PENDING -> R.string.progress_menu_pause
                     progressInfo.downloadStatus == VideoTaskState.PAUSE -> R.string.progress_menu_resume
                     progressInfo.downloadStatus == VideoTaskState.ERROR || progressInfo.downloadStatus == VideoTaskState.ENOSPC -> R.string.progress_menu_retry
+                    progressInfo.downloadStatus == VideoTaskState.SUCCESS && progressInfo.finalMediaUri.isNotBlank() -> R.string.progress_menu_open_file
                     else -> R.string.surf_task_details
                 }
                 primaryAction.setText(actionLabel)

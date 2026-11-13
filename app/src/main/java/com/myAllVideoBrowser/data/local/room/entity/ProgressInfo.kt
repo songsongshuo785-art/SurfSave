@@ -90,6 +90,10 @@ data class ProgressInfo(
     @ColumnInfo(defaultValue = "1")
     var mediaBindingTrusted: Boolean = true
 ) {
+    /** 是否为已完成任务，且本地文件仍存在。 */
+    val hasLocalFile: Boolean
+        get() = finalMediaUri.isNotBlank()
+
     // НЕ ТРОГАТЬ VAR!!!! иначе пиздец с миграцией
     var progress: Int = 0
         get() {
